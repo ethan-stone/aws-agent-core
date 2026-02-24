@@ -1,10 +1,11 @@
-import { Stack, StackProps } from "aws-cdk-lib/core";
+import { Duration, Stack, StackProps } from "aws-cdk-lib/core";
 import { Construct } from "constructs";
 import path from "path";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cr from "aws-cdk-lib/custom-resources";
 import * as bedrockAgentCore from "@aws-cdk/aws-bedrock-agentcore-alpha";
+import * as kms from "aws-cdk-lib/aws-kms";
 
 export class AgentCoreStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -18,12 +19,25 @@ export class AgentCoreStack extends Stack {
         { file: "apps/hello-world/Dockerfile" }
       );
 
+    const memoryKmsKey = new kms.Key(this, "MemoryKmsKey", {
+      alias: "hello_world_memory_kms_key",
+    });
+
+    const memory = new bedrockAgentCore.Memory(this, "Memory", {
+      memoryName: "hello_world_memory",
+      expirationDuration: Duration.days(7),
+      kmsKey: memoryKmsKey,
+    });
+
     const helloWorldRuntime = new bedrockAgentCore.Runtime(
       this,
       "HelloWorldAgentRuntime",
       {
         runtimeName: "hello_world_agent",
         agentRuntimeArtifact: helloWorldAgentRuntimeArtifact,
+        environmentVariables: {
+          MEMORY_ID: memory.memoryId,
+        },
       }
     );
 
@@ -39,6 +53,18 @@ export class AgentCoreStack extends Stack {
         ],
       })
     );
+
+    helloWorldRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock-agentcore:CreateEvent",
+          "bedrock-agentcore:ListEvents",
+        ],
+        resources: [memory.memoryArn],
+      })
+    );
+
+    memoryKmsKey.grantEncryptDecrypt(helloWorldRuntime.role);
 
     // --- X-Ray / Transaction Search Observability ---
 

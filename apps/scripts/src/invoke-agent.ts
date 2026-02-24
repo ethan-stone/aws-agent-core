@@ -11,6 +11,7 @@ const { values } = parseArgs({
     "agent-runtime-arn": { type: "string" },
     prompt: { type: "string" },
     profile: { type: "string" },
+    "session-id": { type: "string" },
   },
   strict: true,
 });
@@ -20,7 +21,7 @@ const prompt = values.prompt;
 
 if (!agentRuntimeArn || !prompt) {
   console.error(
-    "Usage: invoke-agent --agent-runtime-arn <arn> --prompt <prompt> [--profile <aws-profile>]"
+    "Usage: invoke-agent --agent-runtime-arn <arn> --prompt <prompt> [--profile <aws-profile>] [--session-id <id>]"
   );
   process.exit(1);
 }
@@ -32,7 +33,7 @@ const client = new BedrockAgentCoreClient({
 
 const command = new InvokeAgentRuntimeCommand({
   agentRuntimeArn,
-  runtimeSessionId: randomUUID(),
+  runtimeSessionId: values["session-id"] ?? randomUUID(),
   payload: JSON.stringify({ prompt }),
   contentType: "application/json",
   qualifier: "DEFAULT",
