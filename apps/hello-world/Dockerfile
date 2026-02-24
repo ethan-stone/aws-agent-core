@@ -32,4 +32,4 @@ COPY --from=app-build /app/apps/hello-world/dist/ apps/hello-world/dist/
 COPY apps/hello-world/package.json apps/hello-world/
 
 WORKDIR /app/apps/hello-world
-CMD ["node", "dist/index.mjs"]
+CMD ["node", "--require", "@aws/aws-distro-opentelemetry-node-autoinstrumentation/register", "dist/index.mjs"]

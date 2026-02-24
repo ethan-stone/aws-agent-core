@@ -11,7 +11,7 @@
   "dependencies": {
     "@agent-core/hello-world": "workspace:*",
     "@aws-sdk/credential-providers": "^3.996.0",
-    "@opentelemetry/auto-instrumentations-node": "^0.70.0",
+    "@aws/aws-distro-opentelemetry-node-autoinstrumentation": "^0.9.0",
     "@strands-agents/sdk": "^0.3.0",
     "bedrock-agentcore": "^0.2.0",
     "dotenv": "^17.3.1"
