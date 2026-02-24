@@ -1,0 +1,17 @@
+{
+  "name": "@agent-core/scripts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "invoke-agent": "tsx src/invoke-agent.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-bedrock-agentcore": "^3.948.0",
+    "@aws-sdk/credential-providers": "^3.996.0"
+  },
+  "devDependencies": {
+    "tsx": "^4",
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,24 @@
+{
+  "name": "@agent-core/hello-world-app",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build": "node esbuild.config.mjs",
+    "start": "node dist/index.mjs",
+    "dev": "tsx src/index.ts"
+  },
+  "dependencies": {
+    "@agent-core/hello-world": "workspace:*",
+    "@aws-sdk/credential-providers": "^3.996.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.70.0",
+    "@strands-agents/sdk": "^0.3.0",
+    "bedrock-agentcore": "^0.2.0",
+    "dotenv": "^17.3.1"
+  },
+  "devDependencies": {
+    "esbuild": "^0.25",
+    "tsx": "^4",
+    "typescript": "~5.9.3"
+  }
+}

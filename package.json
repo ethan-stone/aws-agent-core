@@ -1,0 +1,35 @@
+{
+  "name": "agent-core",
+  "version": "0.1.0",
+  "private": true,
+  "bin": {
+    "agent-core": "bin/agent-core.js"
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w",
+    "test": "jest",
+    "cdk": "cdk"
+  },
+  "devDependencies": {
+    "@aws-cdk/aws-bedrock-agentcore-alpha": "2.240.0-alpha.0",
+    "@types/jest": "^30",
+    "@types/node": "^24.10.1",
+    "aws-cdk": "2.1107.0",
+    "jest": "^30",
+    "ts-jest": "^29",
+    "ts-node": "^10.9.2",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@aws-cdk/aws-bedrock-alpha": "2.240.0-alpha.0",
+    "aws-cdk-lib": "^2.239.0",
+    "constructs": "^10.5.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "esbuild",
+      "unrs-resolver"
+    ]
+  }
+}

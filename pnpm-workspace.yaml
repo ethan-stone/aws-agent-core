@@ -1,0 +1,7 @@
+packages:
+  - apps/*
+  - shared/*
+
+onlyBuiltDependencies:
+  - esbuild
+  - unrs-resolver
