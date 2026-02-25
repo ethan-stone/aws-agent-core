@@ -1,9 +1,10 @@
-import { Duration, Stack, StackProps } from "aws-cdk-lib/core";
+import { CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib/core";
 import { Construct } from "constructs";
 import path from "path";
 import * as iam from "aws-cdk-lib/aws-iam";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cr from "aws-cdk-lib/custom-resources";
+import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as bedrockAgentCore from "@aws-cdk/aws-bedrock-agentcore-alpha";
 import * as kms from "aws-cdk-lib/aws-kms";
 
@@ -29,12 +30,55 @@ export class AgentCoreStack extends Stack {
       kmsKey: memoryKmsKey,
     });
 
+    // --- Cognito User Pool (inbound auth + outbound identity provider) ---
+
+    const userPool = new cognito.UserPool(this, "AgentCoreIdentityPool", {
+      userPoolName: "AgentCoreIdentityPool",
+      selfSignUpEnabled: false,
+      signInAliases: { email: true },
+    });
+
+    userPool.addDomain("AgentCoreIdentityDomain", {
+      cognitoDomain: {
+        domainPrefix: `agentcore-identity-${this.account}-${this.region}`,
+      },
+    });
+
+    const userPoolClient = userPool.addClient("AgentCoreIdentityClient", {
+      generateSecret: true,
+      authFlows: {
+        adminUserPassword: true,
+      },
+      oAuth: {
+        flows: { authorizationCodeGrant: true },
+        scopes: [
+          cognito.OAuthScope.OPENID,
+          cognito.OAuthScope.PROFILE,
+          cognito.OAuthScope.EMAIL,
+        ],
+        callbackUrls: [
+          "http://localhost:9090/oauth2/callback",
+          "https://bedrock-agentcore.us-east-1.amazonaws.com/identities/oauth2/callback/144dd2d5-2417-4996-9ce0-41fdcc92ec7f",
+        ],
+      },
+      supportedIdentityProviders: [
+        cognito.UserPoolClientIdentityProvider.COGNITO,
+      ],
+    });
+
+    // --- Bedrock AgentCore Runtime (Cognito inbound auth) ---
+
     const helloWorldRuntime = new bedrockAgentCore.Runtime(
       this,
       "HelloWorldAgentRuntime",
       {
         runtimeName: "hello_world_agent",
         agentRuntimeArtifact: helloWorldAgentRuntimeArtifact,
+        authorizerConfiguration:
+          bedrockAgentCore.RuntimeAuthorizerConfiguration.usingCognito(
+            userPool,
+            [userPoolClient]
+          ),
         environmentVariables: {
           MEMORY_ID: memory.memoryId,
         },
@@ -61,6 +105,18 @@ export class AgentCoreStack extends Stack {
           "bedrock-agentcore:ListEvents",
         ],
         resources: [memory.memoryArn],
+      })
+    );
+
+    helloWorldRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock-agentcore:GetResourceOauth2Token",
+          "bedrock-agentcore:GetWorkloadAccessToken",
+          "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
+          "secretsmanager:GetSecretValue",
+        ],
+        resources: ["*"],
       })
     );
 
@@ -162,5 +218,15 @@ export class AgentCoreStack extends Stack {
     });
     indexingRule.node.addDependency(xrayLogsPolicy);
     indexingRule.node.addDependency(traceDestination);
+
+    // --- Outputs ---
+
+    new CfnOutput(this, "UserPoolId", {
+      value: userPool.userPoolId,
+    });
+
+    new CfnOutput(this, "UserPoolClientId", {
+      value: userPoolClient.userPoolClientId,
+    });
   }
 }
