@@ -9,6 +9,15 @@ COPY apps/hello-world/package.json apps/hello-world/
 COPY shared/hello-world/package.json shared/hello-world/
 RUN pnpm install --frozen-lockfile
 
+# Local development image
+FROM deps AS dev
+COPY tsconfig.base.json ./
+COPY shared/ shared/
+COPY apps/hello-world/ apps/hello-world/
+
+WORKDIR /app/apps/hello-world
+CMD ["node", "--import", "tsx", "src/index.ts"]
+
 # Build shared packages
 FROM deps AS shared-build
 COPY shared/ shared/

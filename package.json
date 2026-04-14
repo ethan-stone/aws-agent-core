@@ -9,7 +9,14 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
-    "cdk": "cdk"
+    "cdk": "cdk",
+    "dev:api": "pnpm --filter @agent-core/api dev",
+    "seed:api": "pnpm --filter @agent-core/api seed",
+    "dev:webapp": "pnpm --filter @agent-core/webapp dev",
+    "dev:hello-world": "pnpm --filter @agent-core/hello-world-app dev",
+    "dev:hello-world:invoke": "pnpm --filter @agent-core/scripts invoke-local-agent",
+    "docker:hello-world:build": "docker build -f apps/hello-world/Dockerfile --target dev -t agent-core-hello-world-dev .",
+    "docker:hello-world:run": "docker run --rm -it -p 8080:8080 -e AWS_REGION -e AWS_PROFILE -e AWS_ACCESS_KEY_ID -e AWS_SECRET_ACCESS_KEY -e AWS_SESSION_TOKEN -e MEMORY_ID -v $HOME/.aws:/root/.aws:ro agent-core-hello-world-dev"
   },
   "devDependencies": {
     "@aws-cdk/aws-bedrock-agentcore-alpha": "2.240.0-alpha.0",
@@ -23,11 +30,12 @@
   },
   "dependencies": {
     "@aws-cdk/aws-bedrock-alpha": "2.240.0-alpha.0",
-    "aws-cdk-lib": "^2.239.0",
+    "aws-cdk-lib": "^2.248.0",
     "constructs": "^10.5.0"
   },
   "pnpm": {
     "onlyBuiltDependencies": [
+      "@aws/agentcore",
       "esbuild",
       "unrs-resolver"
     ]

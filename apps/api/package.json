@@ -1,0 +1,23 @@
+{
+  "name": "@agent-core/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "node --import tsx src/dev-server.ts",
+    "seed": "node --import tsx src/scripts/seed.ts"
+  },
+  "dependencies": {
+    "@agent-core/pulseforge-domain": "workspace:*",
+    "@hono/node-server": "^1.19.4",
+    "hono": "^4.10.1",
+    "mongodb": "^6.17.0"
+  },
+  "devDependencies": {
+    "tsx": "^4",
+    "typescript": "~5.9.3"
+  }
+}

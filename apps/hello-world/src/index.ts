@@ -3,6 +3,7 @@ import { Agent, BedrockModel } from "@strands-agents/sdk";
 import { fromIni } from "@aws-sdk/credential-providers";
 import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore";
 import { MemoryHook } from "./memory-hook.js";
+import { LocalMemoryHook } from "./local-memory-hook.js";
 import { withAccessToken } from "bedrock-agentcore/identity";
 import { z } from "zod";
 import dotenv from "dotenv";
@@ -11,34 +12,39 @@ dotenv.config({
   quiet: true,
 });
 
-const bedrockAgentCoreClient = new BedrockAgentCoreClient({
-  region: process.env.AWS_REGION,
-  credentials: process.env.AWS_PROFILE
-    ? fromIni({
-        profile: process.env.AWS_PROFILE,
-      })
-    : undefined,
-});
-
 const memoryId = process.env.MEMORY_ID;
-if (!memoryId) {
-  throw new Error("MEMORY_ID environment variable is required");
-}
+const sharedAwsConfig = process.env.AWS_PROFILE
+  ? {
+      credentials: fromIni({
+        profile: process.env.AWS_PROFILE,
+      }),
+    }
+  : undefined;
 
-const memoryHook = new MemoryHook({
-  client: bedrockAgentCoreClient,
-  memoryId,
-});
+const bedrockAgentCoreClient = memoryId
+  ? new BedrockAgentCoreClient({
+      region: process.env.AWS_REGION,
+      ...sharedAwsConfig,
+    })
+  : undefined;
+
+const memoryHook =
+  memoryId && bedrockAgentCoreClient
+    ? new MemoryHook({
+        client: bedrockAgentCoreClient,
+        memoryId,
+      })
+    : new LocalMemoryHook();
+
+if (!memoryId) {
+  console.warn(
+    "MEMORY_ID is not set. Using in-process memory for local development."
+  );
+}
 
 const bedrockModel = new BedrockModel({
   modelId: "us.anthropic.claude-opus-4-5-20251101-v1:0",
-  clientConfig: process.env.AWS_PROFILE
-    ? {
-        credentials: fromIni({
-          profile: process.env.AWS_PROFILE,
-        }),
-      }
-    : undefined,
+  clientConfig: sharedAwsConfig,
 });
 
 function decodeJwt(token: string): Record<string, unknown> {
