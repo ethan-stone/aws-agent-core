@@ -12,6 +12,11 @@ export type RemediationActionStatus =
   | "succeeded"
   | "failed"
   | "blocked";
+export type AgentKind =
+  | "ops-copilot"
+  | "anomaly-investigation"
+  | "remediation-planner"
+  | "autonomous-remediation";
 export type AgentRunStatus =
   | "queued"
   | "running"
@@ -103,15 +108,65 @@ export interface Ticket {
 export interface AgentRun {
   id: string;
   incidentId?: string;
-  agentKind:
-    | "ops-copilot"
-    | "anomaly-investigation"
-    | "remediation-planner"
-    | "autonomous-remediation";
+  deviceId?: string;
+  sessionId?: string;
+  agentKind: AgentKind;
   status: AgentRunStatus;
   requestedAt: string;
   completedAt?: string;
   summary: string;
+  prompt?: string;
+  messages?: AgentRunMessage[];
+  investigation?: AgentRunInvestigationSummary;
+  errorMessage?: string;
+}
+
+export interface AgentRunMessage {
+  role: "system" | "user" | "assistant";
+  content: string;
+}
+
+export interface AgentRunInvestigationSummary {
+  title: string;
+  summary: string;
+  findings: string[];
+  recommendedActions: string[];
+}
+
+export interface CreateAgentRunRequest {
+  agentKind: AgentKind;
+  prompt: string;
+  incidentId?: string;
+  deviceId?: string;
+  sessionId?: string;
+}
+
+export interface AgentRuntimeInvocation {
+  agentKind: AgentKind;
+  prompt: string;
+  incidentId?: string;
+  deviceId?: string;
+}
+
+export interface AgentRunResult {
+  summary: string;
+  messages: AgentRunMessage[];
+  investigation?: AgentRunInvestigationSummary;
+}
+
+export interface ApiAuthConfig {
+  enabled: boolean;
+  provider: "none" | "cognito";
+  region?: string;
+  userPoolId?: string;
+  userPoolClientId?: string;
+}
+
+export interface AuthenticatedAppUser {
+  sub: string;
+  username: string;
+  email?: string;
+  groups: string[];
 }
 
 export interface DashboardSummary {

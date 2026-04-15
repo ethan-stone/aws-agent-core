@@ -1,3 +1,4 @@
+import "../lib/load-env.js";
 import { seedDemoData } from "../services/pulseforge-service.js";
 
 try {

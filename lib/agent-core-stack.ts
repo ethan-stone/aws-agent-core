@@ -34,37 +34,29 @@ export class AgentCoreStack extends Stack {
 
     const userPool = new cognito.UserPool(this, "AgentCoreIdentityPool", {
       userPoolName: "AgentCoreIdentityPool",
-      selfSignUpEnabled: false,
+      selfSignUpEnabled: true,
       signInAliases: { email: true },
+      autoVerify: { email: true },
+      standardAttributes: {
+        email: {
+          required: true,
+          mutable: true,
+        },
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
     });
 
-    userPool.addDomain("AgentCoreIdentityDomain", {
-      cognitoDomain: {
-        domainPrefix: `agentcore-identity-${this.account}-${this.region}`,
-      },
-    });
-
-    const userPoolClient = userPool.addClient("AgentCoreIdentityClient", {
-      generateSecret: true,
-      authFlows: {
-        adminUserPassword: true,
-      },
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        scopes: [
-          cognito.OAuthScope.OPENID,
-          cognito.OAuthScope.PROFILE,
-          cognito.OAuthScope.EMAIL,
-        ],
-        callbackUrls: [
-          "http://localhost:9090/oauth2/callback",
-          "https://bedrock-agentcore.us-east-1.amazonaws.com/identities/oauth2/callback/144dd2d5-2417-4996-9ce0-41fdcc92ec7f",
-        ],
-      },
-      supportedIdentityProviders: [
-        cognito.UserPoolClientIdentityProvider.COGNITO,
-      ],
-    });
+    const pulseForgeUserPoolClient = userPool.addClient(
+      "PulseForgeWebClient",
+      {
+        generateSecret: false,
+        authFlows: {
+          userPassword: true,
+          userSrp: true,
+        },
+        preventUserExistenceErrors: true,
+      }
+    );
 
     // --- Bedrock AgentCore Runtime (Cognito inbound auth) ---
 
@@ -75,10 +67,7 @@ export class AgentCoreStack extends Stack {
         runtimeName: "hello_world_agent",
         agentRuntimeArtifact: helloWorldAgentRuntimeArtifact,
         authorizerConfiguration:
-          bedrockAgentCore.RuntimeAuthorizerConfiguration.usingCognito(
-            userPool,
-            [userPoolClient]
-          ),
+          bedrockAgentCore.RuntimeAuthorizerConfiguration.usingIAM(),
         environmentVariables: {
           MEMORY_ID: memory.memoryId,
         },
@@ -105,18 +94,6 @@ export class AgentCoreStack extends Stack {
           "bedrock-agentcore:ListEvents",
         ],
         resources: [memory.memoryArn],
-      })
-    );
-
-    helloWorldRuntime.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: [
-          "bedrock-agentcore:GetResourceOauth2Token",
-          "bedrock-agentcore:GetWorkloadAccessToken",
-          "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
-          "secretsmanager:GetSecretValue",
-        ],
-        resources: ["*"],
       })
     );
 
@@ -225,8 +202,12 @@ export class AgentCoreStack extends Stack {
       value: userPool.userPoolId,
     });
 
-    new CfnOutput(this, "UserPoolClientId", {
-      value: userPoolClient.userPoolClientId,
+    new CfnOutput(this, "PulseForgeUserPoolId", {
+      value: userPool.userPoolId,
+    });
+
+    new CfnOutput(this, "PulseForgeUserPoolClientId", {
+      value: pulseForgeUserPoolClient.userPoolClientId,
     });
   }
 }

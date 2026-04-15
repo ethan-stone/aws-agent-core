@@ -5,5 +5,6 @@
     "rootDir": "../..",
     "types": ["node"]
   },
-  "include": ["src", "../../shared/pulseforge-domain/src"]
+  "include": ["src", "../../shared/pulseforge-domain/src"],
+  "exclude": ["src/test", "vitest.config.ts"]
 }

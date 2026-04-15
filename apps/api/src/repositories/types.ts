@@ -1,4 +1,7 @@
 import type {
+  AgentRun,
+  AgentRunResult,
+  CreateAgentRunRequest,
   DashboardSummary,
   Device,
   DeviceMetricSnapshot,
@@ -20,5 +23,12 @@ export interface PulseForgeRepository {
   getDeviceTelemetry(deviceId: string): Promise<DeviceMetricSnapshot[] | null>;
   listIncidents(): Promise<Incident[]>;
   getIncident(incidentId: string): Promise<IncidentAggregate | null>;
+  getAgentRun(runId: string): Promise<AgentRun | null>;
+  createAgentRun(run: CreateAgentRunRequest & { id: string }): Promise<AgentRun>;
+  completeAgentRun(
+    runId: string,
+    result: AgentRunResult
+  ): Promise<AgentRun | null>;
+  failAgentRun(runId: string, errorMessage: string): Promise<AgentRun | null>;
   seedDemoData(): Promise<void>;
 }

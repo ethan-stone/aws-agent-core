@@ -2,6 +2,10 @@ import { getMongoClient, getMongoDbName, isMongoConfigured } from "../lib/mongod
 import { InMemoryPulseForgeRepository } from "../repositories/in-memory-repository.js";
 import { MongoPulseForgeRepository } from "../repositories/mongo-repository.js";
 import type { PulseForgeRepository } from "../repositories/types.js";
+import type {
+  AgentRunResult,
+  CreateAgentRunRequest,
+} from "../../../../shared/pulseforge-domain/src/index.js";
 
 const fallbackRepository = new InMemoryPulseForgeRepository();
 let repositoryPromise: Promise<PulseForgeRepository> | null = null;
@@ -52,6 +56,26 @@ export async function getIncident(incidentId: string) {
   return (await getRepository()).getIncident(incidentId);
 }
 
+export async function getAgentRun(runId: string) {
+  return (await getRepository()).getAgentRun(runId);
+}
+
+export async function createAgentRun(run: CreateAgentRunRequest & { id: string }) {
+  return (await getRepository()).createAgentRun(run);
+}
+
+export async function completeAgentRun(runId: string, result: AgentRunResult) {
+  return (await getRepository()).completeAgentRun(runId, result);
+}
+
+export async function failAgentRun(runId: string, errorMessage: string) {
+  return (await getRepository()).failAgentRun(runId, errorMessage);
+}
+
 export async function seedDemoData() {
   return (await getRepository()).seedDemoData();
+}
+
+export async function resetRepositoryForTests(): Promise<void> {
+  repositoryPromise = null;
 }

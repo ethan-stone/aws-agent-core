@@ -1,19 +1,17 @@
 import { MongoClient } from "mongodb";
 
-const mongoUri = process.env.MONGODB_URI;
-const mongoDbName = process.env.MONGODB_DB_NAME ?? "pulseforge";
-
 let clientPromise: Promise<MongoClient> | null = null;
 
 export function isMongoConfigured(): boolean {
-  return Boolean(mongoUri);
+  return Boolean(process.env.MONGODB_URI);
 }
 
 export function getMongoDbName(): string {
-  return mongoDbName;
+  return process.env.MONGODB_DB_NAME ?? "pulseforge";
 }
 
 export async function getMongoClient(): Promise<MongoClient> {
+  const mongoUri = process.env.MONGODB_URI;
   if (!mongoUri) {
     throw new Error("MONGODB_URI is not configured");
   }
@@ -24,4 +22,14 @@ export async function getMongoClient(): Promise<MongoClient> {
   }
 
   return clientPromise;
+}
+
+export async function resetMongoClientForTests(): Promise<void> {
+  if (!clientPromise) {
+    return;
+  }
+
+  const client = await clientPromise;
+  await client.close();
+  clientPromise = null;
 }

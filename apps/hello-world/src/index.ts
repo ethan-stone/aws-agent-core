@@ -4,7 +4,6 @@ import { fromIni } from "@aws-sdk/credential-providers";
 import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore";
 import { MemoryHook } from "./memory-hook.js";
 import { LocalMemoryHook } from "./local-memory-hook.js";
-import { withAccessToken } from "bedrock-agentcore/identity";
 import { z } from "zod";
 import dotenv from "dotenv";
 
@@ -43,79 +42,29 @@ if (!memoryId) {
 }
 
 const bedrockModel = new BedrockModel({
-  modelId: "us.anthropic.claude-opus-4-5-20251101-v1:0",
+  modelId: "amazon.nova-pro-v1:0",
   clientConfig: sharedAwsConfig,
 });
+const agentKindSchema = z.enum([
+  "ops-copilot",
+  "anomaly-investigation",
+  "remediation-planner",
+  "autonomous-remediation",
+]);
 
-function decodeJwt(token: string): Record<string, unknown> {
-  const payload = token.split(".")[1];
-  const json = Buffer.from(payload, "base64url").toString("utf-8");
-  return JSON.parse(json);
-}
-
-function createAuthSignal() {
-  let resolve: ((url: string) => void) | null = null;
-  let promise = new Promise<string>((r) => {
-    resolve = r;
-  });
-
-  return {
-    emit(url: string) {
-      resolve?.(url);
-      promise = new Promise<string>((r) => {
-        resolve = r;
-      });
-    },
-    wait() {
-      return promise;
-    },
-  };
-}
-
-const authSignal = createAuthSignal();
+const agentRequestSchema = z.object({
+  prompt: z.string(),
+  agentKind: agentKindSchema.default("ops-copilot"),
+  incidentId: z.string().optional(),
+  deviceId: z.string().optional(),
+});
 
 const app = new BedrockAgentCoreApp({
   invocationHandler: {
-    requestSchema: z.object({ prompt: z.string() }),
+    requestSchema: agentRequestSchema,
     process: async function* (request, context) {
       const prompt = request.prompt;
       console.log(`Session ${context.sessionId} - Received prompt:`, prompt);
-
-      if (prompt === "introspect") {
-        if (!context.workloadAccessToken) {
-          yield {
-            event: "error",
-            data: { message: "No workload access token available" },
-          };
-          return;
-        }
-
-        const introspectToken = withAccessToken({
-          providerName: "resource-provider-oauth-client-amkjf",
-          scopes: ["openid"],
-          authFlow: "USER_FEDERATION",
-          onAuthUrl: (url) => {
-            console.log("[agent] Auth required - URL received");
-            authSignal.emit(url);
-          },
-          forceAuthentication: true,
-          workloadIdentityToken: context.workloadAccessToken,
-          callbackUrl:
-            process.env.OAUTH_CALLBACK_URL ||
-            "http://localhost:9090/oauth2/callback",
-        })(async (token: string) => {
-          return decodeJwt(token);
-        });
-
-        const tokenPromise = introspectToken();
-
-        const authUrl = await authSignal.wait();
-        yield { event: "auth_url", data: { authUrl } };
-
-        const claims = await tokenPromise;
-        yield { event: "token_claims", data: { claims } };
-        return;
-      }
 
       memoryHook.setSessionId(context.sessionId);
 
@@ -132,8 +81,13 @@ const app = new BedrockAgentCoreApp({
       });
 
       try {
-        const result = await agent.invoke(prompt);
+        const enrichedPrompt = buildAgentPrompt(request);
+        const result = await agent.invoke(enrichedPrompt);
         yield { event: "message", data: { text: result } };
+        yield {
+          event: "summary",
+          data: buildInvestigationSummary(request, String(result)),
+        };
       } catch (error) {
         console.log(error);
       }
@@ -142,3 +96,64 @@ const app = new BedrockAgentCoreApp({
 });
 
 app.run();
+
+function buildAgentPrompt(request: z.infer<typeof agentRequestSchema>): string {
+  const contextLines = [
+    `Agent kind: ${request.agentKind}`,
+    request.incidentId ? `Incident ID: ${request.incidentId}` : null,
+    request.deviceId ? `Device ID: ${request.deviceId}` : null,
+    "",
+    request.prompt,
+  ].filter(Boolean);
+
+  return contextLines.join("\n");
+}
+
+function buildInvestigationSummary(
+  request: z.infer<typeof agentRequestSchema>,
+  result: string
+) {
+  return {
+    title: `${labelForAgentKind(request.agentKind)} summary`,
+    summary: truncate(result, 220),
+    findings: [
+      request.incidentId
+        ? `Incident ${request.incidentId} was included in the analysis context.`
+        : "No incident id was provided in the request.",
+      request.deviceId
+        ? `Device ${request.deviceId} was included in the analysis context.`
+        : "No device id was provided in the request.",
+    ],
+    recommendedActions:
+      request.agentKind === "autonomous-remediation"
+        ? [
+            "Verify whether the proposed remediation is allowlisted before execution.",
+            "Create or update an incident ticket if the issue remains unresolved.",
+          ]
+        : [
+            "Review the investigation summary in the API response.",
+            "Escalate to the remediation planner if an operational change is required.",
+          ],
+  };
+}
+
+function labelForAgentKind(kind: z.infer<typeof agentKindSchema>): string {
+  switch (kind) {
+    case "ops-copilot":
+      return "Ops Copilot";
+    case "anomaly-investigation":
+      return "Anomaly Investigation";
+    case "remediation-planner":
+      return "Remediation Planner";
+    case "autonomous-remediation":
+      return "Autonomous Remediation";
+  }
+}
+
+function truncate(value: string, maxLength: number): string {
+  if (value.length <= maxLength) {
+    return value;
+  }
+
+  return `${value.slice(0, maxLength - 3)}...`;
+}
