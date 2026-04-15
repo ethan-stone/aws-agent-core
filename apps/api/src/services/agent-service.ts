@@ -8,6 +8,7 @@ import type {
   AgentRun,
   AgentRunMessage,
   AgentRunResult,
+  AuthenticatedAppUser,
   CreateAgentRunRequest,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import {
@@ -35,10 +36,12 @@ function getClient(): BedrockAgentCoreClient {
 }
 
 export async function runAgent(
-  request: CreateAgentRunRequest
+  request: CreateAgentRunRequest,
+  user?: AuthenticatedAppUser | null
 ): Promise<AgentRun> {
   const runId = randomUUID();
   const sessionId = request.sessionId ?? `agent-run-${runId}`;
+  const runtimeUserId = user?.sub ?? "pulseforge-api";
 
   const queued = await createAgentRun({
     ...request,
@@ -47,7 +50,7 @@ export async function runAgent(
   });
 
   try {
-    const result = await invokeRuntime(request, sessionId);
+    const result = await invokeRuntime(request, sessionId, runtimeUserId);
     const completed = await completeAgentRun(runId, result);
     return completed ?? queued;
   } catch (error) {
@@ -58,6 +61,7 @@ export async function runAgent(
       agentKind: request.agentKind,
       incidentId: request.incidentId,
       deviceId: request.deviceId,
+      runtimeUserId,
       error: message,
     });
     const failed = await failAgentRun(runId, message);
@@ -67,7 +71,8 @@ export async function runAgent(
 
 async function invokeRuntime(
   request: CreateAgentRunRequest,
-  sessionId: string
+  sessionId: string,
+  runtimeUserId: string
 ): Promise<AgentRunResult> {
   const runtimeArn = process.env.AGENT_RUNTIME_ARN;
   const qualifier = process.env.AGENT_RUNTIME_QUALIFIER;
@@ -84,6 +89,7 @@ async function invokeRuntime(
       runtimeArn,
       qualifier,
       sessionId,
+      runtimeUserId,
       agentKind: request.agentKind,
       incidentId: request.incidentId,
       deviceId: request.deviceId,
@@ -97,7 +103,7 @@ async function invokeRuntime(
       contentType: "application/json",
       accept: "text/event-stream",
       runtimeSessionId: sessionId,
-      runtimeUserId: "pulseforge-api",
+      runtimeUserId,
       payload: new TextEncoder().encode(JSON.stringify(invocation)),
     })
   );

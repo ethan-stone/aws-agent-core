@@ -169,6 +169,7 @@ app.post("/api/admin/seed", async (c) => {
 
 app.post("/api/agent-runs", async (c) => {
   const body = (await c.req.json()) as Partial<CreateAgentRunRequest>;
+  const user = c.get("user");
 
   if (!body.agentKind || !body.prompt) {
     return c.json({ error: "agentKind and prompt are required" }, 400);
@@ -180,7 +181,7 @@ app.post("/api/agent-runs", async (c) => {
     incidentId: body.incidentId,
     deviceId: body.deviceId,
     sessionId: body.sessionId,
-  });
+  }, user);
 
   return c.json(run, run.status === "failed" ? 502 : 200);
 });
