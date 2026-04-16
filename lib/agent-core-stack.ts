@@ -1,4 +1,4 @@
-import { CfnOutput, Duration, Stack, StackProps } from "aws-cdk-lib/core";
+import { CfnOutput, Duration, Fn, Stack, StackProps } from "aws-cdk-lib/core";
 import { Construct } from "constructs";
 import path from "path";
 import * as iam from "aws-cdk-lib/aws-iam";
@@ -98,6 +98,152 @@ export class AgentCoreStack extends Stack {
     );
 
     memoryKmsKey.grantEncryptDecrypt(pulseForgeRuntime.role);
+
+    // --- AgentCore Log Delivery / Tracing ---
+    // Runtime logs and WorkloadIdentity logs are configured as distinct delivery
+    // sources because the identity tab is backed by the WorkloadIdentity ARN.
+    // We derive short, replacement-safe names from the generated runtime/memory
+    // suffixes so a future replacement of those resources can also replace the
+    // delivery resources without colliding on fixed custom names.
+    const runtimeSuffix = Fn.select(1, Fn.split("-", pulseForgeRuntime.agentRuntimeId));
+    const memorySuffix = Fn.select(1, Fn.split("-", memory.memoryId));
+
+    const runtimeWorkloadIdentityArn = Stack.of(this).formatArn({
+      service: "bedrock-agentcore",
+      resource: "workload-identity-directory/default/workload-identity",
+      resourceName: pulseForgeRuntime.agentRuntimeId,
+    });
+
+    const runtimeLogGroup = new logs.LogGroup(this, "RuntimeLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+    });
+
+    const runtimeIdentityLogGroup = new logs.LogGroup(
+      this,
+      "RuntimeIdentityLogGroup",
+      {
+        retention: logs.RetentionDays.ONE_WEEK,
+      }
+    );
+
+    const memoryLogGroup = new logs.LogGroup(this, "MemoryLogGroup", {
+      retention: logs.RetentionDays.ONE_WEEK,
+    });
+
+    const runtimeLogDestination = new logs.CfnDeliveryDestination(
+      this,
+      "RuntimeLogDestination",
+      {
+        name: Fn.join("", ["pf-rtd-", runtimeSuffix]),
+        deliveryDestinationType: "CWL",
+        destinationResourceArn: runtimeLogGroup.logGroupArn,
+      }
+    );
+
+    const runtimeIdentityLogDestination = new logs.CfnDeliveryDestination(
+      this,
+      "RuntimeIdentityLogDestination",
+      {
+        name: Fn.join("", ["pf-rid-", runtimeSuffix]),
+        deliveryDestinationType: "CWL",
+        destinationResourceArn: runtimeIdentityLogGroup.logGroupArn,
+      }
+    );
+
+    const memoryLogDestination = new logs.CfnDeliveryDestination(
+      this,
+      "MemoryLogDestination",
+      {
+        name: Fn.join("", ["pf-md-", memorySuffix]),
+        deliveryDestinationType: "CWL",
+        destinationResourceArn: memoryLogGroup.logGroupArn,
+      }
+    );
+
+    const xrayDestination = new logs.CfnDeliveryDestination(
+      this,
+      "XRayDeliveryDestination",
+      {
+        name: Fn.join("", ["pf-xd-", memorySuffix]),
+        deliveryDestinationType: "XRAY",
+      }
+    );
+
+    const runtimeLogSource = new logs.CfnDeliverySource(
+      this,
+      "RuntimeLogSource",
+      {
+        name: Fn.join("", ["pf-rts-", runtimeSuffix]),
+        resourceArn: pulseForgeRuntime.agentRuntimeArn,
+        logType: "APPLICATION_LOGS",
+      }
+    );
+
+    const runtimeIdentityLogSource = new logs.CfnDeliverySource(
+      this,
+      "RuntimeIdentityLogSource",
+      {
+        name: Fn.join("", ["pf-ris-", runtimeSuffix]),
+        resourceArn: runtimeWorkloadIdentityArn,
+        logType: "APPLICATION_LOGS",
+      }
+    );
+
+    const memoryLogSource = new logs.CfnDeliverySource(
+      this,
+      "MemoryLogSource",
+      {
+        name: Fn.join("", ["pf-mls-", memorySuffix]),
+        resourceArn: memory.memoryArn,
+        logType: "APPLICATION_LOGS",
+      }
+    );
+
+    const memoryTraceSource = new logs.CfnDeliverySource(
+      this,
+      "MemoryTraceSource",
+      {
+        name: Fn.join("", ["pf-mts-", memorySuffix]),
+        resourceArn: memory.memoryArn,
+        logType: "TRACES",
+      }
+    );
+
+    const runtimeLogDelivery = new logs.CfnDelivery(this, "RuntimeLogDelivery", {
+      deliverySourceName: runtimeLogSource.name,
+      deliveryDestinationArn: runtimeLogDestination.attrArn,
+    });
+    runtimeLogDelivery.addDependency(runtimeLogSource);
+    runtimeLogDelivery.addDependency(runtimeLogDestination);
+
+    const runtimeIdentityLogDelivery = new logs.CfnDelivery(
+      this,
+      "RuntimeIdentityLogDelivery",
+      {
+        deliverySourceName: runtimeIdentityLogSource.name,
+        deliveryDestinationArn: runtimeIdentityLogDestination.attrArn,
+      }
+    );
+    runtimeIdentityLogDelivery.addDependency(runtimeIdentityLogSource);
+    runtimeIdentityLogDelivery.addDependency(runtimeIdentityLogDestination);
+
+    const memoryLogDelivery = new logs.CfnDelivery(this, "MemoryLogDelivery", {
+      deliverySourceName: memoryLogSource.name,
+      deliveryDestinationArn: memoryLogDestination.attrArn,
+    });
+    memoryLogDelivery.addDependency(memoryLogSource);
+    memoryLogDelivery.addDependency(memoryLogDestination);
+
+    const memoryTraceDelivery = new logs.CfnDelivery(
+      this,
+      "MemoryTraceDelivery",
+      {
+        deliverySourceName: memoryTraceSource.name,
+        deliveryDestinationArn: xrayDestination.attrArn,
+      }
+    );
+    memoryTraceDelivery.addDependency(memoryTraceSource);
+    memoryTraceDelivery.addDependency(xrayDestination);
 
     // --- X-Ray / Transaction Search Observability ---
 
@@ -208,6 +354,18 @@ export class AgentCoreStack extends Stack {
 
     new CfnOutput(this, "PulseForgeUserPoolClientId", {
       value: pulseForgeUserPoolClient.userPoolClientId,
+    });
+
+    new CfnOutput(this, "RuntimeLogGroupName", {
+      value: runtimeLogGroup.logGroupName,
+    });
+
+    new CfnOutput(this, "RuntimeIdentityLogGroupName", {
+      value: runtimeIdentityLogGroup.logGroupName,
+    });
+
+    new CfnOutput(this, "MemoryLogGroupName", {
+      value: memoryLogGroup.logGroupName,
     });
 
   }
