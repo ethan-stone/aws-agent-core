@@ -5,6 +5,10 @@ import type { PulseForgeRepository } from "../repositories/types.js";
 import type {
   AgentRunResult,
   CreateAgentRunRequest,
+  IncidentInvestigationContext,
+} from "../../../../shared/pulseforge-domain/src/index.js";
+import {
+  demoRunbooks,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 
 const fallbackRepository = new InMemoryPulseForgeRepository();
@@ -54,6 +58,44 @@ export async function listIncidents() {
 
 export async function getIncident(incidentId: string) {
   return (await getRepository()).getIncident(incidentId);
+}
+
+export async function buildIncidentInvestigationContext(
+  incidentId: string
+): Promise<IncidentInvestigationContext | null> {
+  const repository = await getRepository();
+  const aggregate = await repository.getIncident(incidentId);
+  if (!aggregate) {
+    return null;
+  }
+
+  const snapshot = await repository.getSnapshot();
+  const devices = await Promise.all(
+    aggregate.incident.deviceIds.map(async (deviceId) => {
+      const device = snapshot.devices.find((item) => item.id === deviceId);
+      if (!device) {
+        return null;
+      }
+
+      const telemetry = (await repository.getDeviceTelemetry(deviceId)) ?? [];
+      return { device, telemetry };
+    })
+  );
+
+  return {
+    incident: aggregate.incident,
+    events: aggregate.events,
+    devices: devices.filter((item): item is NonNullable<typeof item> => Boolean(item)),
+    relatedIncidents: snapshot.incidents.filter(
+      (item) =>
+        item.id !== aggregate.incident.id &&
+        (item.siteId === aggregate.incident.siteId ||
+          item.category === aggregate.incident.category)
+    ),
+    runbook: demoRunbooks.find(
+      (item) => item.category === aggregate.incident.category
+    ),
+  };
 }
 
 export async function getAgentRun(runId: string) {

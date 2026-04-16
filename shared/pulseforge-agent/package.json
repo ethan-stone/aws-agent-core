@@ -1,5 +1,5 @@
 {
-  "name": "@agent-core/hello-world",
+  "name": "@agent-core/pulseforge-agent",
   "version": "0.1.0",
   "private": true,
   "main": "dist/index.js",

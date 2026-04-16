@@ -10,6 +10,7 @@ import type {
   AgentRunResult,
   AuthenticatedAppUser,
   CreateAgentRunRequest,
+  IncidentInvestigationContext,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import {
   completeAgentRun,
@@ -37,7 +38,8 @@ function getClient(): BedrockAgentCoreClient {
 
 export async function runAgent(
   request: CreateAgentRunRequest,
-  user?: AuthenticatedAppUser | null
+  user?: AuthenticatedAppUser | null,
+  investigationContext?: IncidentInvestigationContext | null
 ): Promise<AgentRun> {
   const runId = randomUUID();
   const sessionId = request.sessionId ?? `agent-run-${runId}`;
@@ -50,7 +52,12 @@ export async function runAgent(
   });
 
   try {
-    const result = await invokeRuntime(request, sessionId, runtimeUserId);
+    const result = await invokeRuntime(
+      request,
+      sessionId,
+      runtimeUserId,
+      investigationContext
+    );
     const completed = await completeAgentRun(runId, result);
     return completed ?? queued;
   } catch (error) {
@@ -72,7 +79,8 @@ export async function runAgent(
 async function invokeRuntime(
   request: CreateAgentRunRequest,
   sessionId: string,
-  runtimeUserId: string
+  runtimeUserId: string,
+  investigationContext?: IncidentInvestigationContext | null
 ): Promise<AgentRunResult> {
   const runtimeArn = process.env.AGENT_RUNTIME_ARN;
   const qualifier = process.env.AGENT_RUNTIME_QUALIFIER;
@@ -93,6 +101,7 @@ async function invokeRuntime(
       agentKind: request.agentKind,
       incidentId: request.incidentId,
       deviceId: request.deviceId,
+      hasInvestigationContext: Boolean(investigationContext),
     });
   }
 
@@ -104,7 +113,12 @@ async function invokeRuntime(
       accept: "text/event-stream",
       runtimeSessionId: sessionId,
       runtimeUserId,
-      payload: new TextEncoder().encode(JSON.stringify(invocation)),
+      payload: new TextEncoder().encode(
+        JSON.stringify({
+          ...invocation,
+          ...(investigationContext ? { investigationContext } : {}),
+        })
+      ),
     })
   );
 

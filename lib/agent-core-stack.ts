@@ -14,18 +14,18 @@ export class AgentCoreStack extends Stack {
 
     // --- Bedrock AgentCore Runtime ---
 
-    const helloWorldAgentRuntimeArtifact =
+    const pulseForgeAgentRuntimeArtifact =
       bedrockAgentCore.AgentRuntimeArtifact.fromAsset(
         path.join(__dirname, ".."),
-        { file: "apps/hello-world/Dockerfile" }
+        { file: "apps/pulseforge-agent-runtime/Dockerfile" }
       );
 
     const memoryKmsKey = new kms.Key(this, "MemoryKmsKey", {
-      alias: "hello_world_memory_kms_key",
+      alias: "pulseforge_memory_kms_key",
     });
 
     const memory = new bedrockAgentCore.Memory(this, "Memory", {
-      memoryName: "hello_world_memory",
+      memoryName: "pulseforge_memory",
       expirationDuration: Duration.days(7),
       kmsKey: memoryKmsKey,
     });
@@ -58,14 +58,14 @@ export class AgentCoreStack extends Stack {
       }
     );
 
-    // --- Bedrock AgentCore Runtime (Cognito inbound auth) ---
+    // --- Bedrock AgentCore Runtime ---
 
-    const helloWorldRuntime = new bedrockAgentCore.Runtime(
+    const pulseForgeRuntime = new bedrockAgentCore.Runtime(
       this,
-      "HelloWorldAgentRuntime",
+      "PulseForgeAgentRuntime",
       {
-        runtimeName: "hello_world_agent",
-        agentRuntimeArtifact: helloWorldAgentRuntimeArtifact,
+        runtimeName: "pulseforge_ops_agent",
+        agentRuntimeArtifact: pulseForgeAgentRuntimeArtifact,
         authorizerConfiguration:
           bedrockAgentCore.RuntimeAuthorizerConfiguration.usingIAM(),
         environmentVariables: {
@@ -74,7 +74,7 @@ export class AgentCoreStack extends Stack {
       }
     );
 
-    helloWorldRuntime.addToRolePolicy(
+    pulseForgeRuntime.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
           "bedrock:InvokeModel",
@@ -87,7 +87,7 @@ export class AgentCoreStack extends Stack {
       })
     );
 
-    helloWorldRuntime.addToRolePolicy(
+    pulseForgeRuntime.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
           "bedrock-agentcore:CreateEvent",
@@ -97,144 +97,7 @@ export class AgentCoreStack extends Stack {
       })
     );
 
-    memoryKmsKey.grantEncryptDecrypt(helloWorldRuntime.role);
-
-    // --- AgentCore Log Delivery / Tracing ---
-    // Runtime resources expose observability in two console tabs:
-    // - Runtime: runtime application logs
-    // - Identity: WorkloadIdentity application logs
-    //
-    // The Identity tab is backed by a distinct WorkloadIdentity resource ARN, not the
-    // runtime ARN itself. The ARN format was verified against the CloudWatch Logs
-    // delivery source created by the AgentCore console:
-    // arn:aws:bedrock-agentcore:${region}:${account}:workload-identity-directory/default/workload-identity/${agentRuntimeId}
-    //
-    // Note: Memory tracing uses CloudWatch delivery resources. Runtime tracing is
-    // enabled through AgentCore's tracing control plane and publishes spans to
-    // aws/spans once Transaction Search is enabled.
-    const runtimeWorkloadIdentityArn = Stack.of(this).formatArn({
-      service: "bedrock-agentcore",
-      resource: "workload-identity-directory/default/workload-identity",
-      resourceName: helloWorldRuntime.agentRuntimeId,
-    });
-
-    const runtimeLogGroup = new logs.LogGroup(this, "RuntimeLogGroup", {
-      logGroupName: `/aws/bedrock-agentcore/runtime/${helloWorldRuntime.agentRuntimeId}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-    });
-
-    const memoryLogGroup = new logs.LogGroup(this, "MemoryLogGroup", {
-      logGroupName: `/aws/bedrock-agentcore/memory/${memory.memoryId}`,
-      retention: logs.RetentionDays.ONE_WEEK,
-    });
-
-    const runtimeIdentityLogGroup = new logs.LogGroup(
-      this,
-      "RuntimeIdentityLogGroup",
-      {
-        logGroupName: `/aws/bedrock-agentcore/workload-identity/${helloWorldRuntime.agentRuntimeId}`,
-        retention: logs.RetentionDays.ONE_WEEK,
-      }
-    );
-
-    const runtimeLogDestination = new logs.CfnDeliveryDestination(
-      this,
-      "RuntimeLogDestination",
-      {
-        name: `runtime-log-destination-${this.region}`,
-        deliveryDestinationType: "CWL",
-        destinationResourceArn: runtimeLogGroup.logGroupArn,
-      }
-    );
-
-    const memoryLogDestination = new logs.CfnDeliveryDestination(
-      this,
-      "MemoryLogDestination",
-      {
-        name: `memory-log-destination-${this.region}`,
-        deliveryDestinationType: "CWL",
-        destinationResourceArn: memoryLogGroup.logGroupArn,
-      }
-    );
-
-    const runtimeIdentityLogDestination = new logs.CfnDeliveryDestination(
-      this,
-      "RuntimeIdentityLogDestination",
-      {
-        name: `runtime-identity-log-destination-${this.region}`,
-        deliveryDestinationType: "CWL",
-        destinationResourceArn: runtimeIdentityLogGroup.logGroupArn,
-      }
-    );
-
-    const xrayDestination = new logs.CfnDeliveryDestination(
-      this,
-      "XRayDeliveryDestination",
-      {
-        name: `agentcore-xray-destination-${this.region}`,
-        deliveryDestinationType: "XRAY",
-      }
-    );
-
-    const runtimeLogSource = new logs.CfnDeliverySource(
-      this,
-      "RuntimeLogSource",
-      {
-        name: `runtime-log-source-${helloWorldRuntime.agentRuntimeId}`,
-        resourceArn: helloWorldRuntime.agentRuntimeArn,
-        logType: "APPLICATION_LOGS",
-      }
-    );
-
-    const runtimeIdentityLogSource = new logs.CfnDeliverySource(
-      this,
-      "RuntimeIdentityLogSource",
-      {
-        name: `runtime-identity-log-source-${helloWorldRuntime.agentRuntimeId}`,
-        resourceArn: runtimeWorkloadIdentityArn,
-        logType: "APPLICATION_LOGS",
-      }
-    );
-
-    const memoryLogSource = new logs.CfnDeliverySource(
-      this,
-      "MemoryLogSource",
-      {
-        name: `memory-log-source-${memory.memoryId}`,
-        resourceArn: memory.memoryArn,
-        logType: "APPLICATION_LOGS",
-      }
-    );
-
-    const memoryTraceSource = new logs.CfnDeliverySource(
-      this,
-      "MemoryTraceSource",
-      {
-        name: `memory-trace-source-${memory.memoryId}`,
-        resourceArn: memory.memoryArn,
-        logType: "TRACES",
-      }
-    );
-
-    new logs.CfnDelivery(this, "RuntimeLogDelivery", {
-      deliverySourceName: runtimeLogSource.name!,
-      deliveryDestinationArn: runtimeLogDestination.attrArn,
-    });
-
-    new logs.CfnDelivery(this, "RuntimeIdentityLogDelivery", {
-      deliverySourceName: runtimeIdentityLogSource.name!,
-      deliveryDestinationArn: runtimeIdentityLogDestination.attrArn,
-    });
-
-    new logs.CfnDelivery(this, "MemoryLogDelivery", {
-      deliverySourceName: memoryLogSource.name!,
-      deliveryDestinationArn: memoryLogDestination.attrArn,
-    });
-
-    new logs.CfnDelivery(this, "MemoryTraceDelivery", {
-      deliverySourceName: memoryTraceSource.name!,
-      deliveryDestinationArn: xrayDestination.attrArn,
-    });
+    memoryKmsKey.grantEncryptDecrypt(pulseForgeRuntime.role);
 
     // --- X-Ray / Transaction Search Observability ---
 
@@ -347,16 +210,5 @@ export class AgentCoreStack extends Stack {
       value: pulseForgeUserPoolClient.userPoolClientId,
     });
 
-    new CfnOutput(this, "RuntimeLogGroupName", {
-      value: runtimeLogGroup.logGroupName,
-    });
-
-    new CfnOutput(this, "MemoryLogGroupName", {
-      value: memoryLogGroup.logGroupName,
-    });
-
-    new CfnOutput(this, "RuntimeIdentityLogGroupName", {
-      value: runtimeIdentityLogGroup.logGroupName,
-    });
   }
 }

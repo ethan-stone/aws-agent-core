@@ -105,6 +105,14 @@ export interface Ticket {
   createdAt: string;
 }
 
+export interface RunbookDocument {
+  id: string;
+  title: string;
+  category: Incident["category"];
+  summary: string;
+  steps: string[];
+}
+
 export interface AgentRun {
   id: string;
   incidentId?: string;
@@ -141,11 +149,23 @@ export interface CreateAgentRunRequest {
   sessionId?: string;
 }
 
+export interface IncidentInvestigationContext {
+  incident: Incident;
+  events: IncidentEvent[];
+  devices: Array<{
+    device: Device;
+    telemetry: DeviceMetricSnapshot[];
+  }>;
+  relatedIncidents: Incident[];
+  runbook?: RunbookDocument;
+}
+
 export interface AgentRuntimeInvocation {
   agentKind: AgentKind;
   prompt: string;
   incidentId?: string;
   deviceId?: string;
+  investigationContext?: IncidentInvestigationContext;
 }
 
 export interface AgentRunResult {

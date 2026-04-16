@@ -13,7 +13,7 @@ This repo is now in phase 1 of that migration. The demo chat app has been replac
 
 - `apps/webapp/` - React SPA shell for the operator console
 - `apps/api/` - Hono-based REST API scaffold with Node local-dev, Lambda production entrypoints, and MongoDB repositories
-- `apps/hello-world/` - current Bedrock AgentCore runtime app, to be evolved into the production agent runtime
+- `apps/pulseforge-agent-runtime/` - PulseForge Bedrock AgentCore runtime app for copilot and incident investigation workflows
 - `shared/pulseforge-domain/` - shared domain types and synthetic seed data
 - `lib/` - CDK infrastructure
 
@@ -63,7 +63,6 @@ Before running those commands, create local env files from the checked-in exampl
 ```bash
 cp .env.example .env.local
 cp apps/api/.env.example apps/api/.env.local
-cp apps/hello-world/.env.example apps/hello-world/.env.local
 cp apps/webapp/.env.example apps/webapp/.env.local
 ```
 
@@ -77,6 +76,8 @@ Then edit the `.env.local` files with your real values:
   - deployed runtime ARN and qualifier
 - `apps/webapp/.env.local`
   - API base URL for the SPA
+
+The AgentCore runtime itself is deployed infrastructure in the current workflow, so there is no required `apps/pulseforge-agent-runtime/.env.local` file for normal local development.
 
 The normal local path no longer relies on bash wrappers for the API or webapp:
 
@@ -161,7 +162,7 @@ AGENT_RUNTIME_QUALIFIER=DEFAULT
 
 1. Install and verify the SPA toolchain.
 2. Provision MongoDB Atlas and wire secrets/config through CDK or local env.
-3. Replace the current demo runtime framing in `apps/hello-world` with the PulseForge agent runtime.
+3. Continue evolving `apps/pulseforge-agent-runtime` as the PulseForge runtime for investigation and remediation workflows.
 4. Add backend-owned AgentCore invocation.
 5. Add incident investigation and copilot workflows.
 6. Add autonomous remediation and ticket creation.

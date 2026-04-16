@@ -5,6 +5,7 @@ import type {
   CreateAgentRunRequest,
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
+  buildIncidentInvestigationContext,
   getDashboard,
   getDevice,
   getDeviceTelemetry,
@@ -175,13 +176,21 @@ app.post("/api/agent-runs", async (c) => {
     return c.json({ error: "agentKind and prompt are required" }, 400);
   }
 
-  const run = await runAgent({
-    agentKind: body.agentKind,
-    prompt: body.prompt,
-    incidentId: body.incidentId,
-    deviceId: body.deviceId,
-    sessionId: body.sessionId,
-  }, user);
+  const investigationContext = body.incidentId
+    ? await buildIncidentInvestigationContext(body.incidentId)
+    : null;
+
+  const run = await runAgent(
+    {
+      agentKind: body.agentKind,
+      prompt: body.prompt,
+      incidentId: body.incidentId,
+      deviceId: body.deviceId,
+      sessionId: body.sessionId,
+    },
+    user,
+    investigationContext
+  );
 
   return c.json(run, run.status === "failed" ? 502 : 200);
 });

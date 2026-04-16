@@ -7,6 +7,7 @@ import type {
   IncidentEvent,
   PulseForgeSnapshot,
   RemediationAction,
+  RunbookDocument,
   Site,
   Ticket,
 } from "./types.js";
@@ -254,6 +255,33 @@ export const demoTickets: Ticket[] = [
     status: "open",
     assigneeTeam: "Field Reliability",
     createdAt: "2026-04-12T14:02:00.000Z",
+  },
+];
+
+export const demoRunbooks: RunbookDocument[] = [
+  {
+    id: "rb-temp-drift-1",
+    title: "Cold-chain temperature drift response",
+    category: "temperature-drift",
+    summary:
+      "Validate firmware cohort impact, compare adjacent sensors, and stabilize storage temperature before dispatch.",
+    steps: [
+      "Compare affected devices against same-site devices on the prior firmware cohort.",
+      "Check signal degradation and packet loss to rule out delayed telemetry artifacts.",
+      "Rollback firmware if the drift began within one deployment window and no site-level ambient change is present.",
+    ],
+  },
+  {
+    id: "rb-connectivity-1",
+    title: "Gateway connectivity degradation response",
+    category: "connectivity-loss",
+    summary:
+      "Confirm gateway isolation, packet loss trend, and whether downstream devices are affected before reboot.",
+    steps: [
+      "Inspect packet-loss trend over the last hour and compare to adjacent gateways.",
+      "Check whether downstream devices are last-seen stale or still reporting through alternate routes.",
+      "Schedule a low-risk reboot if packet loss remains elevated and no upstream network event is open.",
+    ],
   },
 ];
 
