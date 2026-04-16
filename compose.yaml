@@ -1,0 +1,6 @@
+services:
+  mongodb:
+    image: mongo:7.0
+    container_name: pulseforge-mongo-local
+    ports:
+      - "27017:27017"

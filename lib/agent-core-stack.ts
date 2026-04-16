@@ -14,18 +14,18 @@ export class AgentCoreStack extends Stack {
 
     // --- Bedrock AgentCore Runtime ---
 
-    const helloWorldAgentRuntimeArtifact =
+    const pulseForgeAgentRuntimeArtifact =
       bedrockAgentCore.AgentRuntimeArtifact.fromAsset(
         path.join(__dirname, ".."),
-        { file: "apps/hello-world/Dockerfile" }
+        { file: "apps/pulseforge-agent-runtime/Dockerfile" }
       );
 
     const memoryKmsKey = new kms.Key(this, "MemoryKmsKey", {
-      alias: "hello_world_memory_kms_key",
+      alias: "pulseforge_memory_kms_key",
     });
 
     const memory = new bedrockAgentCore.Memory(this, "Memory", {
-      memoryName: "hello_world_memory",
+      memoryName: "pulseforge_memory",
       expirationDuration: Duration.days(7),
       kmsKey: memoryKmsKey,
     });
@@ -34,58 +34,47 @@ export class AgentCoreStack extends Stack {
 
     const userPool = new cognito.UserPool(this, "AgentCoreIdentityPool", {
       userPoolName: "AgentCoreIdentityPool",
-      selfSignUpEnabled: false,
+      selfSignUpEnabled: true,
       signInAliases: { email: true },
+      autoVerify: { email: true },
+      standardAttributes: {
+        email: {
+          required: true,
+          mutable: true,
+        },
+      },
+      accountRecovery: cognito.AccountRecovery.EMAIL_ONLY,
     });
 
-    userPool.addDomain("AgentCoreIdentityDomain", {
-      cognitoDomain: {
-        domainPrefix: `agentcore-identity-${this.account}-${this.region}`,
-      },
-    });
-
-    const userPoolClient = userPool.addClient("AgentCoreIdentityClient", {
-      generateSecret: true,
-      authFlows: {
-        adminUserPassword: true,
-      },
-      oAuth: {
-        flows: { authorizationCodeGrant: true },
-        scopes: [
-          cognito.OAuthScope.OPENID,
-          cognito.OAuthScope.PROFILE,
-          cognito.OAuthScope.EMAIL,
-        ],
-        callbackUrls: [
-          "http://localhost:9090/oauth2/callback",
-          "https://bedrock-agentcore.us-east-1.amazonaws.com/identities/oauth2/callback/144dd2d5-2417-4996-9ce0-41fdcc92ec7f",
-        ],
-      },
-      supportedIdentityProviders: [
-        cognito.UserPoolClientIdentityProvider.COGNITO,
-      ],
-    });
-
-    // --- Bedrock AgentCore Runtime (Cognito inbound auth) ---
-
-    const helloWorldRuntime = new bedrockAgentCore.Runtime(
-      this,
-      "HelloWorldAgentRuntime",
+    const pulseForgeUserPoolClient = userPool.addClient(
+      "PulseForgeWebClient",
       {
-        runtimeName: "hello_world_agent",
-        agentRuntimeArtifact: helloWorldAgentRuntimeArtifact,
+        generateSecret: false,
+        authFlows: {
+          userPassword: true,
+          userSrp: true,
+        },
+        preventUserExistenceErrors: true,
+      }
+    );
+
+    // --- Bedrock AgentCore Runtime ---
+
+    const pulseForgeRuntime = new bedrockAgentCore.Runtime(
+      this,
+      "PulseForgeAgentRuntime",
+      {
+        runtimeName: "pulseforge_ops_agent",
+        agentRuntimeArtifact: pulseForgeAgentRuntimeArtifact,
         authorizerConfiguration:
-          bedrockAgentCore.RuntimeAuthorizerConfiguration.usingCognito(
-            userPool,
-            [userPoolClient]
-          ),
+          bedrockAgentCore.RuntimeAuthorizerConfiguration.usingIAM(),
         environmentVariables: {
           MEMORY_ID: memory.memoryId,
         },
       }
     );
 
-    helloWorldRuntime.addToRolePolicy(
+    pulseForgeRuntime.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
           "bedrock:InvokeModel",
@@ -98,7 +87,7 @@ export class AgentCoreStack extends Stack {
       })
     );
 
-    helloWorldRuntime.addToRolePolicy(
+    pulseForgeRuntime.addToRolePolicy(
       new iam.PolicyStatement({
         actions: [
           "bedrock-agentcore:CreateEvent",
@@ -108,19 +97,7 @@ export class AgentCoreStack extends Stack {
       })
     );
 
-    helloWorldRuntime.addToRolePolicy(
-      new iam.PolicyStatement({
-        actions: [
-          "bedrock-agentcore:GetResourceOauth2Token",
-          "bedrock-agentcore:GetWorkloadAccessToken",
-          "bedrock-agentcore:GetWorkloadAccessTokenForJWT",
-          "secretsmanager:GetSecretValue",
-        ],
-        resources: ["*"],
-      })
-    );
-
-    memoryKmsKey.grantEncryptDecrypt(helloWorldRuntime.role);
+    memoryKmsKey.grantEncryptDecrypt(pulseForgeRuntime.role);
 
     // --- X-Ray / Transaction Search Observability ---
 
@@ -225,8 +202,13 @@ export class AgentCoreStack extends Stack {
       value: userPool.userPoolId,
     });
 
-    new CfnOutput(this, "UserPoolClientId", {
-      value: userPoolClient.userPoolClientId,
+    new CfnOutput(this, "PulseForgeUserPoolId", {
+      value: userPool.userPoolId,
     });
+
+    new CfnOutput(this, "PulseForgeUserPoolClientId", {
+      value: pulseForgeUserPoolClient.userPoolClientId,
+    });
+
   }
 }
