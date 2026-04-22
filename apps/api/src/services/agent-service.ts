@@ -8,6 +8,7 @@ import type {
   AgentRun,
   AgentRunMessage,
   AgentRunResult,
+  AgentRuntimeInvocation,
   AuthenticatedAppUser,
   CreateAgentRunRequest,
   IncidentInvestigationContext,
@@ -91,7 +92,7 @@ async function invokeRuntime(
     throw new Error("AGENT_RUNTIME_QUALIFIER is not configured for the API.");
   }
 
-  const invocation = buildInvocationPayload(request);
+  const invocation = buildInvocationPayload(request, runtimeUserId);
   if (isDebugLoggingEnabled) {
     console.info("[agent] invoking aws runtime", {
       runtimeArn,
@@ -160,12 +161,16 @@ function formatAgentInvocationError(error: unknown) {
   return "Unknown error";
 }
 
-function buildInvocationPayload(request: CreateAgentRunRequest) {
+function buildInvocationPayload(
+  request: CreateAgentRunRequest,
+  runtimeUserId: string
+): AgentRuntimeInvocation {
   return {
     agentKind: request.agentKind,
     prompt: request.prompt,
     incidentId: request.incidentId,
     deviceId: request.deviceId,
+    actorId: runtimeUserId,
   };
 }
 

@@ -165,6 +165,7 @@ export interface AgentRuntimeInvocation {
   prompt: string;
   incidentId?: string;
   deviceId?: string;
+  actorId?: string;
   investigationContext?: IncidentInvestigationContext;
 }
 

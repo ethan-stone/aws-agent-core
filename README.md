@@ -63,6 +63,7 @@ Before running those commands, create local env files from the checked-in exampl
 ```bash
 cp .env.example .env.local
 cp apps/api/.env.example apps/api/.env.local
+cp apps/pulseforge-agent-runtime/.env.example apps/pulseforge-agent-runtime/.env.local
 cp apps/webapp/.env.example apps/webapp/.env.local
 ```
 
@@ -74,10 +75,12 @@ Then edit the `.env.local` files with your real values:
   - MongoDB settings
   - Cognito user pool and client ids
   - deployed runtime ARN and qualifier
+- `apps/pulseforge-agent-runtime/.env.local`
+- optional settings for local runtime development and AgentCore Memory integration
 - `apps/webapp/.env.local`
   - API base URL for the SPA
 
-The AgentCore runtime itself is deployed infrastructure in the current workflow, so there is no required `apps/pulseforge-agent-runtime/.env.local` file for normal local development.
+The AgentCore runtime itself is deployed infrastructure in the current workflow, so `apps/pulseforge-agent-runtime/.env.local` is only needed when you are running the runtime directly for manual development or memory integration testing.
 
 The normal local path no longer relies on bash wrappers for the API or webapp:
 
@@ -157,6 +160,25 @@ AGENT_RUNTIME_QUALIFIER=DEFAULT
 
 - `AGENT_RUNTIME_ARN` and `AGENT_RUNTIME_QUALIFIER` are required for the local API workflow
 - the deployed runtime should be configured with IAM auth, not Cognito/JWT inbound auth
+
+Optional local runtime memory settings in `apps/pulseforge-agent-runtime/.env.local`:
+
+```bash
+MEMORY_ID=memory-xxxxxxxxxxxxxxxx
+ENABLE_AGENTCORE_LONG_TERM_MEMORY=true
+AGENTCORE_MEMORY_CONTEXT_TAG=agentcore-memory-context
+```
+
+- when `MEMORY_ID` is set, the runtime uses AgentCore Memory for short-term session persistence
+- when `ENABLE_AGENTCORE_LONG_TERM_MEMORY=true`, the runtime also retrieves long-term memories from the configured namespaces before the model call
+- the runtime expects the backend to pass the authenticated user id through the invocation payload, and uses that as `actorId` for AgentCore Memory namespaces
+
+Runtime memory architecture:
+
+- short-term memory uses AgentCore Memory Events as the canonical session store
+- long-term memory uses a separate runtime plugin that retrieves memory records from configured namespaces and injects them into the current user turn before the model call
+- conversation management remains independent, so the runtime persists the canonical post-management message list rather than an append-only transcript
+- if `MEMORY_ID` is not set, the runtime falls back to an in-process short-term memory store for local development
 
 ## Near-Term Implementation Plan
 
