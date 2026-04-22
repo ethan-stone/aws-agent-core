@@ -70,6 +70,7 @@ export class AgentCoreStack extends Stack {
           bedrockAgentCore.RuntimeAuthorizerConfiguration.usingIAM(),
         environmentVariables: {
           MEMORY_ID: memory.memoryId,
+          ENABLE_AGENTCORE_LONG_TERM_MEMORY: "true",
         },
       }
     );
@@ -91,13 +92,33 @@ export class AgentCoreStack extends Stack {
       new iam.PolicyStatement({
         actions: [
           "bedrock-agentcore:CreateEvent",
+          "bedrock-agentcore:DeleteEvent",
           "bedrock-agentcore:ListEvents",
+          "bedrock-agentcore:RetrieveMemoryRecords",
         ],
         resources: [memory.memoryArn],
       })
     );
 
     memoryKmsKey.grantEncryptDecrypt(pulseForgeRuntime.role);
+    pulseForgeRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "kms:CreateGrant",
+          "kms:Decrypt",
+          "kms:DescribeKey",
+          "kms:GenerateDataKey",
+          "kms:GenerateDataKeyWithoutPlaintext",
+          "kms:ReEncrypt*",
+        ],
+        resources: [memoryKmsKey.keyArn],
+        conditions: {
+          StringEquals: {
+            "kms:ViaService": `bedrock-agentcore.${this.region}.amazonaws.com`,
+          },
+        },
+      })
+    );
 
     // --- AgentCore Log Delivery / Tracing ---
     // Runtime logs and WorkloadIdentity logs are configured as distinct delivery
