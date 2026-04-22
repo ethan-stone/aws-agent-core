@@ -1,11 +1,22 @@
 import { BedrockAgentCoreApp } from "bedrock-agentcore/runtime";
-import { Agent, BedrockModel } from "@strands-agents/sdk";
+import {
+  Agent,
+  BedrockModel,
+  SlidingWindowConversationManager,
+} from "@strands-agents/sdk";
 import { fromIni } from "@aws-sdk/credential-providers";
 import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore";
-import { MemoryHook } from "./memory-hook.js";
-import { LocalMemoryHook } from "./local-memory-hook.js";
-import { z } from "zod";
+import {
+  AgentCoreLongTermMemoryPlugin,
+  type RetrievalConfigMap,
+} from "./agentcore-long-term-memory-plugin.js";
+import {
+  AgentCoreEventSessionStore,
+  InMemoryShortTermMemoryStore,
+  type ShortTermMemoryStore,
+} from "./short-term-memory-store.js";
 import dotenv from "dotenv";
+import { z } from "zod";
 
 dotenv.config({
   quiet: true,
@@ -27,13 +38,8 @@ const bedrockAgentCoreClient = memoryId
     })
   : undefined;
 
-const memoryHook =
-  memoryId && bedrockAgentCoreClient
-    ? new MemoryHook({
-        client: bedrockAgentCoreClient,
-        memoryId,
-      })
-    : new LocalMemoryHook();
+const localShortTermMemoryStore = new InMemoryShortTermMemoryStore();
+const longTermRetrievalConfig = getLongTermRetrievalConfig();
 
 if (!memoryId) {
   console.warn(
@@ -57,6 +63,7 @@ const agentRequestSchema = z.object({
   agentKind: agentKindSchema.default("ops-copilot"),
   incidentId: z.string().optional(),
   deviceId: z.string().optional(),
+  actorId: z.string().optional(),
   investigationContext: z
     .object({
       incident: z.object({
@@ -140,18 +147,39 @@ const app = new BedrockAgentCoreApp({
       const prompt = request.prompt;
       console.log(`Session ${context.sessionId} - Received prompt:`, prompt);
 
-      memoryHook.setSessionId(context.sessionId);
-
-      const messages = await memoryHook.loadConversation(context.sessionId);
-
-      console.log(
-        `Loaded ${messages.length} messages from memory for session ${context.sessionId}`
+      const actorId = request.actorId ?? context.sessionId;
+      const shortTermMemoryStore = createShortTermMemoryStore(actorId);
+      const initialMessages = await loadSessionMessages(
+        shortTermMemoryStore,
+        context.sessionId,
+        actorId
       );
+
+      const plugins =
+        memoryId && bedrockAgentCoreClient
+          ? [
+              new AgentCoreLongTermMemoryPlugin({
+                client: bedrockAgentCoreClient,
+                memoryId,
+                actorId,
+                sessionId: context.sessionId,
+                retrievalConfig: longTermRetrievalConfig,
+                contextTag:
+                  process.env.AGENTCORE_MEMORY_CONTEXT_TAG ??
+                  "agentcore-memory-context",
+              }),
+            ]
+          : [];
 
       const agent = new Agent({
         model: bedrockModel,
-        hooks: [memoryHook],
-        messages,
+        id: agentIdForKind(request.agentKind),
+        name: labelForAgentKind(request.agentKind),
+        messages: initialMessages,
+        conversationManager: new SlidingWindowConversationManager({
+          windowSize: 40,
+        }),
+        plugins,
       });
 
       try {
@@ -164,12 +192,90 @@ const app = new BedrockAgentCoreApp({
         };
       } catch (error) {
         console.log(error);
+      } finally {
+        await persistSessionMessages(
+          shortTermMemoryStore,
+          context.sessionId,
+          actorId,
+          agent.messages
+        );
       }
     },
   },
 });
 
 app.run();
+
+function getLongTermRetrievalConfig(): RetrievalConfigMap {
+  if (process.env.ENABLE_AGENTCORE_LONG_TERM_MEMORY !== "true") {
+    return {};
+  }
+
+  return {
+    "/preferences/{actorId}/": {
+      topK: 5,
+      relevanceScore: 0.7,
+    },
+    "/facts/{actorId}/": {
+      topK: 10,
+      relevanceScore: 0.3,
+    },
+    "/summaries/{actorId}/{sessionId}/": {
+      topK: 5,
+      relevanceScore: 0.5,
+    },
+  };
+}
+
+function createShortTermMemoryStore(actorId: string): ShortTermMemoryStore {
+  if (memoryId && bedrockAgentCoreClient) {
+    return new AgentCoreEventSessionStore({
+      client: bedrockAgentCoreClient,
+      memoryId,
+      actorId,
+    });
+  }
+
+  return localShortTermMemoryStore;
+}
+
+async function loadSessionMessages(
+  store: ShortTermMemoryStore,
+  sessionId: string,
+  actorId: string
+) {
+  try {
+    return await store.loadMessages(sessionId);
+  } catch (error) {
+    console.error("[memory] failed to load session messages", {
+      sessionId,
+      actorId,
+      error,
+    });
+    return [];
+  }
+}
+
+async function persistSessionMessages(
+  store: ShortTermMemoryStore,
+  sessionId: string,
+  actorId: string,
+  messages: Agent["messages"]
+) {
+  try {
+    await store.saveMessages(sessionId, messages);
+  } catch (error) {
+    console.error("[memory] failed to persist session messages", {
+      sessionId,
+      actorId,
+      error,
+    });
+  }
+}
+
+function agentIdForKind(kind: z.infer<typeof agentKindSchema>) {
+  return `pulseforge-${kind}`;
+}
 
 function buildAgentPrompt(request: z.infer<typeof agentRequestSchema>): string {
   const context = request.investigationContext;
