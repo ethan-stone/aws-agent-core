@@ -1,6 +1,7 @@
 import { MongoClient, type Collection, type Db, type WithId } from "mongodb";
 import {
   demoAgentRuns,
+  demoAuditLogs,
   demoDeviceMetrics,
   demoDevices,
   demoIncidentEvents,
@@ -10,6 +11,7 @@ import {
   demoTickets,
   type AgentRun,
   type AgentRunResult,
+  type AuditLogEntry,
   type CreateAgentRunRequest,
   type DashboardSummary,
   type Device,
@@ -21,6 +23,7 @@ import {
   type Site,
   type Ticket,
 } from "../../../../shared/pulseforge-domain/src/index.js";
+import { randomUUID } from "node:crypto";
 import type {
   IncidentAggregate,
   PulseForgeRepository,
@@ -43,6 +46,9 @@ type PersistedAgentRun = Omit<AgentRun, "requestedAt" | "completedAt"> & {
   requestedAt: Date;
   completedAt?: Date;
 };
+type PersistedAuditLogEntry = Omit<AuditLogEntry, "timestamp"> & {
+  timestamp: Date;
+};
 
 interface Collections {
   sites: Collection<Site>;
@@ -53,6 +59,7 @@ interface Collections {
   remediationActions: Collection<RemediationAction>;
   tickets: Collection<PersistedTicket>;
   agentRuns: Collection<PersistedAgentRun>;
+  auditLogs: Collection<PersistedAuditLogEntry>;
 }
 
 export class MongoPulseForgeRepository implements PulseForgeRepository {
@@ -77,6 +84,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
         this.db.collection<RemediationAction>("remediation_actions"),
       tickets: this.db.collection<PersistedTicket>("tickets"),
       agentRuns: this.db.collection<PersistedAgentRun>("agent_runs"),
+      auditLogs: this.db.collection<PersistedAuditLogEntry>("audit_logs"),
     };
   }
 
@@ -91,6 +99,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       remediationActions,
       tickets,
       agentRuns,
+      auditLogs,
     ] = await Promise.all([
       collections.sites.find().toArray(),
       collections.devices.find().toArray(),
@@ -100,6 +109,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.remediationActions.find().toArray(),
       collections.tickets.find().toArray(),
       collections.agentRuns.find().toArray(),
+      collections.auditLogs.find().toArray(),
     ]);
 
     const normalizedSites = sites.map((site) => stripMongoId<Site>(site));
@@ -120,6 +130,9 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     );
     const normalizedAgentRuns = agentRuns.map((run) =>
       mapPersistedAgentRun(stripMongoId<PersistedAgentRun>(run))
+    );
+    const normalizedAuditLogs = auditLogs.map((entry) =>
+      mapPersistedAuditLogEntry(stripMongoId<PersistedAuditLogEntry>(entry))
     );
 
     const deviceMetrics = telemetryDocs.reduce<
@@ -144,6 +157,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       remediationActions: normalizedRemediationActions,
       tickets: normalizedTickets,
       agentRuns: normalizedAgentRuns,
+      auditLogs: normalizedAuditLogs,
       dashboard: buildDashboard(
         normalizedDevices,
         normalizedIncidents,
@@ -241,8 +255,80 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       : null;
   }
 
+  async createIncidentEvent(
+    event: Parameters<PulseForgeRepository["createIncidentEvent"]>[0]
+  ): Promise<IncidentEvent> {
+    const created: PersistedIncidentEvent = {
+      id: event.id ?? randomUUID(),
+      incidentId: event.incidentId,
+      timestamp: new Date(event.timestamp ?? Date.now()),
+      kind: event.kind,
+      message: event.message,
+      createdBy: event.createdBy,
+    };
+
+    await this.collections().incidentEvents.insertOne(created);
+    return mapPersistedIncidentEvent(created);
+  }
+
+  async createTicket(
+    ticket: Parameters<PulseForgeRepository["createTicket"]>[0]
+  ): Promise<Ticket> {
+    const created: PersistedTicket = {
+      id: ticket.id ?? randomUUID(),
+      incidentId: ticket.incidentId,
+      externalRef: ticket.externalRef ?? `PF-${Date.now()}`,
+      status: ticket.status ?? "open",
+      assigneeTeam: ticket.assigneeTeam,
+      createdAt: new Date(ticket.createdAt ?? Date.now()),
+      createdBy: ticket.createdBy,
+    };
+
+    await this.collections().tickets.insertOne(created);
+    return mapPersistedTicket(created);
+  }
+
+  async createRemediationAction(
+    action: Parameters<PulseForgeRepository["createRemediationAction"]>[0]
+  ): Promise<RemediationAction> {
+    const created: RemediationAction = {
+      id: action.id ?? randomUUID(),
+      incidentId: action.incidentId,
+      type: action.type,
+      status: action.status ?? "proposed",
+      risk: action.risk,
+      summary: action.summary,
+      createdBy: action.createdBy,
+    };
+
+    await this.collections().remediationActions.insertOne(created);
+    return created;
+  }
+
+  async createAuditLog(
+    entry: Parameters<PulseForgeRepository["createAuditLog"]>[0]
+  ): Promise<AuditLogEntry> {
+    const created: PersistedAuditLogEntry = {
+      id: entry.id ?? randomUUID(),
+      timestamp: new Date(entry.timestamp ?? Date.now()),
+      actor: entry.actor,
+      operation: entry.operation,
+      method: entry.method,
+      path: entry.path,
+      scopes: entry.scopes,
+      resourceType: entry.resourceType,
+      resourceId: entry.resourceId,
+      outcome: entry.outcome,
+      statusCode: entry.statusCode,
+      message: entry.message,
+    };
+
+    await this.collections().auditLogs.insertOne(created);
+    return mapPersistedAuditLogEntry(created);
+  }
+
   async createAgentRun(
-    run: CreateAgentRunRequest & { id: string }
+    run: CreateAgentRunRequest & { id: string; requestedByUserId?: string }
   ): Promise<AgentRun> {
     const created: PersistedAgentRun = {
       id: run.id,
@@ -252,6 +338,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       agentKind: run.agentKind,
       status: "queued",
       requestedAt: new Date(),
+      requestedByUserId: run.requestedByUserId,
       summary: "Queued for AgentCore invocation.",
       prompt: run.prompt,
       messages: [{ role: "user", content: run.prompt }],
@@ -314,6 +401,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.remediationActions.deleteMany({}),
       collections.tickets.deleteMany({}),
       collections.agentRuns.deleteMany({}),
+      collections.auditLogs.deleteMany({}),
     ]);
 
     await Promise.all([
@@ -331,6 +419,11 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.remediationActions.insertMany(demoRemediationActions),
       collections.tickets.insertMany(demoTickets.map(toPersistedTicket)),
       collections.agentRuns.insertMany(demoAgentRuns.map(toPersistedAgentRun)),
+      demoAuditLogs.length > 0
+        ? collections.auditLogs.insertMany(
+            demoAuditLogs.map(toPersistedAuditLogEntry)
+          )
+        : Promise.resolve(),
     ]);
 
     await Promise.all([
@@ -341,6 +434,9 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.tickets.createIndex({ incidentId: 1 }),
       collections.agentRuns.createIndex({ id: 1 }, { unique: true }),
       collections.agentRuns.createIndex({ incidentId: 1 }),
+      collections.auditLogs.createIndex({ timestamp: -1 }),
+      collections.auditLogs.createIndex({ "actor.agentRunId": 1 }),
+      collections.auditLogs.createIndex({ operation: 1 }),
     ]);
   }
 }
@@ -444,6 +540,24 @@ function mapPersistedAgentRun(run: PersistedAgentRun): AgentRun {
     ...run,
     requestedAt: run.requestedAt.toISOString(),
     completedAt: run.completedAt?.toISOString(),
+  };
+}
+
+function toPersistedAuditLogEntry(
+  entry: AuditLogEntry
+): PersistedAuditLogEntry {
+  return {
+    ...entry,
+    timestamp: new Date(entry.timestamp),
+  };
+}
+
+function mapPersistedAuditLogEntry(
+  entry: PersistedAuditLogEntry
+): AuditLogEntry {
+  return {
+    ...entry,
+    timestamp: entry.timestamp.toISOString(),
   };
 }
 

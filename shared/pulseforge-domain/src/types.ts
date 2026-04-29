@@ -22,6 +22,15 @@ export type AgentRunStatus =
   | "running"
   | "completed"
   | "failed";
+export type AuditActorType = "agent" | "user";
+export type AuditOutcome = "succeeded" | "failed";
+export type AppPermission =
+  | "read:dashboard"
+  | "read:devices"
+  | "read:incidents"
+  | "read:telemetry"
+  | "write:agent_runs"
+  | "write:admin";
 
 export interface Site {
   id: string;
@@ -81,6 +90,7 @@ export interface IncidentEvent {
     | "action_result"
     | "ticket_created";
   message: string;
+  createdBy?: AuditActor;
 }
 
 export interface RemediationAction {
@@ -94,6 +104,7 @@ export interface RemediationAction {
   status: RemediationActionStatus;
   risk: "low" | "medium" | "high";
   summary: string;
+  createdBy?: AuditActor;
 }
 
 export interface Ticket {
@@ -103,6 +114,29 @@ export interface Ticket {
   status: TicketStatus;
   assigneeTeam: string;
   createdAt: string;
+  createdBy?: AuditActor;
+}
+
+export interface AuditActor {
+  actorType: AuditActorType;
+  actorId: string;
+  onBehalfOfUserId?: string;
+  agentRunId?: string;
+}
+
+export interface AuditLogEntry {
+  id: string;
+  timestamp: string;
+  actor: AuditActor;
+  operation: string;
+  method: string;
+  path: string;
+  scopes: string[];
+  resourceType?: string;
+  resourceId?: string;
+  outcome: AuditOutcome;
+  statusCode: number;
+  message?: string;
 }
 
 export interface RunbookDocument {
@@ -121,6 +155,7 @@ export interface AgentRun {
   agentKind: AgentKind;
   status: AgentRunStatus;
   requestedAt: string;
+  requestedByUserId?: string;
   completedAt?: string;
   summary: string;
   prompt?: string;
@@ -188,6 +223,9 @@ export interface AuthenticatedAppUser {
   username: string;
   email?: string;
   groups: string[];
+  clientId?: string;
+  scopes: string[];
+  permissions: AppPermission[];
 }
 
 export interface DashboardSummary {
@@ -210,5 +248,6 @@ export interface PulseForgeSnapshot {
   remediationActions: RemediationAction[];
   tickets: Ticket[];
   agentRuns: AgentRun[];
+  auditLogs: AuditLogEntry[];
   dashboard: DashboardSummary;
 }

@@ -4,8 +4,13 @@ import { MongoPulseForgeRepository } from "../repositories/mongo-repository.js";
 import type { PulseForgeRepository } from "../repositories/types.js";
 import type {
   AgentRunResult,
+  AuditActor,
+  AuditLogEntry,
   CreateAgentRunRequest,
   IncidentInvestigationContext,
+  IncidentEvent,
+  RemediationAction,
+  Ticket,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import {
   demoRunbooks,
@@ -102,7 +107,50 @@ export async function getAgentRun(runId: string) {
   return (await getRepository()).getAgentRun(runId);
 }
 
-export async function createAgentRun(run: CreateAgentRunRequest & { id: string }) {
+export async function createIncidentEvent(
+  event: Omit<IncidentEvent, "id" | "timestamp"> & {
+    id?: string;
+    timestamp?: string;
+    createdBy: AuditActor;
+  }
+) {
+  return (await getRepository()).createIncidentEvent(event);
+}
+
+export async function createTicket(
+  ticket: Omit<Ticket, "id" | "createdAt" | "externalRef" | "status"> & {
+    id?: string;
+    externalRef?: string;
+    status?: Ticket["status"];
+    createdAt?: string;
+    createdBy: AuditActor;
+  }
+) {
+  return (await getRepository()).createTicket(ticket);
+}
+
+export async function createRemediationAction(
+  action: Omit<RemediationAction, "id" | "status"> & {
+    id?: string;
+    status?: RemediationAction["status"];
+    createdBy: AuditActor;
+  }
+) {
+  return (await getRepository()).createRemediationAction(action);
+}
+
+export async function createAuditLog(
+  entry: Omit<AuditLogEntry, "id" | "timestamp"> & {
+    id?: string;
+    timestamp?: string;
+  }
+) {
+  return (await getRepository()).createAuditLog(entry);
+}
+
+export async function createAgentRun(
+  run: CreateAgentRunRequest & { id: string; requestedByUserId?: string }
+) {
   return (await getRepository()).createAgentRun(run);
 }
 

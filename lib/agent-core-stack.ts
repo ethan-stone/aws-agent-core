@@ -58,6 +58,97 @@ export class AgentCoreStack extends Stack {
       }
     );
 
+    const userPoolDomain = userPool.addDomain("PulseForgeUserPoolDomain", {
+      cognitoDomain: {
+        domainPrefix: Fn.join("-", ["pulseforge", this.account, this.region]),
+      },
+    });
+
+    const readDevicesScope = new cognito.ResourceServerScope({
+      scopeName: "read:devices",
+      scopeDescription: "Read PulseForge device records",
+    });
+    const readIncidentsScope = new cognito.ResourceServerScope({
+      scopeName: "read:incidents",
+      scopeDescription: "Read PulseForge incidents",
+    });
+    const readTelemetryScope = new cognito.ResourceServerScope({
+      scopeName: "read:telemetry",
+      scopeDescription: "Read PulseForge telemetry",
+    });
+    const writeIncidentEventsScope = new cognito.ResourceServerScope({
+      scopeName: "write:incident_events",
+      scopeDescription: "Create PulseForge incident timeline events",
+    });
+    const writeTicketsScope = new cognito.ResourceServerScope({
+      scopeName: "write:tickets",
+      scopeDescription: "Create PulseForge tickets",
+    });
+    const writeRemediationActionsScope = new cognito.ResourceServerScope({
+      scopeName: "write:remediation_actions",
+      scopeDescription: "Create PulseForge remediation proposals",
+    });
+
+    const pulseForgeBackendResourceServer = userPool.addResourceServer(
+      "PulseForgeBackendResourceServer",
+      {
+        identifier: "pulseforge-backend",
+        userPoolResourceServerName: "PulseForge Backend",
+        scopes: [
+          readDevicesScope,
+          readIncidentsScope,
+          readTelemetryScope,
+          writeIncidentEventsScope,
+          writeTicketsScope,
+          writeRemediationActionsScope,
+        ],
+      }
+    );
+
+    const pulseForgeToolsUserPoolClient = userPool.addClient(
+      "PulseForgeToolsClient",
+      {
+        generateSecret: true,
+        oAuth: {
+          flows: {
+            authorizationCodeGrant: true,
+          },
+          scopes: [
+            cognito.OAuthScope.OPENID,
+            cognito.OAuthScope.EMAIL,
+            cognito.OAuthScope.PROFILE,
+            cognito.OAuthScope.resourceServer(
+              pulseForgeBackendResourceServer,
+              readDevicesScope
+            ),
+            cognito.OAuthScope.resourceServer(
+              pulseForgeBackendResourceServer,
+              readIncidentsScope
+            ),
+            cognito.OAuthScope.resourceServer(
+              pulseForgeBackendResourceServer,
+              readTelemetryScope
+            ),
+            cognito.OAuthScope.resourceServer(
+              pulseForgeBackendResourceServer,
+              writeIncidentEventsScope
+            ),
+            cognito.OAuthScope.resourceServer(
+              pulseForgeBackendResourceServer,
+              writeTicketsScope
+            ),
+            cognito.OAuthScope.resourceServer(
+              pulseForgeBackendResourceServer,
+              writeRemediationActionsScope
+            ),
+          ],
+          callbackUrls: ["http://localhost:3000/oauth2/callback"],
+          logoutUrls: ["http://localhost:3000/logout"],
+        },
+        preventUserExistenceErrors: true,
+      }
+    );
+
     // --- Bedrock AgentCore Runtime ---
 
     const pulseForgeRuntime = new bedrockAgentCore.Runtime(
@@ -375,6 +466,18 @@ export class AgentCoreStack extends Stack {
 
     new CfnOutput(this, "PulseForgeUserPoolClientId", {
       value: pulseForgeUserPoolClient.userPoolClientId,
+    });
+
+    new CfnOutput(this, "PulseForgeUserPoolDomain", {
+      value: userPoolDomain.domainName,
+    });
+
+    new CfnOutput(this, "PulseForgeToolsUserPoolClientId", {
+      value: pulseForgeToolsUserPoolClient.userPoolClientId,
+    });
+
+    new CfnOutput(this, "PulseForgeBackendResourceServerIdentifier", {
+      value: pulseForgeBackendResourceServer.userPoolResourceServerId,
     });
 
     new CfnOutput(this, "RuntimeLogGroupName", {

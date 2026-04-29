@@ -9,16 +9,16 @@
     "build": "tsc",
     "watch": "tsc -w",
     "test": "jest",
-    "test:api": "pnpm --filter @agent-core/api test",
+    "test:webbackend": "pnpm --filter @agent-core/webbackend test",
     "cdk": "cdk",
     "mongodb:dev": "docker compose up mongodb",
     "mongodb:dev:detached": "docker compose up -d mongodb",
     "mongodb:stop": "docker compose stop mongodb",
-    "api:seed:local": "pnpm --filter @agent-core/api seed",
-    "api:dev:local": "pnpm --filter @agent-core/api dev",
+    "webbackend:seed:local": "pnpm --filter @agent-core/webbackend seed",
+    "webbackend:dev:local": "pnpm --filter @agent-core/webbackend dev",
     "webapp:dev:local": "pnpm --filter @agent-core/webapp dev",
-    "dev:api": "pnpm --filter @agent-core/api dev",
-    "seed:api": "pnpm --filter @agent-core/api seed",
+    "dev:webbackend": "pnpm --filter @agent-core/webbackend dev",
+    "seed:webbackend": "pnpm --filter @agent-core/webbackend seed",
     "dev:webapp": "pnpm --filter @agent-core/webapp dev"
   },
   "devDependencies": {
@@ -33,7 +33,7 @@
     "typescript": "~5.9.3"
   },
   "dependencies": {
-    "aws-cdk-lib": "^2.250.0",
+    "aws-cdk-lib": "^2.251.0",
     "constructs": "^10.5.0"
   },
   "pnpm": {

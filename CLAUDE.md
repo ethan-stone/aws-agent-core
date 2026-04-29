@@ -7,7 +7,7 @@ Monorepo using pnpm workspaces.
 - `apps/` - Individual application projects
   - `apps/pulseforge-agent-runtime/` - PulseForge AgentCore runtime for copilot and incident investigation
   - `apps/webapp/` - React/Vite operator console
-  - `apps/api/` - Hono API for app auth, MongoDB access, and AgentCore invocation
+  - `apps/webbackend/` - Hono web backend for app auth, MongoDB access, and AgentCore invocation
 - `shared/` - Shared packages consumed by apps
 - `lib/` - CDK stack definition
 
@@ -18,7 +18,7 @@ Monorepo using pnpm workspaces.
 Strands SDK agent deployed as a Bedrock AgentCore Runtime. It currently powers:
 - incident investigation
 - operator copilot responses
-- structured summaries returned to the PulseForge API
+- structured summaries returned to the PulseForge web backend
 
 The handler is an `async function*` that yields SSE events (`{ event, data }`).
 
@@ -26,9 +26,9 @@ The handler is an `async function*` that yields SSE events (`{ event, data }`).
 
 React/Vite SPA for the PulseForge operator console.
 
-### api (`pnpm --filter @agent-core/api <command>`)
+### webbackend (`pnpm --filter @agent-core/webbackend <command>`)
 
-Hono API that:
+Hono web backend that:
 - verifies Cognito access tokens for app auth
 - reads and writes PulseForge data in MongoDB
 - invokes the deployed AgentCore runtime with IAM
@@ -55,32 +55,32 @@ The PulseForge runtime persists conversation history to AgentCore Memory using a
 There are two distinct auth layers:
 
 - **App auth:** users sign in to the PulseForge web app with Cognito
-- **Runtime auth:** the backend API invokes the deployed AgentCore runtime with IAM
+- **Runtime auth:** the web backend invokes the deployed AgentCore runtime with IAM
 
 The browser never calls the AgentCore runtime directly.
 
 ### App Auth (Cognito)
 
 - `apps/webapp` signs users in with the shared Cognito user pool client
-- `apps/api` verifies Cognito access tokens on protected `/api/*` routes
-- the authenticated Cognito `sub` is attached to API requests as the app user identity
+- `apps/webbackend` verifies Cognito access tokens on protected `/api/*` routes
+- the authenticated Cognito `sub` is attached to web backend requests as the app user identity
 
 ### Runtime Invocation (IAM)
 
-- `apps/api` invokes the deployed runtime with `InvokeAgentRuntimeCommand`
-- the API passes the authenticated Cognito `sub` through as `runtimeUserId`
+- `apps/webbackend` invokes the deployed runtime with `InvokeAgentRuntimeCommand`
+- the web backend passes the authenticated Cognito `sub` through as `runtimeUserId`
 - the runtime itself is configured with `RuntimeAuthorizerConfiguration.usingIAM()`
 
 ### Local Development
 
 ```bash
 pnpm mongodb:dev
-pnpm api:seed:local
-pnpm api:dev:local
+pnpm webbackend:seed:local
+pnpm webbackend:dev:local
 pnpm webapp:dev:local
 ```
 
-The API expects the deployed runtime ARN and qualifier in `apps/api/.env.local`.
+The web backend expects the deployed runtime ARN and qualifier in `apps/webbackend/.env.local`.
 
 ## Observability
 

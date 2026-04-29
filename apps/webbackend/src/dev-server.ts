@@ -8,7 +8,7 @@ const server = serve({
   port,
 });
 
-console.log(`PulseForge API listening on http://localhost:${port}`);
+console.log(`PulseForge web backend listening on http://localhost:${port}`);
 
 process.on("SIGINT", () => {
   server.close();

@@ -1,6 +1,8 @@
 import type {
   AgentRun,
   AgentRunResult,
+  AuditActor,
+  AuditLogEntry,
   CreateAgentRunRequest,
   DashboardSummary,
   Device,
@@ -8,6 +10,8 @@ import type {
   Incident,
   IncidentEvent,
   PulseForgeSnapshot,
+  RemediationAction,
+  Ticket,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 
 export interface IncidentAggregate {
@@ -24,7 +28,34 @@ export interface PulseForgeRepository {
   listIncidents(): Promise<Incident[]>;
   getIncident(incidentId: string): Promise<IncidentAggregate | null>;
   getAgentRun(runId: string): Promise<AgentRun | null>;
-  createAgentRun(run: CreateAgentRunRequest & { id: string }): Promise<AgentRun>;
+  createIncidentEvent(event: Omit<IncidentEvent, "id" | "timestamp"> & {
+    id?: string;
+    timestamp?: string;
+    createdBy: AuditActor;
+  }): Promise<IncidentEvent>;
+  createTicket(ticket: Omit<Ticket, "id" | "createdAt" | "externalRef" | "status"> & {
+    id?: string;
+    externalRef?: string;
+    status?: Ticket["status"];
+    createdAt?: string;
+    createdBy: AuditActor;
+  }): Promise<Ticket>;
+  createRemediationAction(
+    action: Omit<RemediationAction, "id" | "status"> & {
+      id?: string;
+      status?: RemediationAction["status"];
+      createdBy: AuditActor;
+    }
+  ): Promise<RemediationAction>;
+  createAuditLog(
+    entry: Omit<AuditLogEntry, "id" | "timestamp"> & {
+      id?: string;
+      timestamp?: string;
+    }
+  ): Promise<AuditLogEntry>;
+  createAgentRun(
+    run: CreateAgentRunRequest & { id: string; requestedByUserId?: string }
+  ): Promise<AgentRun>;
   completeAgentRun(
     runId: string,
     result: AgentRunResult

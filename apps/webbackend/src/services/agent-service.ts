@@ -44,12 +44,13 @@ export async function runAgent(
 ): Promise<AgentRun> {
   const runId = randomUUID();
   const sessionId = request.sessionId ?? `agent-run-${runId}`;
-  const runtimeUserId = user?.sub ?? "pulseforge-api";
+  const runtimeUserId = user?.sub ?? "pulseforge-webbackend";
 
   const queued = await createAgentRun({
     ...request,
     id: runId,
     sessionId,
+    requestedByUserId: user?.sub,
   });
 
   try {

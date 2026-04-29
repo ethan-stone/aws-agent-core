@@ -3,7 +3,7 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const currentDir = path.dirname(fileURLToPath(import.meta.url));
-const apiDir = path.resolve(currentDir, "../..");
+const webbackendDir = path.resolve(currentDir, "../..");
 const repoRoot = path.resolve(currentDir, "../../../..");
 
 function parseEnvFile(contents: string) {
@@ -45,4 +45,4 @@ function loadEnvFile(filePath: string) {
 }
 
 loadEnvFile(path.join(repoRoot, ".env.local"));
-loadEnvFile(path.join(apiDir, ".env.local"));
+loadEnvFile(path.join(webbackendDir, ".env.local"));

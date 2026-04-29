@@ -1,5 +1,6 @@
 import type {
   AgentRun,
+  AuditLogEntry,
   DashboardSummary,
   Device,
   DeviceMetricSnapshot,
@@ -306,6 +307,8 @@ export const demoAgentRuns: AgentRun[] = [
   },
 ];
 
+export const demoAuditLogs: AuditLogEntry[] = [];
+
 export const demoDashboard: DashboardSummary = {
   totalSites: demoSites.length,
   totalDevices: demoDevices.length,
@@ -333,5 +336,6 @@ export const demoSnapshot: PulseForgeSnapshot = {
   remediationActions: demoRemediationActions,
   tickets: demoTickets,
   agentRuns: demoAgentRuns,
+  auditLogs: demoAuditLogs,
   dashboard: demoDashboard,
 };
