@@ -121,6 +121,10 @@ PULSEFORGE_WORKLOAD_NAME=<agentcore-workload-name>
 PULSEFORGE_LOCAL_USER_ID=<cognito-user-sub>
 ```
 
+If `PULSEFORGE_BACKEND_URL` is omitted, runtime tool wiring is disabled and the
+runtime still starts. Deployed environments can pass the backend URL through CDK
+with `--context pulseForgeBackendUrl=...`.
+
 ## Observability
 
 The CDK stack configures CloudWatch log delivery and X-Ray Transaction Search. Traces are indexed at 100% sampling.

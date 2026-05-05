@@ -150,6 +150,18 @@ export class AgentCoreStack extends Stack {
     );
 
     // --- Bedrock AgentCore Runtime ---
+    const pulseForgeBackendUrl = this.node.tryGetContext("pulseForgeBackendUrl");
+    const pulseForgeRuntimeEnvironment: Record<string, string> = {
+      MEMORY_ID: memory.memoryId,
+      ENABLE_AGENTCORE_LONG_TERM_MEMORY: "true",
+    };
+
+    if (typeof pulseForgeBackendUrl === "string" && pulseForgeBackendUrl) {
+      pulseForgeRuntimeEnvironment.PULSEFORGE_BACKEND_URL = pulseForgeBackendUrl;
+      pulseForgeRuntimeEnvironment.PULSEFORGE_TOOL_AUTH_MODE = "agentcore-runtime";
+      pulseForgeRuntimeEnvironment.PULSEFORGE_TOOLS_PROVIDER_NAME =
+        "pulseforge-backend-user-federation";
+    }
 
     const pulseForgeRuntime = new bedrockAgentCore.Runtime(
       this,
@@ -159,10 +171,7 @@ export class AgentCoreStack extends Stack {
         agentRuntimeArtifact: pulseForgeAgentRuntimeArtifact,
         authorizerConfiguration:
           bedrockAgentCore.RuntimeAuthorizerConfiguration.usingIAM(),
-        environmentVariables: {
-          MEMORY_ID: memory.memoryId,
-          ENABLE_AGENTCORE_LONG_TERM_MEMORY: "true",
-        },
+        environmentVariables: pulseForgeRuntimeEnvironment,
       }
     );
 

@@ -25,6 +25,7 @@ import {
   InMemoryShortTermMemoryStore,
   type ShortTermMemoryStore,
 } from "./short-term-memory-store.js";
+import { loadRuntimeConfig } from "./runtime-config.js";
 import dotenv from "dotenv";
 import { z } from "zod";
 
@@ -32,34 +33,24 @@ dotenv.config({
   quiet: true,
 });
 
-const memoryId = process.env.MEMORY_ID;
-const pulseForgeBackendUrl = requiredEnv("PULSEFORGE_BACKEND_URL");
-const pulseForgeToolAuthMode = parseToolAuthMode(
-  requiredEnv("PULSEFORGE_TOOL_AUTH_MODE")
-);
-const pulseForgeToolsProviderName =
-  process.env.PULSEFORGE_TOOLS_PROVIDER_NAME ??
-  "pulseforge-backend-user-federation";
-const pulseForgeWorkloadName =
-  pulseForgeToolAuthMode === "local-user-id"
-    ? requiredEnv("PULSEFORGE_WORKLOAD_NAME")
-    : undefined;
-const sharedAwsConfig = process.env.AWS_PROFILE
+const runtimeConfig = loadRuntimeConfig();
+const memoryId = runtimeConfig.memoryId;
+const sharedAwsConfig = runtimeConfig.awsProfile
   ? {
       credentials: fromIni({
-        profile: process.env.AWS_PROFILE,
+        profile: runtimeConfig.awsProfile,
       }),
     }
   : undefined;
 
 const bedrockAgentCoreClient = memoryId
   ? new BedrockAgentCoreClient({
-      region: process.env.AWS_REGION,
+      region: runtimeConfig.awsRegion,
       ...sharedAwsConfig,
     })
   : undefined;
 const workloadTokenClient = new BedrockAgentCoreClient({
-  region: process.env.AWS_REGION,
+  region: runtimeConfig.awsRegion,
   ...sharedAwsConfig,
 });
 
@@ -70,6 +61,9 @@ if (!memoryId) {
   console.warn(
     "MEMORY_ID is not set. Using in-process memory for local development."
   );
+}
+if (!runtimeConfig.tools.enabled) {
+  console.warn(`[tools] disabled: ${runtimeConfig.tools.reason}`);
 }
 
 const bedrockModel = new BedrockModel({
@@ -116,9 +110,7 @@ const app = new BedrockAgentCoreApp({
                 actorId,
                 sessionId: context.sessionId,
                 retrievalConfig: longTermRetrievalConfig,
-                contextTag:
-                  process.env.AGENTCORE_MEMORY_CONTEXT_TAG ??
-                  "agentcore-memory-context",
+                contextTag: runtimeConfig.longTermMemoryContextTag,
               }),
             ]
           : [];
@@ -175,7 +167,7 @@ const app = new BedrockAgentCoreApp({
 app.run();
 
 function getLongTermRetrievalConfig(): RetrievalConfigMap {
-  if (process.env.ENABLE_AGENTCORE_LONG_TERM_MEMORY !== "true") {
+  if (!runtimeConfig.longTermMemoryEnabled) {
     return {};
   }
 
@@ -319,11 +311,15 @@ async function createAgentTools(
     return [];
   }
 
+  if (!runtimeConfig.tools.enabled) {
+    return [];
+  }
+
   const credentialProvider = await createToolCredentialProvider(request, context);
   return createPulseForgeStrandsTools(request.agentKind, {
-    backendUrl: pulseForgeBackendUrl,
+    backendUrl: runtimeConfig.tools.backendUrl,
     agentRunId: request.agentRunId,
-    providerName: pulseForgeToolsProviderName,
+    providerName: runtimeConfig.tools.providerName,
     credentialProvider,
   });
 }
@@ -332,13 +328,17 @@ async function createToolCredentialProvider(
   request: z.infer<typeof agentRequestSchema>,
   context: { headers: Record<string, string>; workloadAccessToken?: string }
 ): Promise<ToolCredentialProvider> {
-  if (pulseForgeToolAuthMode === "agentcore-runtime") {
+  if (!runtimeConfig.tools.enabled) {
+    throw new Error("PulseForge tools are not configured.");
+  }
+
+  if (runtimeConfig.tools.authMode === "agentcore-runtime") {
     return new AgentCoreIdentityCredentialProvider(context.workloadAccessToken);
   }
 
   const userId =
     context.headers["x-amzn-bedrock-agentcore-runtime-custom-user-id"] ??
-    process.env.PULSEFORGE_LOCAL_USER_ID ??
+    runtimeConfig.tools.localUserId ??
     request.actorId;
 
   if (!userId) {
@@ -349,7 +349,7 @@ async function createToolCredentialProvider(
 
   const response = await workloadTokenClient.send(
     new GetWorkloadAccessTokenForUserIdCommand({
-      workloadName: pulseForgeWorkloadName,
+      workloadName: runtimeConfig.tools.workloadName,
       userId,
     })
   );
@@ -374,25 +374,6 @@ class AgentCoreIdentityCredentialProvider implements ToolCredentialProvider {
       workloadIdentityToken: this.workloadIdentityToken,
     })(async (input: TInput, accessToken: string) => fn(input, accessToken));
   }
-}
-
-function requiredEnv(name: string): string {
-  const value = process.env[name];
-  if (!value) {
-    throw new Error(`${name} is required.`);
-  }
-
-  return value;
-}
-
-function parseToolAuthMode(value: string) {
-  if (value === "agentcore-runtime" || value === "local-user-id") {
-    return value;
-  }
-
-  throw new Error(
-    "PULSEFORGE_TOOL_AUTH_MODE must be either agentcore-runtime or local-user-id."
-  );
 }
 
 function truncate(value: string, maxLength: number): string {

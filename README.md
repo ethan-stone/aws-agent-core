@@ -139,10 +139,17 @@ Agent runtime env vars for tool calls:
 
 ```bash
 PULSEFORGE_BACKEND_URL=http://localhost:3001
-PULSEFORGE_TOOL_AUTH_MODE=agentcore-runtime # or local-user-id
+PULSEFORGE_TOOL_AUTH_MODE=agentcore-runtime # optional; defaults to agentcore-runtime
 PULSEFORGE_TOOLS_PROVIDER_NAME=pulseforge-backend-user-federation
 PULSEFORGE_WORKLOAD_NAME=pulseforge-agent-runtime # required for local-user-id
 PULSEFORGE_LOCAL_USER_ID=local-cognito-user-sub # optional local fallback
+```
+
+When `PULSEFORGE_BACKEND_URL` is omitted, runtime tool wiring is disabled and
+the runtime still starts. CDK can pass the deployed/backend URL with:
+
+```bash
+pnpm run cdk deploy -- --context pulseForgeBackendUrl=https://example.com
 ```
 
 `local-user-id` mode is for running the runtime outside AgentCore. It obtains a
