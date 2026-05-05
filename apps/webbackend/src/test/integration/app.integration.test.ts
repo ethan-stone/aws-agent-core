@@ -10,8 +10,7 @@ describe("PulseForge web backend integration (memory)", () => {
   it("reports memory storage mode when MongoDB is not configured", async () => {
     delete process.env.MONGODB_URI;
     delete process.env.MONGODB_DB_NAME;
-    delete process.env.COGNITO_TOOLS_CLIENT_ID;
-    delete process.env.COGNITO_TOOLS_CLIENT_IDS;
+    delete process.env.COGNITO_AGENT_IDENTITY_CLIENT_IDS;
 
     const response = await app.request("/api/ping");
     expect(response.status).toBe(200);
@@ -26,8 +25,8 @@ describe("PulseForge web backend integration (memory)", () => {
     const response = await app.request("/tools/devices/dev-freezer-014");
     expect(response.status).toBe(400);
 
-    const body = (await response.json()) as { error: string };
-    expect(body.error).toContain("x-pulseforge-agent-run-id");
+    const body = (await response.json()) as { message: string };
+    expect(body.message).toContain("x-pulseforge-agent-run-id");
   });
 
   it("fails closed for tools when Cognito tool auth is not configured", async () => {

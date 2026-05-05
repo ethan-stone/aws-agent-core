@@ -118,10 +118,7 @@ function getAccessTokenVerifier() {
 }
 
 function getToolClientIds(): string[] {
-  return parseCsv(
-    process.env.COGNITO_TOOLS_CLIENT_IDS ??
-      process.env.COGNITO_TOOLS_CLIENT_ID
-  );
+  return parseCsv(process.env.COGNITO_AGENT_IDENTITY_CLIENT_IDS);
 }
 
 export function isToolAuthConfigured(): boolean {

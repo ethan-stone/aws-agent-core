@@ -116,7 +116,7 @@ COGNITO_REGION=us-east-1
 Tool endpoint env vars for delegated agent auth:
 
 ```bash
-COGNITO_TOOLS_CLIENT_IDS=xxxxxxxxxxxxxxxxxxxxxxxxxx
+COGNITO_AGENT_IDENTITY_CLIENT_IDS=xxxxxxxxxxxxxxxxxxxxxxxxxx
 COGNITO_RESOURCE_SERVER_IDENTIFIER=pulseforge-backend
 ```
 
@@ -134,6 +134,21 @@ from the browser-oriented `/api/*` routes:
 - each operation checks `pulseforge-backend/*` scopes such as `read:incidents`, `read:telemetry`, and `write:tickets`
 - reads and writes are persisted to `audit_logs` with `actorType`, `actorId`, `onBehalfOfUserId`, `agentRunId`, route, scopes, and outcome
 - records created by the agent also store `createdBy` attribution
+
+Agent runtime env vars for tool calls:
+
+```bash
+PULSEFORGE_BACKEND_URL=http://localhost:3001
+PULSEFORGE_TOOL_AUTH_MODE=agentcore-runtime # or local-user-id
+PULSEFORGE_TOOLS_PROVIDER_NAME=pulseforge-backend-user-federation
+PULSEFORGE_WORKLOAD_NAME=pulseforge-agent-runtime # required for local-user-id
+PULSEFORGE_LOCAL_USER_ID=local-cognito-user-sub # optional local fallback
+```
+
+`local-user-id` mode is for running the runtime outside AgentCore. It obtains a
+workload access token with `GetWorkloadAccessTokenForUserId`; prefer the
+`x-amzn-bedrock-agentcore-runtime-custom-user-id` invocation header locally so
+the simulated delegated user is explicit.
 
 CDK outputs for app auth:
 

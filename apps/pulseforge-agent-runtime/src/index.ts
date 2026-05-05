@@ -5,7 +5,17 @@ import {
   SlidingWindowConversationManager,
 } from "@strands-agents/sdk";
 import { fromIni } from "@aws-sdk/credential-providers";
-import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore";
+import {
+  BedrockAgentCoreClient,
+  GetWorkloadAccessTokenForUserIdCommand,
+} from "@aws-sdk/client-bedrock-agentcore";
+import { withAccessToken } from "bedrock-agentcore/identity";
+import {
+  createPulseForgeStrandsTools,
+  ToolAuthorizationRequiredError,
+  type ToolAccessTokenConfig,
+  type ToolCredentialProvider,
+} from "../../../shared/pulseforge-tools/src/index.js";
 import {
   AgentCoreLongTermMemoryPlugin,
   type RetrievalConfigMap,
@@ -23,6 +33,17 @@ dotenv.config({
 });
 
 const memoryId = process.env.MEMORY_ID;
+const pulseForgeBackendUrl = requiredEnv("PULSEFORGE_BACKEND_URL");
+const pulseForgeToolAuthMode = parseToolAuthMode(
+  requiredEnv("PULSEFORGE_TOOL_AUTH_MODE")
+);
+const pulseForgeToolsProviderName =
+  process.env.PULSEFORGE_TOOLS_PROVIDER_NAME ??
+  "pulseforge-backend-user-federation";
+const pulseForgeWorkloadName =
+  pulseForgeToolAuthMode === "local-user-id"
+    ? requiredEnv("PULSEFORGE_WORKLOAD_NAME")
+    : undefined;
 const sharedAwsConfig = process.env.AWS_PROFILE
   ? {
       credentials: fromIni({
@@ -37,6 +58,10 @@ const bedrockAgentCoreClient = memoryId
       ...sharedAwsConfig,
     })
   : undefined;
+const workloadTokenClient = new BedrockAgentCoreClient({
+  region: process.env.AWS_REGION,
+  ...sharedAwsConfig,
+});
 
 const localShortTermMemoryStore = new InMemoryShortTermMemoryStore();
 const longTermRetrievalConfig = getLongTermRetrievalConfig();
@@ -59,85 +84,12 @@ const agentKindSchema = z.enum([
 ]);
 
 const agentRequestSchema = z.object({
+  agentRunId: z.string(),
   prompt: z.string(),
   agentKind: agentKindSchema.default("ops-copilot"),
   incidentId: z.string().optional(),
   deviceId: z.string().optional(),
   actorId: z.string().optional(),
-  investigationContext: z
-    .object({
-      incident: z.object({
-        id: z.string(),
-        siteId: z.string(),
-        title: z.string(),
-        summary: z.string(),
-        severity: z.string(),
-        status: z.string(),
-        deviceIds: z.array(z.string()),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-        category: z.string(),
-      }),
-      events: z.array(
-        z.object({
-          id: z.string(),
-          incidentId: z.string(),
-          timestamp: z.string(),
-          kind: z.string(),
-          message: z.string(),
-        })
-      ),
-      devices: z.array(
-        z.object({
-          device: z.object({
-            id: z.string(),
-            siteId: z.string(),
-            name: z.string(),
-            type: z.string(),
-            firmwareVersion: z.string(),
-            batteryPercent: z.number(),
-            connectivityPercent: z.number(),
-            status: z.string(),
-            tags: z.array(z.string()),
-            lastSeenAt: z.string(),
-          }),
-          telemetry: z.array(
-            z.object({
-              timestamp: z.string(),
-              temperatureC: z.number().optional(),
-              vibrationMmS: z.number().optional(),
-              batteryPercent: z.number(),
-              signalStrength: z.number(),
-              packetLossPercent: z.number(),
-            })
-          ),
-        })
-      ),
-      relatedIncidents: z.array(
-        z.object({
-          id: z.string(),
-          siteId: z.string(),
-          title: z.string(),
-          summary: z.string(),
-          severity: z.string(),
-          status: z.string(),
-          deviceIds: z.array(z.string()),
-          createdAt: z.string(),
-          updatedAt: z.string(),
-          category: z.string(),
-        })
-      ),
-      runbook: z
-        .object({
-          id: z.string(),
-          title: z.string(),
-          category: z.string(),
-          summary: z.string(),
-          steps: z.array(z.string()),
-        })
-        .optional(),
-    })
-    .optional(),
 });
 
 const app = new BedrockAgentCoreApp({
@@ -170,12 +122,15 @@ const app = new BedrockAgentCoreApp({
               }),
             ]
           : [];
+      const tools = await createAgentTools(request, context);
 
       const agent = new Agent({
         model: bedrockModel,
         id: agentIdForKind(request.agentKind),
         name: labelForAgentKind(request.agentKind),
+        systemPrompt: systemPromptForAgentKind(request.agentKind),
         messages: initialMessages,
+        tools,
         conversationManager: new SlidingWindowConversationManager({
           windowSize: 40,
         }),
@@ -191,6 +146,19 @@ const app = new BedrockAgentCoreApp({
           data: buildInvestigationSummary(request, String(result)),
         };
       } catch (error) {
+        if (error instanceof ToolAuthorizationRequiredError) {
+          yield {
+            event: "auth_required",
+            data: {
+              providerName: error.providerName,
+              authUrl: error.authUrl,
+              scopes: error.scopes,
+              agentRunId: error.agentRunId,
+            },
+          };
+          return;
+        }
+
         console.log(error);
       } finally {
         await persistSessionMessages(
@@ -278,61 +246,15 @@ function agentIdForKind(kind: z.infer<typeof agentKindSchema>) {
 }
 
 function buildAgentPrompt(request: z.infer<typeof agentRequestSchema>): string {
-  const context = request.investigationContext;
   const contextLines = [
     `Agent kind: ${request.agentKind}`,
+    `Agent run ID: ${request.agentRunId}`,
     request.incidentId ? `Incident ID: ${request.incidentId}` : null,
     request.deviceId ? `Device ID: ${request.deviceId}` : null,
-    context
-      ? [
-          `Incident title: ${context.incident.title}`,
-          `Incident severity: ${context.incident.severity}`,
-          `Incident category: ${context.incident.category}`,
-          `Incident summary: ${context.incident.summary}`,
-          `Devices in scope: ${context.devices
-            .map(
-              ({ device }) =>
-                `${device.name} (${device.id}, fw ${device.firmwareVersion}, status ${device.status})`
-            )
-            .join("; ")}`,
-          `Recent telemetry: ${context.devices
-            .map(({ device, telemetry }) => {
-              const latest = telemetry.at(-1);
-              if (!latest) {
-                return `${device.id}: no telemetry`;
-              }
-
-              const metrics = [
-                typeof latest.temperatureC === "number"
-                  ? `temp ${latest.temperatureC}C`
-                  : null,
-                typeof latest.vibrationMmS === "number"
-                  ? `vibration ${latest.vibrationMmS} mm/s`
-                  : null,
-                `battery ${latest.batteryPercent}%`,
-                `signal ${latest.signalStrength}`,
-                `packet loss ${latest.packetLossPercent}%`,
-              ].filter(Boolean);
-
-              return `${device.id}: ${metrics.join(", ")}`;
-            })
-            .join("; ")}`,
-          context.relatedIncidents.length > 0
-            ? `Related incidents: ${context.relatedIncidents
-                .map((item) => `${item.id} (${item.category}, ${item.status})`)
-                .join("; ")}`
-            : "Related incidents: none",
-          context.runbook
-            ? `Runbook: ${context.runbook.title}. Steps: ${context.runbook.steps.join(
-                " | "
-              )}`
-            : "Runbook: none",
-        ].join("\n")
-      : null,
     "",
     request.prompt,
     "",
-    "Return a concise operator-ready investigation. Prefer evidence grounded in the provided context.",
+    "Return a concise operator-ready response. Use available tools to gather operational evidence when IDs are provided.",
   ].filter(Boolean);
 
   return contextLines.join("\n");
@@ -342,117 +264,12 @@ function buildInvestigationSummary(
   request: z.infer<typeof agentRequestSchema>,
   result: string
 ) {
-  const context = request.investigationContext;
-  const findings = context ? buildContextFindings(context) : [];
-  const recommendedActions = context
-    ? buildContextActions(context)
-    : request.agentKind === "autonomous-remediation"
-      ? [
-          "Verify whether the proposed remediation is allowlisted before execution.",
-          "Create or update an incident ticket if the issue remains unresolved.",
-        ]
-      : [
-          "Review the investigation summary in the API response.",
-          "Escalate to the remediation planner if an operational change is required.",
-        ];
-
   return {
     title: `${labelForAgentKind(request.agentKind)} summary`,
     summary: truncate(result, 220),
-    findings:
-      findings.length > 0
-        ? findings
-        : [
-            request.incidentId
-              ? `Incident ${request.incidentId} was included in the analysis context.`
-              : "No incident id was provided in the request.",
-            request.deviceId
-              ? `Device ${request.deviceId} was included in the analysis context.`
-              : "No device id was provided in the request.",
-          ],
-    recommendedActions,
+    findings: [],
+    recommendedActions: [],
   };
-}
-
-function buildContextFindings(
-  context: NonNullable<z.infer<typeof agentRequestSchema>["investigationContext"]>
-) {
-  const findings: string[] = [];
-
-  const firmwareCohorts = new Set(
-    context.devices.map(({ device }) => device.firmwareVersion)
-  );
-  if (firmwareCohorts.size === 1) {
-    findings.push(
-      `All affected devices share firmware cohort ${context.devices[0]?.device.firmwareVersion}.`
-    );
-  }
-
-  const warmingDevices = context.devices
-    .map(({ device, telemetry }) => ({
-      device,
-      latest: telemetry.at(-1),
-    }))
-    .filter(
-      (item): item is typeof item & { latest: NonNullable<typeof item.latest> } =>
-        Boolean(item.latest)
-    )
-    .filter((item) => typeof item.latest.temperatureC === "number" && item.latest.temperatureC > -15);
-
-  if (warmingDevices.length > 0) {
-    findings.push(
-      `Temperature drift is visible on ${warmingDevices
-        .map((item) => `${item.device.id} (${item.latest.temperatureC}C)`)
-        .join(", ")}.`
-    );
-  }
-
-  const highPacketLoss = context.devices
-    .map(({ device, telemetry }) => ({
-      device,
-      latest: telemetry.at(-1),
-    }))
-    .filter(
-      (item): item is typeof item & { latest: NonNullable<typeof item.latest> } =>
-        Boolean(item.latest)
-    )
-    .filter((item) => item.latest.packetLossPercent >= 3);
-
-  if (highPacketLoss.length > 0) {
-    findings.push(
-      `Elevated packet loss is present on ${highPacketLoss
-        .map((item) => `${item.device.id} (${item.latest.packetLossPercent}%)`)
-        .join(", ")}.`
-    );
-  }
-
-  if (context.relatedIncidents.length > 0) {
-    findings.push(
-      `There are ${context.relatedIncidents.length} related incidents that may indicate a broader cohort or site pattern.`
-    );
-  }
-
-  return findings;
-}
-
-function buildContextActions(
-  context: NonNullable<z.infer<typeof agentRequestSchema>["investigationContext"]>
-) {
-  const actions: string[] = [];
-
-  if (context.runbook) {
-    actions.push(...context.runbook.steps.slice(0, 2));
-  }
-
-  if (context.incident.category === "temperature-drift") {
-    actions.push("Compare affected freezer sensors against unaffected same-site devices before rollback.");
-  }
-
-  if (context.incident.category === "connectivity-loss") {
-    actions.push("Confirm whether downstream devices are stale before scheduling a gateway reboot.");
-  }
-
-  return Array.from(new Set(actions)).slice(0, 4);
 }
 
 function labelForAgentKind(kind: z.infer<typeof agentKindSchema>): string {
@@ -466,6 +283,116 @@ function labelForAgentKind(kind: z.infer<typeof agentKindSchema>): string {
     case "autonomous-remediation":
       return "Autonomous Remediation";
   }
+}
+
+function systemPromptForAgentKind(kind: z.infer<typeof agentKindSchema>): string {
+  switch (kind) {
+    case "ops-copilot":
+      return [
+        "You are PulseForge Ops Copilot, an IoT operations assistant for device monitoring and incident response.",
+        "Investigate user requests using available operational tools, ground conclusions in retrieved data, and keep responses concise enough for an on-call operator.",
+        "When you create records, make the audit trail understandable: explain what you changed, why, and what remains uncertain.",
+      ].join("\n");
+    case "anomaly-investigation":
+      return [
+        "You are PulseForge Anomaly Investigation Agent.",
+        "Analyze telemetry and incident patterns, identify likely contributing factors, and separate evidence from hypotheses.",
+      ].join("\n");
+    case "remediation-planner":
+      return [
+        "You are PulseForge Remediation Planner.",
+        "Propose safe, reviewable remediation plans with risk notes and clear prerequisites before any operational change.",
+      ].join("\n");
+    case "autonomous-remediation":
+      return [
+        "You are PulseForge Autonomous Remediation Agent.",
+        "Prefer safe, reversible actions, document all action attempts, and stop when confidence or authorization is insufficient.",
+      ].join("\n");
+  }
+}
+
+async function createAgentTools(
+  request: z.infer<typeof agentRequestSchema>,
+  context: { headers: Record<string, string>; workloadAccessToken?: string }
+) {
+  if (request.agentKind !== "ops-copilot") {
+    return [];
+  }
+
+  const credentialProvider = await createToolCredentialProvider(request, context);
+  return createPulseForgeStrandsTools(request.agentKind, {
+    backendUrl: pulseForgeBackendUrl,
+    agentRunId: request.agentRunId,
+    providerName: pulseForgeToolsProviderName,
+    credentialProvider,
+  });
+}
+
+async function createToolCredentialProvider(
+  request: z.infer<typeof agentRequestSchema>,
+  context: { headers: Record<string, string>; workloadAccessToken?: string }
+): Promise<ToolCredentialProvider> {
+  if (pulseForgeToolAuthMode === "agentcore-runtime") {
+    return new AgentCoreIdentityCredentialProvider(context.workloadAccessToken);
+  }
+
+  const userId =
+    context.headers["x-amzn-bedrock-agentcore-runtime-custom-user-id"] ??
+    process.env.PULSEFORGE_LOCAL_USER_ID ??
+    request.actorId;
+
+  if (!userId) {
+    throw new Error(
+      "PULSEFORGE_TOOL_AUTH_MODE=local-user-id requires x-amzn-bedrock-agentcore-runtime-custom-user-id, PULSEFORGE_LOCAL_USER_ID, or actorId."
+    );
+  }
+
+  const response = await workloadTokenClient.send(
+    new GetWorkloadAccessTokenForUserIdCommand({
+      workloadName: pulseForgeWorkloadName,
+      userId,
+    })
+  );
+
+  if (!response.workloadAccessToken) {
+    throw new Error("AgentCore did not return a workload access token.");
+  }
+
+  return new AgentCoreIdentityCredentialProvider(response.workloadAccessToken);
+}
+
+class AgentCoreIdentityCredentialProvider implements ToolCredentialProvider {
+  constructor(private readonly workloadIdentityToken?: string) {}
+
+  withAccessToken<TInput, TResult>(
+    config: ToolAccessTokenConfig,
+    fn: (input: TInput, accessToken: string) => Promise<TResult>
+  ): (input: TInput) => Promise<TResult> {
+    return withAccessToken({
+      ...config,
+      scopes: [...config.scopes],
+      workloadIdentityToken: this.workloadIdentityToken,
+    })(async (input: TInput, accessToken: string) => fn(input, accessToken));
+  }
+}
+
+function requiredEnv(name: string): string {
+  const value = process.env[name];
+  if (!value) {
+    throw new Error(`${name} is required.`);
+  }
+
+  return value;
+}
+
+function parseToolAuthMode(value: string) {
+  if (value === "agentcore-runtime" || value === "local-user-id") {
+    return value;
+  }
+
+  throw new Error(
+    "PULSEFORGE_TOOL_AUTH_MODE must be either agentcore-runtime or local-user-id."
+  );
 }
 
 function truncate(value: string, maxLength: number): string {

@@ -60,6 +60,10 @@ export interface PulseForgeRepository {
     runId: string,
     result: AgentRunResult
   ): Promise<AgentRun | null>;
+  requireAgentRunAuth(
+    runId: string,
+    result: NonNullable<AgentRunResult["authRequired"]>
+  ): Promise<AgentRun | null>;
   failAgentRun(runId: string, errorMessage: string): Promise<AgentRun | null>;
   seedDemoData(): Promise<void>;
 }

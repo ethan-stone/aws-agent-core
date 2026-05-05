@@ -369,6 +369,27 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     return this.getAgentRun(runId);
   }
 
+  async requireAgentRunAuth(
+    runId: string,
+    authRequired: NonNullable<AgentRunResult["authRequired"]>
+  ): Promise<AgentRun | null> {
+    await this.collections().agentRuns.updateOne(
+      { id: runId },
+      {
+        $set: {
+          status: "auth_required",
+          summary: "Agent run requires delegated tool authorization.",
+          authRequired,
+        },
+        $unset: {
+          errorMessage: "",
+        },
+      }
+    );
+
+    return this.getAgentRun(runId);
+  }
+
   async failAgentRun(
     runId: string,
     errorMessage: string

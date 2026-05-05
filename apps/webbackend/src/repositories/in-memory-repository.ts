@@ -212,6 +212,26 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     return updated;
   }
 
+  async requireAgentRunAuth(
+    runId: string,
+    authRequired: NonNullable<AgentRunResult["authRequired"]>
+  ): Promise<AgentRun | null> {
+    const existing = this.agentRuns.get(runId);
+    if (!existing) {
+      return null;
+    }
+
+    const updated: AgentRun = {
+      ...existing,
+      status: "auth_required",
+      summary: "Agent run requires delegated tool authorization.",
+      authRequired,
+    };
+
+    this.agentRuns.set(runId, updated);
+    return updated;
+  }
+
   async failAgentRun(
     runId: string,
     errorMessage: string

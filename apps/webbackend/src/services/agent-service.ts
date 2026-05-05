@@ -11,12 +11,12 @@ import type {
   AgentRuntimeInvocation,
   AuthenticatedAppUser,
   CreateAgentRunRequest,
-  IncidentInvestigationContext,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import {
   completeAgentRun,
   createAgentRun,
   failAgentRun,
+  requireAgentRunAuth,
 } from "./pulseforge-service.js";
 
 const region = process.env.AWS_REGION ?? "us-east-1";
@@ -39,8 +39,7 @@ function getClient(): BedrockAgentCoreClient {
 
 export async function runAgent(
   request: CreateAgentRunRequest,
-  user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null
+  user?: AuthenticatedAppUser | null
 ): Promise<AgentRun> {
   const runId = randomUUID();
   const sessionId = request.sessionId ?? `agent-run-${runId}`;
@@ -54,12 +53,12 @@ export async function runAgent(
   });
 
   try {
-    const result = await invokeRuntime(
-      request,
-      sessionId,
-      runtimeUserId,
-      investigationContext
-    );
+    const result = await invokeRuntime(request, runId, sessionId, runtimeUserId);
+    if (result.authRequired) {
+      const authRequired = await requireAgentRunAuth(runId, result.authRequired);
+      return authRequired ?? queued;
+    }
+
     const completed = await completeAgentRun(runId, result);
     return completed ?? queued;
   } catch (error) {
@@ -80,9 +79,9 @@ export async function runAgent(
 
 async function invokeRuntime(
   request: CreateAgentRunRequest,
+  runId: string,
   sessionId: string,
-  runtimeUserId: string,
-  investigationContext?: IncidentInvestigationContext | null
+  runtimeUserId: string
 ): Promise<AgentRunResult> {
   const runtimeArn = process.env.AGENT_RUNTIME_ARN;
   const qualifier = process.env.AGENT_RUNTIME_QUALIFIER;
@@ -93,7 +92,7 @@ async function invokeRuntime(
     throw new Error("AGENT_RUNTIME_QUALIFIER is not configured for the API.");
   }
 
-  const invocation = buildInvocationPayload(request, runtimeUserId);
+  const invocation = buildInvocationPayload(request, runId, runtimeUserId);
   if (isDebugLoggingEnabled) {
     console.info("[agent] invoking aws runtime", {
       runtimeArn,
@@ -103,7 +102,6 @@ async function invokeRuntime(
       agentKind: request.agentKind,
       incidentId: request.incidentId,
       deviceId: request.deviceId,
-      hasInvestigationContext: Boolean(investigationContext),
     });
   }
 
@@ -116,10 +114,7 @@ async function invokeRuntime(
       runtimeSessionId: sessionId,
       runtimeUserId,
       payload: new TextEncoder().encode(
-        JSON.stringify({
-          ...invocation,
-          ...(investigationContext ? { investigationContext } : {}),
-        })
+        JSON.stringify(invocation)
       ),
     })
   );
@@ -164,9 +159,11 @@ function formatAgentInvocationError(error: unknown) {
 
 function buildInvocationPayload(
   request: CreateAgentRunRequest,
+  runId: string,
   runtimeUserId: string
 ): AgentRuntimeInvocation {
   return {
+    agentRunId: runId,
     agentKind: request.agentKind,
     prompt: request.prompt,
     incidentId: request.incidentId,
@@ -181,6 +178,7 @@ function parseAgentRuntimeResponse(rawText: string): AgentRunResult {
   const messages: AgentRunMessage[] = [];
   let summary = "Agent run completed.";
   let investigation: AgentRunResult["investigation"];
+  let authRequired: AgentRunResult["authRequired"];
 
   for (const event of events) {
     const maybeText = asEventText(event.data);
@@ -205,6 +203,20 @@ function parseAgentRuntimeResponse(rawText: string): AgentRunResult {
         recommendedActions: data.recommendedActions ?? [],
       };
     }
+
+    if (event.event === "auth_required" && event.data) {
+      const data = event.data as AgentRunResult["authRequired"];
+      if (
+        data &&
+        typeof data.providerName === "string" &&
+        typeof data.authUrl === "string" &&
+        Array.isArray(data.scopes) &&
+        typeof data.agentRunId === "string"
+      ) {
+        authRequired = data;
+        summary = "Agent run requires delegated tool authorization.";
+      }
+    }
   }
 
   if (messages.length === 0) {
@@ -215,6 +227,7 @@ function parseAgentRuntimeResponse(rawText: string): AgentRunResult {
     summary,
     messages,
     investigation,
+    authRequired,
   };
 }
 

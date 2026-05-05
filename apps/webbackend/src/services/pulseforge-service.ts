@@ -158,6 +158,13 @@ export async function completeAgentRun(runId: string, result: AgentRunResult) {
   return (await getRepository()).completeAgentRun(runId, result);
 }
 
+export async function requireAgentRunAuth(
+  runId: string,
+  authRequired: NonNullable<AgentRunResult["authRequired"]>
+) {
+  return (await getRepository()).requireAgentRunAuth(runId, authRequired);
+}
+
 export async function failAgentRun(runId: string, errorMessage: string) {
   return (await getRepository()).failAgentRun(runId, errorMessage);
 }
