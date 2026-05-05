@@ -48,6 +48,7 @@ Recommended local dev commands:
 pnpm mongodb:dev
 pnpm webbackend:seed:local
 pnpm agent:dev:local
+pnpm agent:invoke:local -- --user-id <cognito-user-sub> --incident-id inc-1001
 pnpm webbackend:dev:local
 pnpm webapp:dev:local
 ```
@@ -57,6 +58,7 @@ Notes:
 - `pnpm mongodb:dev` runs MongoDB in the foreground with visible logs using `docker compose`
 - `pnpm webbackend:seed:local` seeds the local MongoDB database with PulseForge demo data
 - `pnpm agent:dev:local` runs the AgentCore runtime locally on port 8080
+- `pnpm agent:invoke:local -- --user-id <cognito-user-sub>` invokes the local runtime with generated run/session ids
 - `pnpm webbackend:dev:local` runs the web backend against a deployed AgentCore runtime using the AWS SDK
 - `pnpm webapp:dev:local` runs the SPA pointed at `http://localhost:3000`
 

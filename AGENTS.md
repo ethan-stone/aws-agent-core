@@ -107,6 +107,7 @@ The browser never calls the AgentCore runtime directly.
 pnpm mongodb:dev
 pnpm webbackend:seed:local
 pnpm agent:dev:local
+pnpm agent:invoke:local -- --user-id <cognito-user-sub> --incident-id inc-1001
 pnpm webbackend:dev:local
 pnpm webapp:dev:local
 ```

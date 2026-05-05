@@ -7,7 +7,8 @@
     "build": "node esbuild.config.mjs",
     "test": "node --import tsx --test src/**/*.test.ts",
     "start": "node dist/index.mjs",
-    "dev": "node --import tsx src/index.ts"
+    "dev": "node --import tsx src/index.ts",
+    "invoke:local": "node --import tsx src/scripts/invoke-local.ts"
   },
   "dependencies": {
     "@agent-core/pulseforge-agent": "workspace:*",

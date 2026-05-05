@@ -15,6 +15,7 @@
     "mongodb:dev:detached": "docker compose up -d mongodb",
     "mongodb:stop": "docker compose stop mongodb",
     "agent:dev:local": "pnpm --filter @agent-core/pulseforge-agent-runtime dev",
+    "agent:invoke:local": "pnpm --filter @agent-core/pulseforge-agent-runtime invoke:local",
     "webbackend:seed:local": "pnpm --filter @agent-core/webbackend seed",
     "webbackend:dev:local": "pnpm --filter @agent-core/webbackend dev",
     "webapp:dev:local": "pnpm --filter @agent-core/webapp dev",
