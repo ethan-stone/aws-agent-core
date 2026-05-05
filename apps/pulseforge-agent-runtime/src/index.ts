@@ -1,3 +1,4 @@
+import "./load-env.js";
 import { BedrockAgentCoreApp } from "bedrock-agentcore/runtime";
 import {
   Agent,
@@ -26,12 +27,7 @@ import {
   type ShortTermMemoryStore,
 } from "./short-term-memory-store.js";
 import { loadRuntimeConfig } from "./runtime-config.js";
-import dotenv from "dotenv";
 import { z } from "zod";
-
-dotenv.config({
-  quiet: true,
-});
 
 const runtimeConfig = loadRuntimeConfig();
 const memoryId = runtimeConfig.memoryId;
