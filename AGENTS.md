@@ -106,6 +106,7 @@ The browser never calls the AgentCore runtime directly.
 ```bash
 pnpm mongodb:dev
 pnpm webbackend:seed:local
+pnpm agent:dev:local
 pnpm webbackend:dev:local
 pnpm webapp:dev:local
 ```
