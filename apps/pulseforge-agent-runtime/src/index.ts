@@ -1,3 +1,4 @@
+import "./load-env.js";
 import { BedrockAgentCoreApp } from "bedrock-agentcore/runtime";
 import {
   Agent,
@@ -5,7 +6,22 @@ import {
   SlidingWindowConversationManager,
 } from "@strands-agents/sdk";
 import { fromIni } from "@aws-sdk/credential-providers";
-import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore";
+import {
+  BedrockAgentCoreClient,
+  GetWorkloadAccessTokenForUserIdCommand,
+} from "@aws-sdk/client-bedrock-agentcore";
+import { withAccessToken } from "bedrock-agentcore/identity";
+import {
+  createPulseForgeStrandsTools,
+  type ToolAccessTokenConfig,
+  type ToolCredentialProvider,
+} from "../../../shared/pulseforge-tools/src/index.js";
+import {
+  getPulseForgeAgentConfig,
+  getPulseForgeAgentToolAuthorizationGroups,
+  getPulseForgeAgentToolDefinitions,
+  pulseForgeAgentKindSchema,
+} from "../../../shared/pulseforge-agent/src/index.js";
 import {
   AgentCoreLongTermMemoryPlugin,
   type RetrievalConfigMap,
@@ -15,28 +31,29 @@ import {
   InMemoryShortTermMemoryStore,
   type ShortTermMemoryStore,
 } from "./short-term-memory-store.js";
-import dotenv from "dotenv";
+import { loadRuntimeConfig } from "./runtime-config.js";
 import { z } from "zod";
 
-dotenv.config({
-  quiet: true,
-});
-
-const memoryId = process.env.MEMORY_ID;
-const sharedAwsConfig = process.env.AWS_PROFILE
+const runtimeConfig = loadRuntimeConfig();
+const memoryId = runtimeConfig.memoryId;
+const sharedAwsConfig = runtimeConfig.awsProfile
   ? {
-      credentials: fromIni({
-        profile: process.env.AWS_PROFILE,
-      }),
-    }
+    credentials: fromIni({
+      profile: runtimeConfig.awsProfile,
+    }),
+  }
   : undefined;
 
 const bedrockAgentCoreClient = memoryId
   ? new BedrockAgentCoreClient({
-      region: process.env.AWS_REGION,
-      ...sharedAwsConfig,
-    })
+    region: runtimeConfig.awsRegion,
+    ...sharedAwsConfig,
+  })
   : undefined;
+const workloadTokenClient = new BedrockAgentCoreClient({
+  region: runtimeConfig.awsRegion,
+  ...sharedAwsConfig,
+});
 
 const localShortTermMemoryStore = new InMemoryShortTermMemoryStore();
 const longTermRetrievalConfig = getLongTermRetrievalConfig();
@@ -46,99 +63,41 @@ if (!memoryId) {
     "MEMORY_ID is not set. Using in-process memory for local development."
   );
 }
+if (!runtimeConfig.tools.enabled) {
+  console.warn(`[tools] disabled: ${runtimeConfig.tools.reason}`);
+} else {
+  console.info("[tools] enabled", {
+    backendUrl: runtimeConfig.tools.backendUrl,
+    authMode: runtimeConfig.tools.authMode,
+    providerName: runtimeConfig.tools.providerName,
+  });
+}
 
 const bedrockModel = new BedrockModel({
   modelId: "amazon.nova-pro-v1:0",
   clientConfig: sharedAwsConfig,
 });
-const agentKindSchema = z.enum([
-  "ops-copilot",
-  "anomaly-investigation",
-  "remediation-planner",
-  "autonomous-remediation",
-]);
-
 const agentRequestSchema = z.object({
+  agentRunId: z.string(),
   prompt: z.string(),
-  agentKind: agentKindSchema.default("ops-copilot"),
+  agentKind: pulseForgeAgentKindSchema.default("ops-copilot"),
   incidentId: z.string().optional(),
   deviceId: z.string().optional(),
   actorId: z.string().optional(),
-  investigationContext: z
-    .object({
-      incident: z.object({
-        id: z.string(),
-        siteId: z.string(),
-        title: z.string(),
-        summary: z.string(),
-        severity: z.string(),
-        status: z.string(),
-        deviceIds: z.array(z.string()),
-        createdAt: z.string(),
-        updatedAt: z.string(),
-        category: z.string(),
-      }),
-      events: z.array(
-        z.object({
-          id: z.string(),
-          incidentId: z.string(),
-          timestamp: z.string(),
-          kind: z.string(),
-          message: z.string(),
-        })
-      ),
-      devices: z.array(
-        z.object({
-          device: z.object({
-            id: z.string(),
-            siteId: z.string(),
-            name: z.string(),
-            type: z.string(),
-            firmwareVersion: z.string(),
-            batteryPercent: z.number(),
-            connectivityPercent: z.number(),
-            status: z.string(),
-            tags: z.array(z.string()),
-            lastSeenAt: z.string(),
-          }),
-          telemetry: z.array(
-            z.object({
-              timestamp: z.string(),
-              temperatureC: z.number().optional(),
-              vibrationMmS: z.number().optional(),
-              batteryPercent: z.number(),
-              signalStrength: z.number(),
-              packetLossPercent: z.number(),
-            })
-          ),
-        })
-      ),
-      relatedIncidents: z.array(
-        z.object({
-          id: z.string(),
-          siteId: z.string(),
-          title: z.string(),
-          summary: z.string(),
-          severity: z.string(),
-          status: z.string(),
-          deviceIds: z.array(z.string()),
-          createdAt: z.string(),
-          updatedAt: z.string(),
-          category: z.string(),
-        })
-      ),
-      runbook: z
-        .object({
-          id: z.string(),
-          title: z.string(),
-          category: z.string(),
-          summary: z.string(),
-          steps: z.array(z.string()),
-        })
-        .optional(),
-    })
-    .optional(),
 });
+
+type RuntimeStreamEvent =
+  | { event: "auth_required"; data: AuthRequiredEventData }
+  | { event: "message"; data: { text: unknown } }
+  | { event: "summary"; data: ReturnType<typeof buildInvestigationSummary> };
+
+type AuthRequiredEventData = {
+  providerName: string;
+  providerDisplayName: string;
+  authUrl: string;
+  scopes: string[];
+  agentRunId: string;
+};
 
 const app = new BedrockAgentCoreApp({
   invocationHandler: {
@@ -158,47 +117,81 @@ const app = new BedrockAgentCoreApp({
       const plugins =
         memoryId && bedrockAgentCoreClient
           ? [
-              new AgentCoreLongTermMemoryPlugin({
-                client: bedrockAgentCoreClient,
-                memoryId,
-                actorId,
-                sessionId: context.sessionId,
-                retrievalConfig: longTermRetrievalConfig,
-                contextTag:
-                  process.env.AGENTCORE_MEMORY_CONTEXT_TAG ??
-                  "agentcore-memory-context",
-              }),
-            ]
+            new AgentCoreLongTermMemoryPlugin({
+              client: bedrockAgentCoreClient,
+              memoryId,
+              actorId,
+              sessionId: context.sessionId,
+              retrievalConfig: longTermRetrievalConfig,
+              contextTag: runtimeConfig.longTermMemoryContextTag,
+            }),
+          ]
           : [];
+      const agentConfig = getPulseForgeAgentConfig(request.agentKind);
+      const authEvents = new AsyncEventQueue<RuntimeStreamEvent>();
+      const tools = await createAgentTools(request, context, {
+        onAuthorizationRequired: (details) => {
+          authEvents.push({ event: "auth_required", data: details });
+        },
+      });
 
       const agent = new Agent({
         model: bedrockModel,
-        id: agentIdForKind(request.agentKind),
-        name: labelForAgentKind(request.agentKind),
+        id: agentConfig.id,
+        name: agentConfig.label,
+        systemPrompt: agentConfig.systemPrompt,
         messages: initialMessages,
+        tools,
         conversationManager: new SlidingWindowConversationManager({
           windowSize: 40,
         }),
         plugins,
       });
 
-      try {
+      const agentInvocation = (async (): Promise<RuntimeStreamEvent[]> => {
         const enrichedPrompt = buildAgentPrompt(request);
         const result = await agent.invoke(enrichedPrompt);
-        yield { event: "message", data: { text: result } };
-        yield {
-          event: "summary",
-          data: buildInvestigationSummary(request, String(result)),
-        };
-      } catch (error) {
-        console.log(error);
-      } finally {
-        await persistSessionMessages(
-          shortTermMemoryStore,
-          context.sessionId,
-          actorId,
-          agent.messages
-        );
+        return [
+          { event: "message", data: { text: result } },
+          {
+            event: "summary",
+            data: buildInvestigationSummary(request, String(result)),
+          },
+        ];
+      })();
+
+      let finalEvents: RuntimeStreamEvent[] | undefined;
+      let invocationError: unknown;
+      agentInvocation
+        .then((events) => {
+          finalEvents = events;
+        })
+        .catch((error) => {
+          invocationError = error;
+        })
+        .finally(() => authEvents.close());
+
+      while (finalEvents === undefined && invocationError === undefined) {
+        const event = await authEvents.next();
+        if (event) {
+          yield event;
+        }
+      }
+
+      await persistSessionMessages(
+        shortTermMemoryStore,
+        context.sessionId,
+        actorId,
+        agent.messages
+      );
+
+      if (invocationError) {
+        console.log(invocationError);
+        return;
+      }
+
+      for (const event of finalEvents ?? []) {
+        yield event;
       }
     },
   },
@@ -207,7 +200,7 @@ const app = new BedrockAgentCoreApp({
 app.run();
 
 function getLongTermRetrievalConfig(): RetrievalConfigMap {
-  if (process.env.ENABLE_AGENTCORE_LONG_TERM_MEMORY !== "true") {
+  if (!runtimeConfig.longTermMemoryEnabled) {
     return {};
   }
 
@@ -273,66 +266,16 @@ async function persistSessionMessages(
   }
 }
 
-function agentIdForKind(kind: z.infer<typeof agentKindSchema>) {
-  return `pulseforge-${kind}`;
-}
-
 function buildAgentPrompt(request: z.infer<typeof agentRequestSchema>): string {
-  const context = request.investigationContext;
   const contextLines = [
     `Agent kind: ${request.agentKind}`,
+    `Agent run ID: ${request.agentRunId}`,
     request.incidentId ? `Incident ID: ${request.incidentId}` : null,
     request.deviceId ? `Device ID: ${request.deviceId}` : null,
-    context
-      ? [
-          `Incident title: ${context.incident.title}`,
-          `Incident severity: ${context.incident.severity}`,
-          `Incident category: ${context.incident.category}`,
-          `Incident summary: ${context.incident.summary}`,
-          `Devices in scope: ${context.devices
-            .map(
-              ({ device }) =>
-                `${device.name} (${device.id}, fw ${device.firmwareVersion}, status ${device.status})`
-            )
-            .join("; ")}`,
-          `Recent telemetry: ${context.devices
-            .map(({ device, telemetry }) => {
-              const latest = telemetry.at(-1);
-              if (!latest) {
-                return `${device.id}: no telemetry`;
-              }
-
-              const metrics = [
-                typeof latest.temperatureC === "number"
-                  ? `temp ${latest.temperatureC}C`
-                  : null,
-                typeof latest.vibrationMmS === "number"
-                  ? `vibration ${latest.vibrationMmS} mm/s`
-                  : null,
-                `battery ${latest.batteryPercent}%`,
-                `signal ${latest.signalStrength}`,
-                `packet loss ${latest.packetLossPercent}%`,
-              ].filter(Boolean);
-
-              return `${device.id}: ${metrics.join(", ")}`;
-            })
-            .join("; ")}`,
-          context.relatedIncidents.length > 0
-            ? `Related incidents: ${context.relatedIncidents
-                .map((item) => `${item.id} (${item.category}, ${item.status})`)
-                .join("; ")}`
-            : "Related incidents: none",
-          context.runbook
-            ? `Runbook: ${context.runbook.title}. Steps: ${context.runbook.steps.join(
-                " | "
-              )}`
-            : "Runbook: none",
-        ].join("\n")
-      : null,
     "",
     request.prompt,
     "",
-    "Return a concise operator-ready investigation. Prefer evidence grounded in the provided context.",
+    "Return a concise operator-ready response. If an ID is provided, use the available tools to gather operational evidence before answering.",
   ].filter(Boolean);
 
   return contextLines.join("\n");
@@ -342,129 +285,174 @@ function buildInvestigationSummary(
   request: z.infer<typeof agentRequestSchema>,
   result: string
 ) {
-  const context = request.investigationContext;
-  const findings = context ? buildContextFindings(context) : [];
-  const recommendedActions = context
-    ? buildContextActions(context)
-    : request.agentKind === "autonomous-remediation"
-      ? [
-          "Verify whether the proposed remediation is allowlisted before execution.",
-          "Create or update an incident ticket if the issue remains unresolved.",
-        ]
-      : [
-          "Review the investigation summary in the API response.",
-          "Escalate to the remediation planner if an operational change is required.",
-        ];
-
   return {
-    title: `${labelForAgentKind(request.agentKind)} summary`,
+    title: `${getPulseForgeAgentConfig(request.agentKind).label} summary`,
     summary: truncate(result, 220),
-    findings:
-      findings.length > 0
-        ? findings
-        : [
-            request.incidentId
-              ? `Incident ${request.incidentId} was included in the analysis context.`
-              : "No incident id was provided in the request.",
-            request.deviceId
-              ? `Device ${request.deviceId} was included in the analysis context.`
-              : "No device id was provided in the request.",
-          ],
-    recommendedActions,
+    findings: [],
+    recommendedActions: [],
   };
 }
 
-function buildContextFindings(
-  context: NonNullable<z.infer<typeof agentRequestSchema>["investigationContext"]>
+async function createAgentTools(
+  request: z.infer<typeof agentRequestSchema>,
+  context: {
+    headers: Record<string, string>;
+    workloadAccessToken?: string;
+    oauth2CallbackUrl?: string;
+  },
+  options?: {
+    onAuthorizationRequired?: (details: AuthRequiredEventData) => void | Promise<void>;
+  }
 ) {
-  const findings: string[] = [];
+  if (!runtimeConfig.tools.enabled) {
+    return [];
+  }
 
-  const firmwareCohorts = new Set(
-    context.devices.map(({ device }) => device.firmwareVersion)
+  const toolDefinitions = getPulseForgeAgentToolDefinitions(request.agentKind);
+  if (toolDefinitions.length === 0) {
+    return [];
+  }
+
+  const authorizationGroups =
+    getPulseForgeAgentToolAuthorizationGroups(request.agentKind);
+  const authorizationScopeByProviderKey = new Map(
+    authorizationGroups.map((group) => [group.provider.key, group.scopes])
   );
-  if (firmwareCohorts.size === 1) {
-    findings.push(
-      `All affected devices share firmware cohort ${context.devices[0]?.device.firmwareVersion}.`
-    );
-  }
+  console.info("[tools] wiring agent tools", {
+    agentKind: request.agentKind,
+    agentRunId: request.agentRunId,
+    tools: toolDefinitions.map((definition) => definition.name),
+    authorizationGroups: authorizationGroups.map((group) => ({
+      providerKey: group.provider.key,
+      providerDisplayName: group.provider.displayName,
+      scopes: group.scopes,
+      tools: group.tools,
+    })),
+    oauthCallbackUrlSource: context.oauth2CallbackUrl
+      ? "runtime-context"
+      : runtimeConfig.tools.oauthCallbackUrl
+        ? "env-fallback"
+        : "missing",
+  });
 
-  const warmingDevices = context.devices
-    .map(({ device, telemetry }) => ({
-      device,
-      latest: telemetry.at(-1),
-    }))
-    .filter(
-      (item): item is typeof item & { latest: NonNullable<typeof item.latest> } =>
-        Boolean(item.latest)
-    )
-    .filter((item) => typeof item.latest.temperatureC === "number" && item.latest.temperatureC > -15);
-
-  if (warmingDevices.length > 0) {
-    findings.push(
-      `Temperature drift is visible on ${warmingDevices
-        .map((item) => `${item.device.id} (${item.latest.temperatureC}C)`)
-        .join(", ")}.`
-    );
-  }
-
-  const highPacketLoss = context.devices
-    .map(({ device, telemetry }) => ({
-      device,
-      latest: telemetry.at(-1),
-    }))
-    .filter(
-      (item): item is typeof item & { latest: NonNullable<typeof item.latest> } =>
-        Boolean(item.latest)
-    )
-    .filter((item) => item.latest.packetLossPercent >= 3);
-
-  if (highPacketLoss.length > 0) {
-    findings.push(
-      `Elevated packet loss is present on ${highPacketLoss
-        .map((item) => `${item.device.id} (${item.latest.packetLossPercent}%)`)
-        .join(", ")}.`
-    );
-  }
-
-  if (context.relatedIncidents.length > 0) {
-    findings.push(
-      `There are ${context.relatedIncidents.length} related incidents that may indicate a broader cohort or site pattern.`
-    );
-  }
-
-  return findings;
+  const credentialProvider = await createToolCredentialProvider(request, context);
+  return createPulseForgeStrandsTools(toolDefinitions, {
+    backendUrl: runtimeConfig.tools.backendUrl,
+    agentRunId: request.agentRunId,
+    providers: {
+      "pulseforge-backend": {
+        providerName: runtimeConfig.tools.providerName,
+        resourceServerIdentifier: runtimeConfig.tools.resourceServerIdentifier,
+        oauthCallbackUrl:
+          context.oauth2CallbackUrl ?? runtimeConfig.tools.oauthCallbackUrl,
+        credentialProvider,
+      },
+    },
+    getAuthorizationScopes: (provider) =>
+      authorizationScopeByProviderKey.get(provider.key) ?? [],
+    onAuthorizationRequired: options?.onAuthorizationRequired,
+  });
 }
 
-function buildContextActions(
-  context: NonNullable<z.infer<typeof agentRequestSchema>["investigationContext"]>
-) {
-  const actions: string[] = [];
-
-  if (context.runbook) {
-    actions.push(...context.runbook.steps.slice(0, 2));
+async function createToolCredentialProvider(
+  request: z.infer<typeof agentRequestSchema>,
+  context: {
+    headers: Record<string, string>;
+    workloadAccessToken?: string;
+    oauth2CallbackUrl?: string;
+  }
+): Promise<ToolCredentialProvider> {
+  if (!runtimeConfig.tools.enabled) {
+    throw new Error("PulseForge tools are not configured.");
   }
 
-  if (context.incident.category === "temperature-drift") {
-    actions.push("Compare affected freezer sensors against unaffected same-site devices before rollback.");
+  if (runtimeConfig.tools.authMode === "agentcore-runtime") {
+    return new AgentCoreIdentityCredentialProvider(context.workloadAccessToken);
   }
 
-  if (context.incident.category === "connectivity-loss") {
-    actions.push("Confirm whether downstream devices are stale before scheduling a gateway reboot.");
+  const userId =
+    context.headers["x-amzn-bedrock-agentcore-runtime-custom-user-id"] ??
+    runtimeConfig.tools.localUserId ??
+    request.actorId;
+
+  if (!userId) {
+    throw new Error(
+      "PULSEFORGE_TOOL_AUTH_MODE=local-user-id requires x-amzn-bedrock-agentcore-runtime-custom-user-id, PULSEFORGE_LOCAL_USER_ID, or actorId."
+    );
   }
 
-  return Array.from(new Set(actions)).slice(0, 4);
+  const response = await workloadTokenClient.send(
+    new GetWorkloadAccessTokenForUserIdCommand({
+      workloadName: runtimeConfig.tools.workloadName,
+      userId,
+    })
+  );
+
+  if (!response.workloadAccessToken) {
+    throw new Error("AgentCore did not return a workload access token.");
+  }
+
+  return new AgentCoreIdentityCredentialProvider(response.workloadAccessToken);
 }
 
-function labelForAgentKind(kind: z.infer<typeof agentKindSchema>): string {
-  switch (kind) {
-    case "ops-copilot":
-      return "Ops Copilot";
-    case "anomaly-investigation":
-      return "Anomaly Investigation";
-    case "remediation-planner":
-      return "Remediation Planner";
-    case "autonomous-remediation":
-      return "Autonomous Remediation";
+class AgentCoreIdentityCredentialProvider implements ToolCredentialProvider {
+  constructor(private readonly workloadIdentityToken?: string) { }
+
+  withAccessToken<TInput, TResult>(
+    config: ToolAccessTokenConfig,
+    fn: (input: TInput, accessToken: string) => Promise<TResult>
+  ): (input: TInput) => Promise<TResult> {
+    return withAccessToken({
+      ...config,
+      scopes: [...config.scopes],
+      workloadIdentityToken: this.workloadIdentityToken,
+    })(async (input: TInput, accessToken: string) => fn(input, accessToken));
+  }
+}
+
+class AsyncEventQueue<T> {
+  private readonly items: T[] = [];
+  private readonly waiters: Array<(item: T | null) => void> = [];
+  private closed = false;
+
+  push(item: T) {
+    if (this.closed) {
+      return;
+    }
+
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter(item);
+      return;
+    }
+
+    this.items.push(item);
+  }
+
+  next(): Promise<T | null> {
+    const item = this.items.shift();
+    if (item) {
+      return Promise.resolve(item);
+    }
+
+    if (this.closed) {
+      return Promise.resolve(null);
+    }
+
+    return new Promise((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+
+  close() {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) {
+      waiter(null);
+    }
   }
 }
 

@@ -22,7 +22,7 @@ import {
   type PulseForgeSnapshot,
   type RemediationAction,
   type Ticket,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
 import { randomUUID } from "node:crypto";
 import type {
   IncidentAggregate,
@@ -206,6 +206,26 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
       summary: result.summary,
       messages: result.messages,
       investigation: result.investigation,
+    };
+
+    this.agentRuns.set(runId, updated);
+    return updated;
+  }
+
+  async requireAgentRunAuth(
+    runId: string,
+    authRequired: NonNullable<AgentRunResult["authRequired"]>
+  ): Promise<AgentRun | null> {
+    const existing = this.agentRuns.get(runId);
+    if (!existing) {
+      return null;
+    }
+
+    const updated: AgentRun = {
+      ...existing,
+      status: "auth_required",
+      summary: "Agent run requires delegated tool authorization.",
+      authRequired,
     };
 
     this.agentRuns.set(runId, updated);

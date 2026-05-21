@@ -6,29 +6,26 @@
     "agent-core": "bin/agent-core.js"
   },
   "scripts": {
-    "build": "tsc",
-    "watch": "tsc -w",
-    "test": "jest",
-    "test:webbackend": "pnpm --filter @agent-core/webbackend test",
+    "build": "pnpm -r --if-present build",
+    "test": "pnpm -r --if-present test",
     "cdk": "cdk",
     "mongodb:dev": "docker compose up mongodb",
     "mongodb:dev:detached": "docker compose up -d mongodb",
     "mongodb:stop": "docker compose stop mongodb",
-    "webbackend:seed:local": "pnpm --filter @agent-core/webbackend seed",
+    "agent:dev:local": "pnpm --filter @agent-core/pulseforge-agent-runtime dev",
+    "agent:invoke:local": "pnpm --filter @agent-core/pulseforge-agent-runtime invoke:local",
+    "pulseforge:seed": "pnpm --filter @agent-core/webbackend seed",
     "webbackend:dev:local": "pnpm --filter @agent-core/webbackend dev",
+    "tools-api:dev:local": "pnpm --filter @agent-core/tools-api dev",
     "webapp:dev:local": "pnpm --filter @agent-core/webapp dev",
-    "dev:webbackend": "pnpm --filter @agent-core/webbackend dev",
-    "seed:webbackend": "pnpm --filter @agent-core/webbackend seed",
-    "dev:webapp": "pnpm --filter @agent-core/webapp dev"
+    "webapp:dev:deployed-backend": "pnpm --filter @agent-core/webapp dev:deployed-backend"
   },
   "devDependencies": {
     "@aws-cdk/aws-bedrock-agentcore-alpha": "2.250.0-alpha.0",
     "@aws-cdk/aws-bedrock-alpha": "2.250.0-alpha.0",
-    "@types/jest": "^30",
     "@types/node": "^24.10.1",
     "aws-cdk": "2.1118.0",
-    "jest": "^30",
-    "ts-jest": "^29",
+    "esbuild": "^0.27.3",
     "ts-node": "^10.9.2",
     "typescript": "~5.9.3"
   },

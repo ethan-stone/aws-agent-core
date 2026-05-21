@@ -20,6 +20,7 @@ export type AgentKind =
 export type AgentRunStatus =
   | "queued"
   | "running"
+  | "auth_required"
   | "completed"
   | "failed";
 export type AuditActorType = "agent" | "user";
@@ -161,6 +162,7 @@ export interface AgentRun {
   prompt?: string;
   messages?: AgentRunMessage[];
   investigation?: AgentRunInvestigationSummary;
+  authRequired?: AgentRunAuthRequired;
   errorMessage?: string;
 }
 
@@ -174,6 +176,14 @@ export interface AgentRunInvestigationSummary {
   summary: string;
   findings: string[];
   recommendedActions: string[];
+}
+
+export interface AgentRunAuthRequired {
+  providerName: string;
+  providerDisplayName?: string;
+  authUrl: string;
+  scopes: string[];
+  agentRunId: string;
 }
 
 export interface CreateAgentRunRequest {
@@ -196,19 +206,47 @@ export interface IncidentInvestigationContext {
 }
 
 export interface AgentRuntimeInvocation {
+  agentRunId: string;
   agentKind: AgentKind;
   prompt: string;
   incidentId?: string;
   deviceId?: string;
   actorId?: string;
-  investigationContext?: IncidentInvestigationContext;
 }
 
 export interface AgentRunResult {
   summary: string;
   messages: AgentRunMessage[];
   investigation?: AgentRunInvestigationSummary;
+  authRequired?: AgentRunAuthRequired;
 }
+
+export type AgentRunStreamEvent =
+  | {
+      event: "run";
+      data: AgentRun;
+    }
+  | {
+      event: "message";
+      data: { text: string };
+    }
+  | {
+      event: "summary";
+      data: {
+        summary?: string;
+        title?: string;
+        findings?: string[];
+        recommendedActions?: string[];
+      };
+    }
+  | {
+      event: "auth_required";
+      data: AgentRunAuthRequired;
+    }
+  | {
+      event: "error";
+      data: { message: string };
+    };
 
 export interface ApiAuthConfig {
   enabled: boolean;

@@ -1,6 +1,10 @@
 import { useState } from "react";
-import type { AgentRun, AgentRunMessage } from "../../../../shared/pulseforge-domain/src/index.js";
-import { createAgentRun } from "../lib/api-client.js";
+import type {
+  AgentRun,
+  AgentRunMessage,
+  AgentRunStreamEvent,
+} from "../../../../shared/pulseforge-domain/src/index.js";
+import { createAgentRunStream } from "../lib/api-client.js";
 
 const starterPrompts = [
   {
@@ -32,19 +36,81 @@ export function CopilotPage() {
 
     setLoading(true);
     setError(null);
+    setRun(null);
 
     try {
-      const nextRun = await createAgentRun({
-        agentKind: "ops-copilot",
-        prompt,
-        incidentId: incidentId || undefined,
-        deviceId: deviceId || undefined,
-      });
+      const nextRun = await createAgentRunStream(
+        {
+          agentKind: "ops-copilot",
+          prompt,
+          incidentId: incidentId || undefined,
+          deviceId: deviceId || undefined,
+        },
+        handleAgentRunStreamEvent
+      );
       setRun(nextRun);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run agent");
     } finally {
       setLoading(false);
+    }
+  }
+
+  function handleAgentRunStreamEvent(event: AgentRunStreamEvent) {
+    if (event.event === "run") {
+      setRun(event.data);
+      return;
+    }
+
+    if (event.event === "message") {
+      setRun((current) =>
+        current
+          ? {
+              ...current,
+              messages: [
+                ...(current.messages ?? []),
+                { role: "assistant", content: event.data.text },
+              ],
+            }
+          : current
+      );
+      return;
+    }
+
+    if (event.event === "summary") {
+      setRun((current) =>
+        current
+          ? {
+              ...current,
+              summary: event.data.summary ?? current.summary,
+              investigation: {
+                title: event.data.title ?? "Investigation summary",
+                summary: event.data.summary ?? current.summary,
+                findings: event.data.findings ?? [],
+                recommendedActions: event.data.recommendedActions ?? [],
+              },
+            }
+          : current
+      );
+      return;
+    }
+
+    if (event.event === "auth_required") {
+      setRun((current) =>
+        current
+          ? {
+              ...current,
+              status: "auth_required",
+              summary: "Agent run requires delegated tool authorization.",
+              authRequired: event.data,
+            }
+          : current
+      );
+      return;
+    }
+
+    if (event.event === "error") {
+      setError(event.data.message);
     }
   }
 
@@ -126,7 +192,7 @@ export function CopilotPage() {
 
             <div className="flex items-center justify-between gap-4">
               <div className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                Backend route: `POST /api/agent-runs`
+                Backend route: `POST /api/agent-runs/stream`
               </div>
               <button
                 type="submit"
@@ -203,6 +269,33 @@ function AgentRunResultView(props: { run: AgentRun }) {
               items={props.run.investigation.recommendedActions}
             />
           </div>
+        </div>
+      ) : null}
+
+      {props.run.authRequired ? (
+        <div className="grid gap-3 border border-amber-300/30 bg-amber-300/8 px-3 py-3 text-sm text-amber-100">
+          <div>
+            <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-amber-200/70">
+              Authorization required
+            </div>
+            <p className="m-0 text-amber-100">
+              Copilot requires authorization to perform delegated actions with{" "}
+              {props.run.authRequired.providerDisplayName ??
+                props.run.authRequired.providerName}
+              .
+            </p>
+          </div>
+          <div className="text-xs text-amber-100/75">
+            Requested scopes: {props.run.authRequired.scopes.join(", ")}
+          </div>
+          <a
+            href={props.run.authRequired.authUrl}
+            target="_blank"
+            rel="noreferrer"
+            className="w-fit border border-amber-200/40 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-amber-50 transition-colors hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
+          >
+            Open authorization URL
+          </a>
         </div>
       ) : null}
 

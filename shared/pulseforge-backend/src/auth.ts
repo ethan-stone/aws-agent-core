@@ -5,7 +5,7 @@ import type {
   AppPermission,
   AuditActor,
   AuthenticatedAppUser,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
 
 export const PULSEFORGE_BACKEND_RESOURCE_SERVER =
   process.env.COGNITO_RESOURCE_SERVER_IDENTIFIER ?? "pulseforge-backend";
@@ -118,10 +118,7 @@ function getAccessTokenVerifier() {
 }
 
 function getToolClientIds(): string[] {
-  return parseCsv(
-    process.env.COGNITO_TOOLS_CLIENT_IDS ??
-      process.env.COGNITO_TOOLS_CLIENT_ID
-  );
+  return parseCsv(process.env.COGNITO_AGENT_IDENTITY_CLIENT_IDS);
 }
 
 export function isToolAuthConfigured(): boolean {

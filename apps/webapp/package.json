@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "dev:deployed-backend": "vite --mode deployed-backend",
     "build": "vite build",
     "preview": "vite preview"
   },

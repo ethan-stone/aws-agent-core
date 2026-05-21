@@ -2,8 +2,15 @@
   "extends": "../../tsconfig.base.json",
   "compilerOptions": {
     "outDir": "dist",
-    "rootDir": "src",
-    "types": ["node"]
+    "rootDir": "../..",
+    "types": [
+      "node"
+    ]
   },
-  "include": ["src"]
+  "include": [
+    "src",
+    "../../shared/pulseforge-domain/src",
+    "../../shared/pulseforge-agent/src",
+    "../../shared/pulseforge-tools/src"
+  ]
 }

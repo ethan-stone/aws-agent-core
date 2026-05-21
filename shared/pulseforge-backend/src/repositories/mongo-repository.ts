@@ -22,7 +22,7 @@ import {
   type RemediationAction,
   type Site,
   type Ticket,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
 import { randomUUID } from "node:crypto";
 import type {
   IncidentAggregate,
@@ -362,6 +362,27 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
           summary: result.summary,
           messages: result.messages,
           investigation: result.investigation,
+        },
+      }
+    );
+
+    return this.getAgentRun(runId);
+  }
+
+  async requireAgentRunAuth(
+    runId: string,
+    authRequired: NonNullable<AgentRunResult["authRequired"]>
+  ): Promise<AgentRun | null> {
+    await this.collections().agentRuns.updateOne(
+      { id: runId },
+      {
+        $set: {
+          status: "auth_required",
+          summary: "Agent run requires delegated tool authorization.",
+          authRequired,
+        },
+        $unset: {
+          errorMessage: "",
         },
       }
     );

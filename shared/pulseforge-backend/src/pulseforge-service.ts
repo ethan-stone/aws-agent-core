@@ -1,7 +1,7 @@
-import { getMongoClient, getMongoDbName, isMongoConfigured } from "../lib/mongodb.js";
-import { InMemoryPulseForgeRepository } from "../repositories/in-memory-repository.js";
-import { MongoPulseForgeRepository } from "../repositories/mongo-repository.js";
-import type { PulseForgeRepository } from "../repositories/types.js";
+import { getMongoClient, getMongoDbName, isMongoConfigured } from "./mongodb.js";
+import { InMemoryPulseForgeRepository } from "./repositories/in-memory-repository.js";
+import { MongoPulseForgeRepository } from "./repositories/mongo-repository.js";
+import type { PulseForgeRepository } from "./repositories/types.js";
 import type {
   AgentRunResult,
   AuditActor,
@@ -11,10 +11,8 @@ import type {
   IncidentEvent,
   RemediationAction,
   Ticket,
-} from "../../../../shared/pulseforge-domain/src/index.js";
-import {
-  demoRunbooks,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
+import { demoRunbooks } from "@agent-core/pulseforge-domain";
 
 const fallbackRepository = new InMemoryPulseForgeRepository();
 let repositoryPromise: Promise<PulseForgeRepository> | null = null;
@@ -156,6 +154,13 @@ export async function createAgentRun(
 
 export async function completeAgentRun(runId: string, result: AgentRunResult) {
   return (await getRepository()).completeAgentRun(runId, result);
+}
+
+export async function requireAgentRunAuth(
+  runId: string,
+  authRequired: NonNullable<AgentRunResult["authRequired"]>
+) {
+  return (await getRepository()).requireAgentRunAuth(runId, authRequired);
 }
 
 export async function failAgentRun(runId: string, errorMessage: string) {

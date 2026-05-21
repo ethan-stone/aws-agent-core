@@ -12,7 +12,7 @@ import type {
   PulseForgeSnapshot,
   RemediationAction,
   Ticket,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
 
 export interface IncidentAggregate {
   incident: Incident;
@@ -59,6 +59,10 @@ export interface PulseForgeRepository {
   completeAgentRun(
     runId: string,
     result: AgentRunResult
+  ): Promise<AgentRun | null>;
+  requireAgentRunAuth(
+    runId: string,
+    result: NonNullable<AgentRunResult["authRequired"]>
   ): Promise<AgentRun | null>;
   failAgentRun(runId: string, errorMessage: string): Promise<AgentRun | null>;
   seedDemoData(): Promise<void>;
