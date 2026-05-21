@@ -1,6 +1,9 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
-import { getMongoClient, getMongoDbName } from "../../lib/mongodb.js";
-import { MongoPulseForgeRepository } from "../../repositories/mongo-repository.js";
+import {
+  getMongoClient,
+  getMongoDbName,
+  MongoPulseForgeRepository,
+} from "../../../../../shared/pulseforge-backend/src/index.js";
 import { canUseDocker } from "../helpers/docker.js";
 import { startMongoTestProcess, type MongoTestProcess } from "../helpers/mongo.js";
 
@@ -73,7 +76,7 @@ describeMongo("MongoPulseForgeRepository", () => {
       actor,
       operation: "incident_context.read",
       method: "GET",
-      path: "/tools/incidents/inc-1001/context",
+      path: "/incidents/inc-1001/context",
       scopes: ["read:incidents", "read:devices", "read:telemetry"],
       resourceType: "incident",
       resourceId: "inc-1001",

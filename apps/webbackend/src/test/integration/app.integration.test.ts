@@ -1,6 +1,6 @@
 import { beforeAll, afterAll, describe, expect, it } from "vitest";
 import { app } from "../../app.js";
-import { seedDemoData } from "../../services/pulseforge-service.js";
+import { getStorageMode, seedDemoData } from "../../../../../shared/pulseforge-backend/src/index.js";
 import { canUseDocker } from "../helpers/docker.js";
 import { startMongoTestProcess, type MongoTestProcess } from "../helpers/mongo.js";
 
@@ -12,30 +12,14 @@ describe("PulseForge web backend integration (memory)", () => {
     delete process.env.MONGODB_DB_NAME;
     delete process.env.COGNITO_AGENT_IDENTITY_CLIENT_IDS;
 
-    const response = await app.request("/api/ping");
+    const response = await app.request("/api/auth/config");
     expect(response.status).toBe(200);
+    expect(await getStorageMode()).toBe("memory");
 
     const body = (await response.json()) as {
-      storage: string;
+      enabled: boolean;
     };
-    expect(body.storage).toBe("memory");
-  });
-
-  it("requires an agent run header before tool authentication", async () => {
-    const response = await app.request("/tools/devices/dev-freezer-014");
-    expect(response.status).toBe(400);
-
-    const body = (await response.json()) as { message: string };
-    expect(body.message).toContain("x-pulseforge-agent-run-id");
-  });
-
-  it("fails closed for tools when Cognito tool auth is not configured", async () => {
-    const response = await app.request("/tools/devices/dev-freezer-014", {
-      headers: {
-        "x-pulseforge-agent-run-id": "run-1",
-      },
-    });
-    expect(response.status).toBe(503);
+    expect(body.enabled).toBe(false);
   });
 });
 
@@ -54,13 +38,7 @@ describeMongo("PulseForge web backend integration (mongodb)", () => {
   });
 
   it("reports mongodb storage mode", async () => {
-    const response = await app.request("/api/ping");
-    expect(response.status).toBe(200);
-
-    const body = (await response.json()) as {
-      storage: string;
-    };
-    expect(body.storage).toBe("mongodb");
+    expect(await getStorageMode()).toBe("mongodb");
   });
 
   it("serves the seeded dashboard summary", async () => {

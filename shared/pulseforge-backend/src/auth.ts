@@ -5,7 +5,7 @@ import type {
   AppPermission,
   AuditActor,
   AuthenticatedAppUser,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
 
 export const PULSEFORGE_BACKEND_RESOURCE_SERVER =
   process.env.COGNITO_RESOURCE_SERVER_IDENTIFIER ?? "pulseforge-backend";

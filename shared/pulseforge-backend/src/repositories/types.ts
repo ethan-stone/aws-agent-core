@@ -12,7 +12,7 @@ import type {
   PulseForgeSnapshot,
   RemediationAction,
   Ticket,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
 
 export interface IncidentAggregate {
   incident: Incident;

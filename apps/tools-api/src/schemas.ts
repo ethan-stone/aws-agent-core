@@ -6,7 +6,7 @@ import {
   getDeviceTelemetryInputSchema,
   getIncidentContextInputSchema,
   proposeRemediationActionInputSchema,
-} from "../../../../shared/pulseforge-tools/src/schemas.js";
+} from "../../../shared/pulseforge-tools/src/index.js";
 
 export const errorResponseSchema = z.object({
   ok: z.literal(false),

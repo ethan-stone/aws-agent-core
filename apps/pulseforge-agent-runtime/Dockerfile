@@ -6,6 +6,7 @@ FROM base AS deps
 WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/pulseforge-agent-runtime/package.json apps/pulseforge-agent-runtime/
+COPY shared/pulseforge-domain/package.json shared/pulseforge-domain/
 COPY shared/pulseforge-agent/package.json shared/pulseforge-agent/
 COPY shared/pulseforge-tools/package.json shared/pulseforge-tools/
 RUN pnpm install --frozen-lockfile
@@ -23,8 +24,9 @@ CMD ["node", "--import", "tsx", "src/index.ts"]
 FROM deps AS shared-build
 COPY shared/ shared/
 COPY tsconfig.base.json ./
-RUN pnpm --filter @agent-core/pulseforge-agent build
+RUN pnpm --filter @agent-core/pulseforge-domain build
 RUN pnpm --filter @agent-core/pulseforge-tools build
+RUN pnpm --filter @agent-core/pulseforge-agent build
 
 # Bundle the app
 FROM deps AS app-build
@@ -39,8 +41,6 @@ FROM base AS runner
 WORKDIR /app
 COPY --from=deps /app/node_modules/ node_modules/
 COPY --from=deps /app/apps/pulseforge-agent-runtime/node_modules/ apps/pulseforge-agent-runtime/node_modules/
-COPY --from=shared-build /app/shared/pulseforge-tools/package.json shared/pulseforge-tools/
-COPY --from=shared-build /app/shared/pulseforge-tools/dist/ shared/pulseforge-tools/dist/
 COPY --from=app-build /app/apps/pulseforge-agent-runtime/dist/ apps/pulseforge-agent-runtime/dist/
 COPY apps/pulseforge-agent-runtime/package.json apps/pulseforge-agent-runtime/
 

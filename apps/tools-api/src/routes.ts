@@ -7,8 +7,8 @@ import {
   getDevice,
   getDeviceTelemetry,
   getIncident,
-} from "../services/pulseforge-service.js";
-import type { ApiAppEnv } from "../types.js";
+} from "../../../shared/pulseforge-backend/src/index.js";
+import type { ToolsApiEnv } from "./types.js";
 import { getToolAuth, requireToolAccess, toolScopes } from "./auth.js";
 import {
   createIncidentEventBodySchema,
@@ -60,7 +60,7 @@ const toolResponses = {
   },
 } as const;
 
-export const toolsApp = new OpenAPIHono<ApiAppEnv>();
+export const toolsApp = new OpenAPIHono<ToolsApiEnv>();
 
 toolsApp.openapi(
   createRoute({

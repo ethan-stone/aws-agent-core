@@ -5,7 +5,7 @@ import type {
   IncidentInvestigationContext,
   RemediationAction,
   Ticket,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "../../../shared/pulseforge-domain/src/index.js";
 
 const RECENT_EVENT_LIMIT = 12;
 const RECENT_TELEMETRY_LIMIT = 24;

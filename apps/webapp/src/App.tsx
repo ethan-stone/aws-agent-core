@@ -8,6 +8,7 @@ import { DevicesPage } from "./pages/DevicesPage.js";
 import { IncidentDetailPage } from "./pages/IncidentDetailPage.js";
 import { IncidentsPage } from "./pages/IncidentsPage.js";
 import { LoginPage, SignupPage } from "./pages/LoginPage.js";
+import { OAuthCallbackPage } from "./pages/OAuthCallbackPage.js";
 
 export function App() {
   return (
@@ -15,6 +16,7 @@ export function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route path="/signup" element={<SignupPage />} />
       <Route path="/confirm-signup" element={<ConfirmSignupPage />} />
+      <Route path="/oauth2/callback" element={<OAuthCallbackPage />} />
       <Route path="/*" element={<ProtectedAppShell />} />
     </Routes>
   );

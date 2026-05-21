@@ -1,0 +1,29 @@
+{
+  "name": "@agent-core/tools-api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc",
+    "dev": "tsx src/dev-server.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@agent-core/pulseforge-backend": "workspace:*",
+    "@agent-core/pulseforge-domain": "workspace:*",
+    "@agent-core/pulseforge-tools": "workspace:*",
+    "@hono/node-server": "^1.19.4",
+    "@hono/zod-openapi": "^1.1.7",
+    "dotenv": "^17.4.2",
+    "hono": "^4.10.1"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "tsx": "^4",
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.0"
+  }
+}

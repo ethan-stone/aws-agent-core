@@ -7,9 +7,12 @@ Monorepo using pnpm workspaces.
 - `apps/` - Individual application projects
   - `apps/pulseforge-agent-runtime/` - PulseForge AgentCore runtime for copilot and incident investigation
   - `apps/webapp/` - React/Vite operator console
-  - `apps/webbackend/` - Hono web backend for app auth, MongoDB access, and AgentCore invocation
+  - `apps/webbackend/` - Hono web backend for app auth and AgentCore invocation
+  - `apps/tools-api/` - Hono/OpenAPI tools API for agent-facing delegated calls
 - `shared/` - Shared packages consumed by apps
   - `shared/pulseforge-domain/` - domain types and demo data
+  - `shared/pulseforge-backend/` - shared MongoDB repositories, auth helpers, and PulseForge services
+  - `shared/pulseforge-agent/` - agent configs, prompts, and tool bundle composition
   - `shared/pulseforge-tools/` - reusable PulseForge agent tool definitions and Strands adapters
 - `lib/` - CDK stack definition
 
@@ -34,10 +37,17 @@ React/Vite SPA for the PulseForge operator console.
 Hono web backend that:
 
 - verifies Cognito access tokens for app auth
-- reads and writes PulseForge data in MongoDB
 - invokes the deployed AgentCore runtime with IAM
 - passes the authenticated Cognito `sub` through as `runtimeUserId`
-- exposes agent-facing `/tools/*` routes with delegated-user Cognito auth and audit logging
+
+### tools-api (`pnpm --filter @agent-core/tools-api <command>`)
+
+Hono/OpenAPI tools API that:
+
+- validates delegated-user Cognito tokens issued to the agent identity client
+- requires `x-pulseforge-agent-run-id`
+- reads and writes PulseForge data in MongoDB
+- writes audit logs for agent tool activity
 
 ## Conventions
 
@@ -68,9 +78,9 @@ Reusable agent tools live in `shared/pulseforge-tools`.
 
 - Tool definitions declare name, input schema, required scopes, and HTTP mapping.
 - The runtime wires the `ops-copilot` bundle into the Strands agent.
-- Tool HTTP calls go to the web backend `/tools/*` routes.
-- The web backend validates tool requests, enforces delegated-user scopes, writes audit logs, and returns curated model-friendly JSON.
-- If AgentCore Identity requires user authorization, the runtime emits an `auth_required` SSE event instead of polling indefinitely.
+- Tool HTTP calls go to the separately deployed tools API, not the browser-oriented web backend API.
+- The tools API validates tool requests, enforces delegated-user scopes, writes audit logs, and returns curated model-friendly JSON.
+- If AgentCore Identity requires user authorization, the runtime emits an `auth_required` SSE event with the returned auth URL and keeps the invocation open while `withAccessToken` polls for OAuth completion.
 
 ## Authentication Architecture
 
@@ -78,7 +88,7 @@ There are three distinct auth paths:
 
 - **App auth:** users sign in to the PulseForge web app with Cognito.
 - **Runtime auth:** the web backend invokes the deployed AgentCore runtime with IAM.
-- **Tool auth:** the agent calls backend `/tools/*` routes with delegated-user Cognito credentials obtained through AgentCore Identity.
+- **Tool auth:** the agent calls the tools API with delegated-user Cognito credentials obtained through AgentCore Identity.
 
 The browser never calls the AgentCore runtime directly.
 
@@ -96,19 +106,21 @@ The browser never calls the AgentCore runtime directly.
 
 ### Tool Invocation (Delegated User Auth)
 
-- `/tools/*` requires a Cognito access token from the agent identity client, not the web app client.
+- The tools API requires a Cognito access token from the agent identity client, not the web app client.
 - Every tool request must include `x-pulseforge-agent-run-id`.
 - Tool scopes use the `pulseforge-backend` resource server with operations like `read:incidents`, `read:telemetry`, and `write:tickets`.
+- Deployed runtimes use the AgentCore outbound auth provider `pulseforge-backend-user-federation` to obtain delegated user tokens for those scopes.
 - Tool calls are audited with `actorType`, `actorId`, `onBehalfOfUserId`, `agentRunId`, scopes, route, status, and outcome.
 
 ## Local Development
 
 ```bash
 pnpm mongodb:dev
-pnpm webbackend:seed:local
+pnpm pulseforge:seed
 pnpm agent:dev:local
 pnpm agent:invoke:local -- --user-id <cognito-user-sub> --incident-id inc-1001
 pnpm webbackend:dev:local
+pnpm tools-api:dev:local
 pnpm webapp:dev:local
 ```
 
@@ -117,15 +129,15 @@ The web backend expects the deployed runtime ARN and qualifier in `apps/webbacke
 When running the runtime locally for tool development, configure:
 
 ```bash
-PULSEFORGE_BACKEND_URL=http://localhost:3001
+PULSEFORGE_TOOLS_API_URL=http://localhost:3001
 PULSEFORGE_TOOL_AUTH_MODE=local-user-id
 PULSEFORGE_WORKLOAD_NAME=<agentcore-workload-name>
 PULSEFORGE_LOCAL_USER_ID=<cognito-user-sub>
 ```
 
-If `PULSEFORGE_BACKEND_URL` is omitted, runtime tool wiring is disabled and the
-runtime still starts. Deployed environments can pass the backend URL through CDK
-with `--context pulseForgeBackendUrl=...`.
+If `PULSEFORGE_TOOLS_API_URL` is omitted, runtime tool wiring is disabled and the
+runtime still starts unless `PULSEFORGE_REQUIRE_TOOLS=true`. CDK wires deployed
+runtimes to the separate `PulseForgeToolsApi`.
 
 ## Observability
 

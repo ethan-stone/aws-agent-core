@@ -2,11 +2,16 @@ import { CfnOutput, Duration, Fn, Stack, StackProps } from "aws-cdk-lib/core";
 import { Construct } from "constructs";
 import path from "path";
 import * as iam from "aws-cdk-lib/aws-iam";
+import * as apigateway from "aws-cdk-lib/aws-apigateway";
+import * as lambda from "aws-cdk-lib/aws-lambda";
+import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cr from "aws-cdk-lib/custom-resources";
 import * as cognito from "aws-cdk-lib/aws-cognito";
+import * as bedrockAgentCoreL1 from "aws-cdk-lib/aws-bedrockagentcore";
 import * as bedrockAgentCore from "@aws-cdk/aws-bedrock-agentcore-alpha";
 import * as kms from "aws-cdk-lib/aws-kms";
+import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 
 export class AgentCoreStack extends Stack {
   constructor(scope: Construct, id: string, props?: StackProps) {
@@ -64,45 +69,34 @@ export class AgentCoreStack extends Stack {
       },
     });
 
-    const readDevicesScope = new cognito.ResourceServerScope({
-      scopeName: "read:devices",
-      scopeDescription: "Read PulseForge device records",
-    });
-    const readIncidentsScope = new cognito.ResourceServerScope({
-      scopeName: "read:incidents",
-      scopeDescription: "Read PulseForge incidents",
-    });
-    const readTelemetryScope = new cognito.ResourceServerScope({
-      scopeName: "read:telemetry",
-      scopeDescription: "Read PulseForge telemetry",
-    });
-    const writeIncidentEventsScope = new cognito.ResourceServerScope({
-      scopeName: "write:incident_events",
-      scopeDescription: "Create PulseForge incident timeline events",
-    });
-    const writeTicketsScope = new cognito.ResourceServerScope({
-      scopeName: "write:tickets",
-      scopeDescription: "Create PulseForge tickets",
-    });
-    const writeRemediationActionsScope = new cognito.ResourceServerScope({
-      scopeName: "write:remediation_actions",
-      scopeDescription: "Create PulseForge remediation proposals",
-    });
+    const pulseForgeBackendScopeDefinitions = [
+      ["read:devices", "Read PulseForge device records"],
+      ["read:incidents", "Read PulseForge incidents"],
+      ["read:telemetry", "Read PulseForge telemetry"],
+      ["write:incident_events", "Create PulseForge incident timeline events"],
+      ["write:tickets", "Create PulseForge tickets"],
+      ["write:remediation_actions", "Create PulseForge remediation proposals"],
+    ] as const;
+    const pulseForgeBackendScopes = pulseForgeBackendScopeDefinitions.map(
+      ([scopeName, scopeDescription]) =>
+        new cognito.ResourceServerScope({ scopeName, scopeDescription })
+    );
 
+    const pulseForgeBackendResourceServerIdentifier = "pulseforge-backend";
     const pulseForgeBackendResourceServer = userPool.addResourceServer(
       "PulseForgeBackendResourceServer",
       {
-        identifier: "pulseforge-backend",
+        identifier: pulseForgeBackendResourceServerIdentifier,
         userPoolResourceServerName: "PulseForge Backend",
-        scopes: [
-          readDevicesScope,
-          readIncidentsScope,
-          readTelemetryScope,
-          writeIncidentEventsScope,
-          writeTicketsScope,
-          writeRemediationActionsScope,
-        ],
+        scopes: pulseForgeBackendScopes,
       }
+    );
+
+    const toolsOauthScopes = pulseForgeBackendScopeDefinitions.map(
+      ([scopeName]) => `${pulseForgeBackendResourceServerIdentifier}/${scopeName}`
+    );
+    const toolsResourceServerOauthScopes = pulseForgeBackendScopes.map((scope) =>
+      cognito.OAuthScope.resourceServer(pulseForgeBackendResourceServer, scope)
     );
 
     const pulseForgeToolsUserPoolClient = userPool.addClient(
@@ -117,51 +111,209 @@ export class AgentCoreStack extends Stack {
             cognito.OAuthScope.OPENID,
             cognito.OAuthScope.EMAIL,
             cognito.OAuthScope.PROFILE,
-            cognito.OAuthScope.resourceServer(
-              pulseForgeBackendResourceServer,
-              readDevicesScope
-            ),
-            cognito.OAuthScope.resourceServer(
-              pulseForgeBackendResourceServer,
-              readIncidentsScope
-            ),
-            cognito.OAuthScope.resourceServer(
-              pulseForgeBackendResourceServer,
-              readTelemetryScope
-            ),
-            cognito.OAuthScope.resourceServer(
-              pulseForgeBackendResourceServer,
-              writeIncidentEventsScope
-            ),
-            cognito.OAuthScope.resourceServer(
-              pulseForgeBackendResourceServer,
-              writeTicketsScope
-            ),
-            cognito.OAuthScope.resourceServer(
-              pulseForgeBackendResourceServer,
-              writeRemediationActionsScope
-            ),
+            ...toolsResourceServerOauthScopes,
           ],
-          callbackUrls: ["http://localhost:3000/oauth2/callback"],
-          logoutUrls: ["http://localhost:3000/logout"],
+          callbackUrls: ["http://localhost:5173/oauth2/callback"],
+          logoutUrls: ["http://localhost:5173/logout"],
         },
         preventUserExistenceErrors: true,
       }
     );
 
+    const pulseForgeToolsProviderName = "pulseforge-backend-user-federation";
+    const pulseForgeToolsAuthReturnUrl =
+      this.node.tryGetContext("pulseForgeToolsAuthReturnUrl") ??
+      "http://localhost:5173/oauth2/callback";
+    const pulseForgeToolsOauthProvider =
+      new bedrockAgentCoreL1.CfnOAuth2CredentialProvider(
+        this,
+        "PulseForgeToolsOauthProvider",
+        {
+          name: pulseForgeToolsProviderName,
+          credentialProviderVendor: "CustomOauth2",
+          oauth2ProviderConfigInput: {
+            customOauth2ProviderConfig: {
+              clientId: pulseForgeToolsUserPoolClient.userPoolClientId,
+              clientSecret:
+                pulseForgeToolsUserPoolClient.userPoolClientSecret.unsafeUnwrap(),
+              oauthDiscovery: {
+                discoveryUrl: Fn.join("", [
+                  "https://cognito-idp.",
+                  this.region,
+                  ".",
+                  this.urlSuffix,
+                  "/",
+                  userPool.userPoolId,
+                  "/.well-known/openid-configuration",
+                ]),
+              },
+            },
+          },
+        }
+      );
+    pulseForgeToolsOauthProvider.node.addDependency(
+      pulseForgeToolsUserPoolClient
+    );
+    pulseForgeToolsOauthProvider.node.addDependency(userPoolDomain);
+
+    // AgentCore Identity generates its OAuth callback URL only after the
+    // credential provider exists, while Cognito needs that URL on the app
+    // client. This custom resource resolves that circular dependency by
+    // patching the already-created tools client with the AgentCore callback.
+    const updateToolsClientCallback = new cr.AwsCustomResource(
+      this,
+      "PulseForgeToolsClientCallback",
+      {
+        onCreate: {
+          service: "CognitoIdentityServiceProvider",
+          action: "updateUserPoolClient",
+          parameters: {
+            UserPoolId: userPool.userPoolId,
+            ClientId: pulseForgeToolsUserPoolClient.userPoolClientId,
+            ClientName: "PulseForgeToolsClient",
+            AllowedOAuthFlows: ["code"],
+            AllowedOAuthScopes: [
+              "openid",
+              "email",
+              "profile",
+              ...toolsOauthScopes,
+            ],
+            AllowedOAuthFlowsUserPoolClient: true,
+            CallbackURLs: [
+              pulseForgeToolsAuthReturnUrl,
+              pulseForgeToolsOauthProvider.attrCallbackUrl,
+            ],
+            LogoutURLs: ["http://localhost:5173/logout"],
+            SupportedIdentityProviders: ["COGNITO"],
+            PreventUserExistenceErrors: "ENABLED",
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(
+            "pulseforge-tools-client-callback"
+          ),
+        },
+        onUpdate: {
+          service: "CognitoIdentityServiceProvider",
+          action: "updateUserPoolClient",
+          parameters: {
+            UserPoolId: userPool.userPoolId,
+            ClientId: pulseForgeToolsUserPoolClient.userPoolClientId,
+            ClientName: "PulseForgeToolsClient",
+            AllowedOAuthFlows: ["code"],
+            AllowedOAuthScopes: [
+              "openid",
+              "email",
+              "profile",
+              ...toolsOauthScopes,
+            ],
+            AllowedOAuthFlowsUserPoolClient: true,
+            CallbackURLs: [
+              pulseForgeToolsAuthReturnUrl,
+              pulseForgeToolsOauthProvider.attrCallbackUrl,
+            ],
+            LogoutURLs: ["http://localhost:5173/logout"],
+            SupportedIdentityProviders: ["COGNITO"],
+            PreventUserExistenceErrors: "ENABLED",
+          },
+          physicalResourceId: cr.PhysicalResourceId.of(
+            "pulseforge-tools-client-callback"
+          ),
+        },
+        policy: cr.AwsCustomResourcePolicy.fromStatements([
+          new iam.PolicyStatement({
+            actions: ["cognito-idp:UpdateUserPoolClient"],
+            resources: [userPool.userPoolArn],
+          }),
+        ]),
+      }
+    );
+    updateToolsClientCallback.node.addDependency(pulseForgeToolsOauthProvider);
+
+    const apiStageName = "prod";
+    const commonBackendEnvironment: Record<string, string> = {
+      API_LOG_LEVEL: "info",
+      MONGODB_DB_NAME: "pulseforge",
+      COGNITO_REGION: this.region,
+      COGNITO_USER_POOL_ID: userPool.userPoolId,
+      COGNITO_USER_POOL_CLIENT_ID: pulseForgeUserPoolClient.userPoolClientId,
+      COGNITO_AGENT_IDENTITY_CLIENT_IDS:
+        pulseForgeToolsUserPoolClient.userPoolClientId,
+      COGNITO_RESOURCE_SERVER_IDENTIFIER:
+        pulseForgeBackendResourceServerIdentifier,
+    };
+    const pulseForgeSecrets = secretsmanager.Secret.fromSecretNameV2(
+      this,
+      "PulseForgeSecrets",
+      "pulseforge-secrets"
+    );
+
+    commonBackendEnvironment.PULSEFORGE_SECRETS_ARN =
+      pulseForgeSecrets.secretArn;
+
+
+    // --- PulseForge Agent Tools API ---
+    const pulseForgeToolsApi = new apigateway.RestApi(
+      this,
+      "PulseForgeToolsApi",
+      {
+        restApiName: "pulseforge-tools-api",
+        deployOptions: {
+          stageName: apiStageName,
+        },
+      }
+    );
+    const pulseForgeToolsApiUrl = Fn.join("", [
+      "https://",
+      pulseForgeToolsApi.restApiId,
+      ".execute-api.",
+      this.region,
+      ".",
+      this.urlSuffix,
+      "/",
+      apiStageName,
+      "/",
+    ]);
+
+    const pulseForgeToolsFunction = new nodejs.NodejsFunction(
+      this,
+      "PulseForgeToolsFunction",
+      {
+        entry: path.join(__dirname, "../apps/tools-api/src/index.ts"),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        timeout: Duration.seconds(30),
+        memorySize: 512,
+        environment: commonBackendEnvironment,
+        bundling: {
+          bundleAwsSDK: true,
+          target: "node22",
+          sourceMap: true,
+        },
+      }
+    );
+    pulseForgeSecrets?.grantRead(pulseForgeToolsFunction);
+
+    const toolsIntegration = new apigateway.LambdaIntegration(
+      pulseForgeToolsFunction,
+      { proxy: true }
+    );
+    pulseForgeToolsApi.root.addMethod("ANY", toolsIntegration);
+    pulseForgeToolsApi.root
+      .addResource("{proxy+}")
+      .addMethod("ANY", toolsIntegration);
+
     // --- Bedrock AgentCore Runtime ---
-    const pulseForgeBackendUrl = this.node.tryGetContext("pulseForgeBackendUrl");
     const pulseForgeRuntimeEnvironment: Record<string, string> = {
+      PULSEFORGE_RUNTIME_ENV: "aws",
       MEMORY_ID: memory.memoryId,
       ENABLE_AGENTCORE_LONG_TERM_MEMORY: "true",
+      PULSEFORGE_REQUIRE_TOOLS: "true",
+      PULSEFORGE_TOOLS_API_URL: pulseForgeToolsApiUrl,
+      PULSEFORGE_TOOL_AUTH_MODE: "agentcore-runtime",
+      PULSEFORGE_TOOLS_PROVIDER_NAME: pulseForgeToolsProviderName,
+      PULSEFORGE_TOOLS_RESOURCE_SERVER_IDENTIFIER:
+        pulseForgeBackendResourceServerIdentifier,
+      OAUTH_CALLBACK_URL: pulseForgeToolsAuthReturnUrl,
     };
-
-    if (typeof pulseForgeBackendUrl === "string" && pulseForgeBackendUrl) {
-      pulseForgeRuntimeEnvironment.PULSEFORGE_BACKEND_URL = pulseForgeBackendUrl;
-      pulseForgeRuntimeEnvironment.PULSEFORGE_TOOL_AUTH_MODE = "agentcore-runtime";
-      pulseForgeRuntimeEnvironment.PULSEFORGE_TOOLS_PROVIDER_NAME =
-        "pulseforge-backend-user-federation";
-    }
 
     const pulseForgeRuntime = new bedrockAgentCore.Runtime(
       this,
@@ -200,6 +352,32 @@ export class AgentCoreStack extends Stack {
       })
     );
 
+    const runtimeWorkloadIdentityArn = Stack.of(this).formatArn({
+      service: "bedrock-agentcore",
+      resource: "workload-identity-directory/default/workload-identity",
+      resourceName: pulseForgeRuntime.agentRuntimeId,
+    });
+
+    pulseForgeRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["bedrock-agentcore:GetResourceOauth2Token"],
+        resources: [
+          `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:workload-identity-directory/default/workload-identity/*`,
+          pulseForgeToolsOauthProvider.attrCredentialProviderArn,
+          `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:workload-identity-directory/default`,
+          `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:token-vault/default`,
+        ],
+      })
+    );
+    pulseForgeRuntime.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue"],
+        resources: [
+          `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsProviderName}*`,
+        ],
+      })
+    );
+
     memoryKmsKey.grantEncryptDecrypt(pulseForgeRuntime.role);
     pulseForgeRuntime.addToRolePolicy(
       new iam.PolicyStatement({
@@ -220,6 +398,86 @@ export class AgentCoreStack extends Stack {
       })
     );
 
+    // --- PulseForge Web Backend API ---
+    const pulseForgeWebBackendApi = new apigateway.RestApi(
+      this,
+      "PulseForgeWebBackendApi",
+      {
+        restApiName: "pulseforge-webbackend",
+        endpointTypes: [apigateway.EndpointType.REGIONAL],
+        deployOptions: {
+          stageName: apiStageName,
+        },
+      }
+    );
+    const pulseForgeWebBackendUrl = Fn.join("", [
+      "https://",
+      pulseForgeWebBackendApi.restApiId,
+      ".execute-api.",
+      this.region,
+      ".",
+      this.urlSuffix,
+      "/",
+      apiStageName,
+      "/",
+    ]);
+
+    const webBackendEnvironment: Record<string, string> = {
+      ...commonBackendEnvironment,
+      AGENT_RUNTIME_ARN: pulseForgeRuntime.agentRuntimeArn,
+      AGENT_RUNTIME_QUALIFIER: "DEFAULT",
+    };
+
+    const pulseForgeWebBackendFunction = new nodejs.NodejsFunction(
+      this,
+      "PulseForgeWebBackendFunction",
+      {
+        entry: path.join(__dirname, "../apps/webbackend/src/index.ts"),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        timeout: Duration.minutes(15),
+        memorySize: 512,
+        environment: webBackendEnvironment,
+        bundling: {
+          bundleAwsSDK: true,
+          target: "node22",
+          sourceMap: true,
+        },
+      }
+    );
+    pulseForgeSecrets?.grantRead(pulseForgeWebBackendFunction);
+    pulseForgeWebBackendFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock-agentcore:InvokeAgentRuntime",
+          "bedrock-agentcore:InvokeAgentRuntimeForUser",
+          "bedrock-agentcore:CompleteResourceTokenAuth",
+        ],
+        resources: ["*"],
+      })
+    );
+    pulseForgeWebBackendFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue"],
+        resources: [
+          `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsProviderName}*`,
+        ],
+      })
+    );
+
+    const webBackendIntegration = new apigateway.LambdaIntegration(
+      pulseForgeWebBackendFunction,
+      {
+        proxy: true,
+        responseTransferMode: apigateway.ResponseTransferMode.STREAM,
+        timeout: Duration.minutes(15),
+      }
+    );
+    pulseForgeWebBackendApi.root.addMethod("ANY", webBackendIntegration);
+    pulseForgeWebBackendApi.root
+      .addResource("{proxy+}")
+      .addMethod("ANY", webBackendIntegration);
+
     // --- AgentCore Log Delivery / Tracing ---
     // Runtime logs and WorkloadIdentity logs are configured as distinct delivery
     // sources because the identity tab is backed by the WorkloadIdentity ARN.
@@ -228,12 +486,6 @@ export class AgentCoreStack extends Stack {
     // delivery resources without colliding on fixed custom names.
     const runtimeSuffix = Fn.select(1, Fn.split("-", pulseForgeRuntime.agentRuntimeId));
     const memorySuffix = Fn.select(1, Fn.split("-", memory.memoryId));
-
-    const runtimeWorkloadIdentityArn = Stack.of(this).formatArn({
-      service: "bedrock-agentcore",
-      resource: "workload-identity-directory/default/workload-identity",
-      resourceName: pulseForgeRuntime.agentRuntimeId,
-    });
 
     const runtimeLogGroup = new logs.LogGroup(this, "RuntimeLogGroup", {
       retention: logs.RetentionDays.ONE_WEEK,
@@ -465,10 +717,6 @@ export class AgentCoreStack extends Stack {
 
     // --- Outputs ---
 
-    new CfnOutput(this, "UserPoolId", {
-      value: userPool.userPoolId,
-    });
-
     new CfnOutput(this, "PulseForgeUserPoolId", {
       value: userPool.userPoolId,
     });
@@ -485,8 +733,20 @@ export class AgentCoreStack extends Stack {
       value: pulseForgeToolsUserPoolClient.userPoolClientId,
     });
 
+    new CfnOutput(this, "PulseForgeToolsOauthProviderArn", {
+      value: pulseForgeToolsOauthProvider.attrCredentialProviderArn,
+    });
+
     new CfnOutput(this, "PulseForgeBackendResourceServerIdentifier", {
-      value: pulseForgeBackendResourceServer.userPoolResourceServerId,
+      value: pulseForgeBackendResourceServerIdentifier,
+    });
+
+    new CfnOutput(this, "PulseForgeToolsApiUrl", {
+      value: pulseForgeToolsApiUrl,
+    });
+
+    new CfnOutput(this, "PulseForgeWebBackendApiUrl", {
+      value: pulseForgeWebBackendUrl,
     });
 
     new CfnOutput(this, "RuntimeLogGroupName", {

@@ -2,13 +2,21 @@
   "name": "@agent-core/pulseforge-agent",
   "version": "0.1.0",
   "private": true,
+  "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "scripts": {
     "build": "tsc",
+    "test": "vitest run",
     "watch": "tsc -w"
   },
+  "dependencies": {
+    "@agent-core/pulseforge-domain": "workspace:*",
+    "@agent-core/pulseforge-tools": "workspace:*",
+    "zod": "^4.3.6"
+  },
   "devDependencies": {
-    "typescript": "~5.9.3"
+    "typescript": "~5.9.3",
+    "vitest": "^4.0.0"
   }
 }

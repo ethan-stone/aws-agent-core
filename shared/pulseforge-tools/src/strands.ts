@@ -1,17 +1,16 @@
 import { tool } from "@strands-agents/sdk";
-import { pulseForgeToolBundles } from "./definitions.js";
 import { executePulseForgeTool } from "./executor.js";
 import type {
   JsonValue,
-  PulseForgeAgentToolBundleName,
+  PulseForgeToolDefinition,
   PulseForgeToolExecutionContext,
 } from "./types.js";
 
 export function createPulseForgeStrandsTools(
-  agentKind: PulseForgeAgentToolBundleName,
+  definitions: readonly PulseForgeToolDefinition[],
   context: PulseForgeToolExecutionContext
 ) {
-  return pulseForgeToolBundles[agentKind].map((definition) =>
+  return definitions.map((definition) =>
     tool({
       name: definition.name,
       description: definition.description,

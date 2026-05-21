@@ -13,10 +13,15 @@ import {
 import { withAccessToken } from "bedrock-agentcore/identity";
 import {
   createPulseForgeStrandsTools,
-  ToolAuthorizationRequiredError,
   type ToolAccessTokenConfig,
   type ToolCredentialProvider,
 } from "../../../shared/pulseforge-tools/src/index.js";
+import {
+  getPulseForgeAgentConfig,
+  getPulseForgeAgentToolAuthorizationGroups,
+  getPulseForgeAgentToolDefinitions,
+  pulseForgeAgentKindSchema,
+} from "../../../shared/pulseforge-agent/src/index.js";
 import {
   AgentCoreLongTermMemoryPlugin,
   type RetrievalConfigMap,
@@ -33,17 +38,17 @@ const runtimeConfig = loadRuntimeConfig();
 const memoryId = runtimeConfig.memoryId;
 const sharedAwsConfig = runtimeConfig.awsProfile
   ? {
-      credentials: fromIni({
-        profile: runtimeConfig.awsProfile,
-      }),
-    }
+    credentials: fromIni({
+      profile: runtimeConfig.awsProfile,
+    }),
+  }
   : undefined;
 
 const bedrockAgentCoreClient = memoryId
   ? new BedrockAgentCoreClient({
-      region: runtimeConfig.awsRegion,
-      ...sharedAwsConfig,
-    })
+    region: runtimeConfig.awsRegion,
+    ...sharedAwsConfig,
+  })
   : undefined;
 const workloadTokenClient = new BedrockAgentCoreClient({
   region: runtimeConfig.awsRegion,
@@ -60,27 +65,39 @@ if (!memoryId) {
 }
 if (!runtimeConfig.tools.enabled) {
   console.warn(`[tools] disabled: ${runtimeConfig.tools.reason}`);
+} else {
+  console.info("[tools] enabled", {
+    backendUrl: runtimeConfig.tools.backendUrl,
+    authMode: runtimeConfig.tools.authMode,
+    providerName: runtimeConfig.tools.providerName,
+  });
 }
 
 const bedrockModel = new BedrockModel({
   modelId: "amazon.nova-pro-v1:0",
   clientConfig: sharedAwsConfig,
 });
-const agentKindSchema = z.enum([
-  "ops-copilot",
-  "anomaly-investigation",
-  "remediation-planner",
-  "autonomous-remediation",
-]);
-
 const agentRequestSchema = z.object({
   agentRunId: z.string(),
   prompt: z.string(),
-  agentKind: agentKindSchema.default("ops-copilot"),
+  agentKind: pulseForgeAgentKindSchema.default("ops-copilot"),
   incidentId: z.string().optional(),
   deviceId: z.string().optional(),
   actorId: z.string().optional(),
 });
+
+type RuntimeStreamEvent =
+  | { event: "auth_required"; data: AuthRequiredEventData }
+  | { event: "message"; data: { text: unknown } }
+  | { event: "summary"; data: ReturnType<typeof buildInvestigationSummary> };
+
+type AuthRequiredEventData = {
+  providerName: string;
+  providerDisplayName: string;
+  authUrl: string;
+  scopes: string[];
+  agentRunId: string;
+};
 
 const app = new BedrockAgentCoreApp({
   invocationHandler: {
@@ -100,23 +117,29 @@ const app = new BedrockAgentCoreApp({
       const plugins =
         memoryId && bedrockAgentCoreClient
           ? [
-              new AgentCoreLongTermMemoryPlugin({
-                client: bedrockAgentCoreClient,
-                memoryId,
-                actorId,
-                sessionId: context.sessionId,
-                retrievalConfig: longTermRetrievalConfig,
-                contextTag: runtimeConfig.longTermMemoryContextTag,
-              }),
-            ]
+            new AgentCoreLongTermMemoryPlugin({
+              client: bedrockAgentCoreClient,
+              memoryId,
+              actorId,
+              sessionId: context.sessionId,
+              retrievalConfig: longTermRetrievalConfig,
+              contextTag: runtimeConfig.longTermMemoryContextTag,
+            }),
+          ]
           : [];
-      const tools = await createAgentTools(request, context);
+      const agentConfig = getPulseForgeAgentConfig(request.agentKind);
+      const authEvents = new AsyncEventQueue<RuntimeStreamEvent>();
+      const tools = await createAgentTools(request, context, {
+        onAuthorizationRequired: (details) => {
+          authEvents.push({ event: "auth_required", data: details });
+        },
+      });
 
       const agent = new Agent({
         model: bedrockModel,
-        id: agentIdForKind(request.agentKind),
-        name: labelForAgentKind(request.agentKind),
-        systemPrompt: systemPromptForAgentKind(request.agentKind),
+        id: agentConfig.id,
+        name: agentConfig.label,
+        systemPrompt: agentConfig.systemPrompt,
         messages: initialMessages,
         tools,
         conversationManager: new SlidingWindowConversationManager({
@@ -125,36 +148,50 @@ const app = new BedrockAgentCoreApp({
         plugins,
       });
 
-      try {
+      const agentInvocation = (async (): Promise<RuntimeStreamEvent[]> => {
         const enrichedPrompt = buildAgentPrompt(request);
         const result = await agent.invoke(enrichedPrompt);
-        yield { event: "message", data: { text: result } };
-        yield {
-          event: "summary",
-          data: buildInvestigationSummary(request, String(result)),
-        };
-      } catch (error) {
-        if (error instanceof ToolAuthorizationRequiredError) {
-          yield {
-            event: "auth_required",
-            data: {
-              providerName: error.providerName,
-              authUrl: error.authUrl,
-              scopes: error.scopes,
-              agentRunId: error.agentRunId,
-            },
-          };
-          return;
-        }
+        return [
+          { event: "message", data: { text: result } },
+          {
+            event: "summary",
+            data: buildInvestigationSummary(request, String(result)),
+          },
+        ];
+      })();
 
-        console.log(error);
-      } finally {
-        await persistSessionMessages(
-          shortTermMemoryStore,
-          context.sessionId,
-          actorId,
-          agent.messages
-        );
+      let finalEvents: RuntimeStreamEvent[] | undefined;
+      let invocationError: unknown;
+      agentInvocation
+        .then((events) => {
+          finalEvents = events;
+        })
+        .catch((error) => {
+          invocationError = error;
+        })
+        .finally(() => authEvents.close());
+
+      while (finalEvents === undefined && invocationError === undefined) {
+        const event = await authEvents.next();
+        if (event) {
+          yield event;
+        }
+      }
+
+      await persistSessionMessages(
+        shortTermMemoryStore,
+        context.sessionId,
+        actorId,
+        agent.messages
+      );
+
+      if (invocationError) {
+        console.log(invocationError);
+        return;
+      }
+
+      for (const event of finalEvents ?? []) {
+        yield event;
       }
     },
   },
@@ -229,10 +266,6 @@ async function persistSessionMessages(
   }
 }
 
-function agentIdForKind(kind: z.infer<typeof agentKindSchema>) {
-  return `pulseforge-${kind}`;
-}
-
 function buildAgentPrompt(request: z.infer<typeof agentRequestSchema>): string {
   const contextLines = [
     `Agent kind: ${request.agentKind}`,
@@ -242,7 +275,7 @@ function buildAgentPrompt(request: z.infer<typeof agentRequestSchema>): string {
     "",
     request.prompt,
     "",
-    "Return a concise operator-ready response. Use available tools to gather operational evidence when IDs are provided.",
+    "Return a concise operator-ready response. If an ID is provided, use the available tools to gather operational evidence before answering.",
   ].filter(Boolean);
 
   return contextLines.join("\n");
@@ -253,76 +286,81 @@ function buildInvestigationSummary(
   result: string
 ) {
   return {
-    title: `${labelForAgentKind(request.agentKind)} summary`,
+    title: `${getPulseForgeAgentConfig(request.agentKind).label} summary`,
     summary: truncate(result, 220),
     findings: [],
     recommendedActions: [],
   };
 }
 
-function labelForAgentKind(kind: z.infer<typeof agentKindSchema>): string {
-  switch (kind) {
-    case "ops-copilot":
-      return "Ops Copilot";
-    case "anomaly-investigation":
-      return "Anomaly Investigation";
-    case "remediation-planner":
-      return "Remediation Planner";
-    case "autonomous-remediation":
-      return "Autonomous Remediation";
-  }
-}
-
-function systemPromptForAgentKind(kind: z.infer<typeof agentKindSchema>): string {
-  switch (kind) {
-    case "ops-copilot":
-      return [
-        "You are PulseForge Ops Copilot, an IoT operations assistant for device monitoring and incident response.",
-        "Investigate user requests using available operational tools, ground conclusions in retrieved data, and keep responses concise enough for an on-call operator.",
-        "When you create records, make the audit trail understandable: explain what you changed, why, and what remains uncertain.",
-      ].join("\n");
-    case "anomaly-investigation":
-      return [
-        "You are PulseForge Anomaly Investigation Agent.",
-        "Analyze telemetry and incident patterns, identify likely contributing factors, and separate evidence from hypotheses.",
-      ].join("\n");
-    case "remediation-planner":
-      return [
-        "You are PulseForge Remediation Planner.",
-        "Propose safe, reviewable remediation plans with risk notes and clear prerequisites before any operational change.",
-      ].join("\n");
-    case "autonomous-remediation":
-      return [
-        "You are PulseForge Autonomous Remediation Agent.",
-        "Prefer safe, reversible actions, document all action attempts, and stop when confidence or authorization is insufficient.",
-      ].join("\n");
-  }
-}
-
 async function createAgentTools(
   request: z.infer<typeof agentRequestSchema>,
-  context: { headers: Record<string, string>; workloadAccessToken?: string }
-) {
-  if (request.agentKind !== "ops-copilot") {
-    return [];
+  context: {
+    headers: Record<string, string>;
+    workloadAccessToken?: string;
+    oauth2CallbackUrl?: string;
+  },
+  options?: {
+    onAuthorizationRequired?: (details: AuthRequiredEventData) => void | Promise<void>;
   }
-
+) {
   if (!runtimeConfig.tools.enabled) {
     return [];
   }
 
+  const toolDefinitions = getPulseForgeAgentToolDefinitions(request.agentKind);
+  if (toolDefinitions.length === 0) {
+    return [];
+  }
+
+  const authorizationGroups =
+    getPulseForgeAgentToolAuthorizationGroups(request.agentKind);
+  const authorizationScopeByProviderKey = new Map(
+    authorizationGroups.map((group) => [group.provider.key, group.scopes])
+  );
+  console.info("[tools] wiring agent tools", {
+    agentKind: request.agentKind,
+    agentRunId: request.agentRunId,
+    tools: toolDefinitions.map((definition) => definition.name),
+    authorizationGroups: authorizationGroups.map((group) => ({
+      providerKey: group.provider.key,
+      providerDisplayName: group.provider.displayName,
+      scopes: group.scopes,
+      tools: group.tools,
+    })),
+    oauthCallbackUrlSource: context.oauth2CallbackUrl
+      ? "runtime-context"
+      : runtimeConfig.tools.oauthCallbackUrl
+        ? "env-fallback"
+        : "missing",
+  });
+
   const credentialProvider = await createToolCredentialProvider(request, context);
-  return createPulseForgeStrandsTools(request.agentKind, {
+  return createPulseForgeStrandsTools(toolDefinitions, {
     backendUrl: runtimeConfig.tools.backendUrl,
     agentRunId: request.agentRunId,
-    providerName: runtimeConfig.tools.providerName,
-    credentialProvider,
+    providers: {
+      "pulseforge-backend": {
+        providerName: runtimeConfig.tools.providerName,
+        resourceServerIdentifier: runtimeConfig.tools.resourceServerIdentifier,
+        oauthCallbackUrl:
+          context.oauth2CallbackUrl ?? runtimeConfig.tools.oauthCallbackUrl,
+        credentialProvider,
+      },
+    },
+    getAuthorizationScopes: (provider) =>
+      authorizationScopeByProviderKey.get(provider.key) ?? [],
+    onAuthorizationRequired: options?.onAuthorizationRequired,
   });
 }
 
 async function createToolCredentialProvider(
   request: z.infer<typeof agentRequestSchema>,
-  context: { headers: Record<string, string>; workloadAccessToken?: string }
+  context: {
+    headers: Record<string, string>;
+    workloadAccessToken?: string;
+    oauth2CallbackUrl?: string;
+  }
 ): Promise<ToolCredentialProvider> {
   if (!runtimeConfig.tools.enabled) {
     throw new Error("PulseForge tools are not configured.");
@@ -358,7 +396,7 @@ async function createToolCredentialProvider(
 }
 
 class AgentCoreIdentityCredentialProvider implements ToolCredentialProvider {
-  constructor(private readonly workloadIdentityToken?: string) {}
+  constructor(private readonly workloadIdentityToken?: string) { }
 
   withAccessToken<TInput, TResult>(
     config: ToolAccessTokenConfig,
@@ -369,6 +407,52 @@ class AgentCoreIdentityCredentialProvider implements ToolCredentialProvider {
       scopes: [...config.scopes],
       workloadIdentityToken: this.workloadIdentityToken,
     })(async (input: TInput, accessToken: string) => fn(input, accessToken));
+  }
+}
+
+class AsyncEventQueue<T> {
+  private readonly items: T[] = [];
+  private readonly waiters: Array<(item: T | null) => void> = [];
+  private closed = false;
+
+  push(item: T) {
+    if (this.closed) {
+      return;
+    }
+
+    const waiter = this.waiters.shift();
+    if (waiter) {
+      waiter(item);
+      return;
+    }
+
+    this.items.push(item);
+  }
+
+  next(): Promise<T | null> {
+    const item = this.items.shift();
+    if (item) {
+      return Promise.resolve(item);
+    }
+
+    if (this.closed) {
+      return Promise.resolve(null);
+    }
+
+    return new Promise((resolve) => {
+      this.waiters.push(resolve);
+    });
+  }
+
+  close() {
+    if (this.closed) {
+      return;
+    }
+
+    this.closed = true;
+    for (const waiter of this.waiters.splice(0)) {
+      waiter(null);
+    }
   }
 }
 

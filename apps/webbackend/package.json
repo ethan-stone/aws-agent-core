@@ -13,14 +13,13 @@
     "test:watch": "vitest"
   },
   "dependencies": {
+    "@agent-core/pulseforge-backend": "workspace:*",
     "@agent-core/pulseforge-domain": "workspace:*",
     "@aws-sdk/client-bedrock-agentcore": "^3.996.0",
     "@aws-sdk/credential-providers": "^3.996.0",
-    "@hono/zod-openapi": "^1.1.7",
-    "aws-jwt-verify": "^5.1.0",
     "@hono/node-server": "^1.19.4",
-    "hono": "^4.10.1",
-    "mongodb": "^6.17.0"
+    "dotenv": "^17.4.2",
+    "hono": "^4.10.1"
   },
   "devDependencies": {
     "tsx": "^4",

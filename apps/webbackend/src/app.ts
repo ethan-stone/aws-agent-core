@@ -1,4 +1,3 @@
-import "./lib/load-env.js";
 import { Hono, type MiddlewareHandler } from "hono";
 import type {
   AuthenticatedAppUser,
@@ -8,8 +7,6 @@ import {
   getApiAuthConfig,
   appPermissions,
   verifyAccessToken,
-} from "./lib/auth.js";
-import {
   getAgentRun,
   getDashboard,
   getDevice,
@@ -20,14 +17,23 @@ import {
   listDevices,
   listIncidents,
   seedDemoData,
-} from "./services/pulseforge-service.js";
-import { runAgent } from "./services/agent-service.js";
-import { toolsApp } from "./tools/app.js";
+} from "../../../shared/pulseforge-backend/src/index.js";
+import {
+  completeAgentResourceTokenAuth,
+  runAgent,
+} from "./services/agent-service.js";
+import { runAgentStream } from "./services/agent-service.js";
 import type { ApiAppEnv } from "./types.js";
 
-const publicApiPaths = new Set(["/api/ping", "/api/auth/config"]);
+const publicApiPaths = new Set(["/api/auth/config"]);
 const isRequestLoggingEnabled =
   process.env.API_LOG_LEVEL === "debug" || process.env.API_LOG_LEVEL === "info";
+const corsHeaders = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-headers":
+    "accept, content-type, authorization, x-pulseforge-agent-run-id",
+  "access-control-allow-methods": "GET,POST,OPTIONS",
+} as const;
 
 function getBearerToken(headerValue?: string | null) {
   if (!headerValue) {
@@ -66,32 +72,15 @@ function requireUserPermission(
 export const app = new Hono<ApiAppEnv>();
 
 app.use("*", async (c, next) => {
-  c.header("access-control-allow-origin", "*");
-  c.header(
-    "access-control-allow-headers",
-    "content-type, authorization, x-pulseforge-agent-run-id"
-  );
-  c.header("access-control-allow-methods", "GET,POST,OPTIONS");
+  for (const [name, value] of Object.entries(corsHeaders)) {
+    c.header(name, value);
+  }
 
   if (c.req.method === "OPTIONS") {
     return c.body(null, 204);
   }
 
   return next();
-});
-
-app.use("/tools/*", async (c, next) => {
-  const startedAt = Date.now();
-  await next();
-
-  if (isRequestLoggingEnabled) {
-    console.info("[tools]", {
-      method: c.req.method,
-      path: c.req.path,
-      status: c.res.status,
-      durationMs: Date.now() - startedAt,
-    });
-  }
 });
 
 app.use("/api/*", async (c, next) => {
@@ -132,16 +121,6 @@ app.use("/api/*", async (c, next) => {
   } catch {
     return c.json({ error: "Invalid access token" }, 401);
   }
-});
-
-app.route("/tools", toolsApp);
-
-app.get("/api/ping", async (c) => {
-  return c.json({
-    status: "ok",
-    service: "pulseforge-webbackend",
-    storage: await getStorageMode(),
-  });
 });
 
 app.get("/api/auth/config", async (c) => {
@@ -240,6 +219,30 @@ app.post(
 );
 
 app.post(
+  "/api/oauth2/complete-resource-token-auth",
+  requireUserPermission(appPermissions.writeAgentRuns),
+  async (c) => {
+    const body = (await c.req.json()) as { sessionUri?: string };
+    const user = c.get("user");
+
+    if (!body.sessionUri) {
+      return c.json({ error: "sessionUri is required" }, 400);
+    }
+
+    if (!user) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    if (!getBearerToken(c.req.header("authorization"))) {
+      return c.json({ error: "Authentication required" }, 401);
+    }
+
+    await completeAgentResourceTokenAuth(body.sessionUri, user);
+    return c.json({ ok: true });
+  }
+);
+
+app.post(
   "/api/agent-runs",
   requireUserPermission(appPermissions.writeAgentRuns),
   async (c) => {
@@ -261,7 +264,66 @@ app.post(
       user
     );
 
-    return c.json(run, run.status === "failed" ? 502 : 200);
+    return c.json(run);
+  }
+);
+
+app.post(
+  "/api/agent-runs/stream",
+  requireUserPermission(appPermissions.writeAgentRuns),
+  async (c) => {
+    const body = (await c.req.json()) as Partial<CreateAgentRunRequest>;
+    const user = c.get("user");
+
+    if (!body.agentKind || !body.prompt) {
+      return c.json({ error: "agentKind and prompt are required" }, 400);
+    }
+    const request: CreateAgentRunRequest = {
+      agentKind: body.agentKind,
+      prompt: body.prompt,
+      incidentId: body.incidentId,
+      deviceId: body.deviceId,
+      sessionId: body.sessionId,
+    };
+
+    const stream = new ReadableStream({
+      async start(controller) {
+        const encoder = new TextEncoder();
+        const write = (event: string, data: unknown) => {
+          controller.enqueue(
+            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          );
+        };
+
+        try {
+          for await (const event of runAgentStream(request, user)) {
+            write(event.event, event.data);
+          }
+        } catch (error) {
+          console.error("[agent] stream failed", {
+            agentKind: request.agentKind,
+            incidentId: request.incidentId,
+            deviceId: request.deviceId,
+            error: error instanceof Error ? error.message : String(error),
+          });
+          write("error", {
+            message:
+              error instanceof Error ? error.message : "Agent run failed.",
+          });
+        } finally {
+          controller.close();
+        }
+      },
+    });
+
+    return new Response(stream, {
+      headers: {
+        ...corsHeaders,
+        "content-type": "text/event-stream",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+      },
+    });
   }
 );
 

@@ -1,5 +1,5 @@
 # Project Notes
 
-## Deferred Design Sessions
+## Implementation TODOs
 
-- AgentCore Identity OAuth completion flow: the first tool-auth implementation should return an `auth_required` event/status and let the user retry after authorization. In a later session, design and implement the richer stream/poll flow where the runtime keeps the invocation open while AgentCore Identity waits for OAuth completion.
+- Harden the OAuth UX around delegated agent tool authorization. The runtime now emits `auth_required` and keeps the invocation open while AgentCore Identity polls; the UI should eventually handle popup blockers, callback success messaging, and timeout/retry states more explicitly.

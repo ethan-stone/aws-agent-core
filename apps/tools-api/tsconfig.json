@@ -1,0 +1,15 @@
+{
+  "extends": "../../tsconfig.base.json",
+  "compilerOptions": {
+    "outDir": "dist",
+    "rootDir": "../..",
+    "types": ["node"]
+  },
+  "include": [
+    "src",
+    "../../shared/pulseforge-domain/src",
+    "../../shared/pulseforge-tools/src",
+    "../../shared/pulseforge-backend/src"
+  ],
+  "exclude": ["src/test", "vitest.config.ts"]
+}

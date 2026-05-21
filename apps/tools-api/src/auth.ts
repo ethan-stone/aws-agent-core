@@ -2,17 +2,20 @@ import type { MiddlewareHandler } from "hono";
 import {
   createAuditLog,
   getAgentRun,
-} from "../services/pulseforge-service.js";
-import {
   isToolAuthConfigured,
   toolScopes,
   type ToolAuthContext,
   type ToolScope,
   verifyToolAccessToken,
-} from "../lib/auth.js";
-import type { ApiAppEnv } from "../types.js";
+} from "../../../shared/pulseforge-backend/src/index.js";
+import {
+  type ToolsApiEnv,
+} from "./types.js";
 
 export { toolScopes };
+
+const isToolDebugLoggingEnabled =
+  process.env.API_LOG_LEVEL === "debug" || process.env.API_LOG_LEVEL === "info";
 
 function getBearerToken(headerValue?: string | null) {
   if (!headerValue) {
@@ -31,8 +34,8 @@ export function requireToolAccess(config: {
   operation: string;
   scopes: ToolScope[];
   resourceType?: string;
-  getResourceId?: (c: Parameters<MiddlewareHandler<ApiAppEnv>>[0]) => string;
-}): MiddlewareHandler<ApiAppEnv> {
+  getResourceId?: (c: Parameters<MiddlewareHandler<ToolsApiEnv>>[0]) => string;
+}): MiddlewareHandler<ToolsApiEnv> {
   return async (c, next) => {
     c.set("toolAuth", null);
 
@@ -78,6 +81,14 @@ export function requireToolAccess(config: {
       const message =
         error instanceof Error ? error.message : "Invalid access token";
       const missingScopes = message.startsWith("Missing required scopes");
+      console.warn("[tools-auth] rejected tool token", {
+        operation: config.operation,
+        agentRunId,
+        requiredScopes: config.scopes,
+        errorCode: missingScopes ? "missing_required_scopes" : "invalid_token",
+        verifierMessage: message,
+        tokenClaims: summarizeJwtPayload(token),
+      });
       return c.json(
         {
           ok: false,
@@ -89,6 +100,16 @@ export function requireToolAccess(config: {
     }
 
     c.set("toolAuth", toolAuth);
+    if (isToolDebugLoggingEnabled) {
+      console.info("[tools-auth] accepted tool token", {
+        operation: config.operation,
+        agentRunId,
+        requiredScopes: config.scopes,
+        actorId: toolAuth.actor.actorId,
+        onBehalfOfUserId: toolAuth.actor.onBehalfOfUserId,
+        scopes: toolAuth.scopes,
+      });
+    }
 
     const run = await getAgentRun(agentRunId);
     if (!run) {
@@ -107,6 +128,12 @@ export function requireToolAccess(config: {
       run.requestedByUserId &&
       run.requestedByUserId !== toolAuth.actor.onBehalfOfUserId
     ) {
+      console.warn("[tools-auth] delegated user mismatch", {
+        operation: config.operation,
+        agentRunId,
+        requestedByUserId: run.requestedByUserId,
+        onBehalfOfUserId: toolAuth.actor.onBehalfOfUserId,
+      });
       await writeToolAudit(
         c,
         toolAuth,
@@ -138,7 +165,37 @@ export function requireToolAccess(config: {
   };
 }
 
-export function getToolAuth(c: Parameters<MiddlewareHandler<ApiAppEnv>>[0]) {
+function summarizeJwtPayload(token: string) {
+  try {
+    const [, payload] = token.split(".");
+    if (!payload) {
+      return null;
+    }
+
+    const parsed = JSON.parse(
+      Buffer.from(payload, "base64url").toString("utf8")
+    ) as Record<string, unknown>;
+
+    return {
+      iss: asString(parsed.iss),
+      tokenUse: asString(parsed.token_use),
+      clientId: asString(parsed.client_id),
+      aud: asString(parsed.aud),
+      sub: asString(parsed.sub),
+      username: asString(parsed.username) ?? asString(parsed["cognito:username"]),
+      scope: asString(parsed.scope),
+      exp: typeof parsed.exp === "number" ? parsed.exp : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : undefined;
+}
+
+export function getToolAuth(c: Parameters<MiddlewareHandler<ToolsApiEnv>>[0]) {
   const toolAuth = c.get("toolAuth");
   if (!toolAuth) {
     throw new Error("Tool auth context was not initialized");
@@ -148,13 +205,13 @@ export function getToolAuth(c: Parameters<MiddlewareHandler<ApiAppEnv>>[0]) {
 }
 
 async function writeToolAudit(
-  c: Parameters<MiddlewareHandler<ApiAppEnv>>[0],
+  c: Parameters<MiddlewareHandler<ToolsApiEnv>>[0],
   toolAuth: ToolAuthContext,
   config: {
     operation: string;
     scopes: ToolScope[];
     resourceType?: string;
-    getResourceId?: (c: Parameters<MiddlewareHandler<ApiAppEnv>>[0]) => string;
+    getResourceId?: (c: Parameters<MiddlewareHandler<ToolsApiEnv>>[0]) => string;
   },
   statusCode: number,
   outcome: "succeeded" | "failed",

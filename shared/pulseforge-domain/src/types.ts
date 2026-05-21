@@ -180,6 +180,7 @@ export interface AgentRunInvestigationSummary {
 
 export interface AgentRunAuthRequired {
   providerName: string;
+  providerDisplayName?: string;
   authUrl: string;
   scopes: string[];
   agentRunId: string;
@@ -219,6 +220,33 @@ export interface AgentRunResult {
   investigation?: AgentRunInvestigationSummary;
   authRequired?: AgentRunAuthRequired;
 }
+
+export type AgentRunStreamEvent =
+  | {
+      event: "run";
+      data: AgentRun;
+    }
+  | {
+      event: "message";
+      data: { text: string };
+    }
+  | {
+      event: "summary";
+      data: {
+        summary?: string;
+        title?: string;
+        findings?: string[];
+        recommendedActions?: string[];
+      };
+    }
+  | {
+      event: "auth_required";
+      data: AgentRunAuthRequired;
+    }
+  | {
+      event: "error";
+      data: { message: string };
+    };
 
 export interface ApiAuthConfig {
   enabled: boolean;

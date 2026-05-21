@@ -16,11 +16,15 @@ export type PulseForgeToolName =
   | "create_ticket"
   | "propose_remediation_action";
 
-export type PulseForgeAgentToolBundleName =
-  | "ops-copilot"
-  | "anomaly-investigation"
-  | "remediation-planner"
-  | "autonomous-remediation";
+export type PulseForgeCredentialProviderKey = "pulseforge-backend";
+
+export interface PulseForgeCredentialProviderDescriptor<
+  TScope extends string = PulseForgeToolScope,
+> {
+  key: PulseForgeCredentialProviderKey;
+  displayName: string;
+  supportedScopes: readonly TScope[];
+}
 
 export type HttpMethod = "GET" | "POST";
 
@@ -40,6 +44,7 @@ export interface PulseForgeToolDefinition<
   description: string;
   inputSchema: TInputSchema;
   outputSchema: TOutputSchema;
+  credentialProvider: PulseForgeCredentialProviderDescriptor;
   requiredScopes: PulseForgeToolScope[];
   http: {
     method: HttpMethod;
@@ -50,8 +55,9 @@ export interface PulseForgeToolDefinition<
 
 export interface ToolAccessTokenConfig {
   providerName: string;
-  scopes: PulseForgeToolScope[];
+  scopes: string[];
   authFlow: "USER_FEDERATION";
+  callbackUrl?: string;
   onAuthUrl?: (url: string) => void | Promise<void>;
 }
 
@@ -65,7 +71,23 @@ export interface ToolCredentialProvider {
 export interface PulseForgeToolExecutionContext {
   backendUrl: string;
   agentRunId: string;
-  providerName: string;
-  credentialProvider: ToolCredentialProvider;
+  providers: Record<PulseForgeCredentialProviderKey, PulseForgeRuntimeCredentialProvider>;
+  getAuthorizationScopes?: (
+    provider: PulseForgeCredentialProviderDescriptor
+  ) => readonly PulseForgeToolScope[];
+  onAuthorizationRequired?: (details: {
+    providerName: string;
+    providerDisplayName: string;
+    authUrl: string;
+    scopes: string[];
+    agentRunId: string;
+  }) => void | Promise<void>;
   fetch?: typeof fetch;
+}
+
+export interface PulseForgeRuntimeCredentialProvider {
+  providerName: string;
+  resourceServerIdentifier?: string;
+  oauthCallbackUrl?: string;
+  credentialProvider: ToolCredentialProvider;
 }

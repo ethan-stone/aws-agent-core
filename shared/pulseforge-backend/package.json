@@ -1,0 +1,32 @@
+{
+  "name": "@agent-core/pulseforge-backend",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    },
+    "./repositories": {
+      "types": "./dist/repositories/types.d.ts",
+      "import": "./dist/repositories/types.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc -w"
+  },
+  "dependencies": {
+    "@agent-core/pulseforge-domain": "workspace:*",
+    "@aws-sdk/client-secrets-manager": "^3.1043.0",
+    "aws-jwt-verify": "^5.1.0",
+    "mongodb": "^6.17.0"
+  },
+  "devDependencies": {
+    "@types/node": "^25.6.0",
+    "typescript": "~5.9.3"
+  }
+}

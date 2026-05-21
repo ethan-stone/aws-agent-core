@@ -22,7 +22,7 @@ import {
   type RemediationAction,
   type Site,
   type Ticket,
-} from "../../../../shared/pulseforge-domain/src/index.js";
+} from "@agent-core/pulseforge-domain";
 import { randomUUID } from "node:crypto";
 import type {
   IncidentAggregate,
