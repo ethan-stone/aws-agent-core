@@ -17,12 +17,31 @@ export type AgentKind =
   | "anomaly-investigation"
   | "remediation-planner"
   | "autonomous-remediation";
+export type ConversationStatus = "open" | "archived";
+export type RuntimeSessionStatus = "active" | "idle" | "expired" | "closed";
+export type AgentRunRelationship =
+  | "root"
+  | "agent_as_tool"
+  | "handoff"
+  | "graph_node"
+  | "workflow_step"
+  | "a2a";
 export type AgentRunStatus =
   | "queued"
   | "running"
   | "auth_required"
+  | "waiting_for_action"
   | "completed"
-  | "failed";
+  | "failed"
+  | "cancelled";
+export type PendingInputStatus = "pending" | "consumed" | "cancelled";
+export type RequiredActionStatus =
+  | "pending"
+  | "resolved"
+  | "declined"
+  | "expired"
+  | "cancelled";
+export type ToolCallStatus = "pending" | "succeeded" | "failed";
 export type AuditActorType = "agent" | "user";
 export type AuditOutcome = "succeeded" | "failed";
 export type AppPermission =
@@ -148,27 +167,44 @@ export interface RunbookDocument {
   steps: string[];
 }
 
+export interface Conversation {
+  id: string;
+  rootAgentKind: AgentKind;
+  status: ConversationStatus;
+  activeRootRunId?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RuntimeSession {
+  id: string;
+  provider: string;
+  runtimeIdentity: string;
+  providerSessionId: string;
+  conversationId: string;
+  status: RuntimeSessionStatus;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 export interface AgentRun {
   id: string;
+  conversationId: string;
   incidentId?: string;
   deviceId?: string;
-  sessionId?: string;
+  runtimeSessionId?: string;
   agentKind: AgentKind;
+  relationship: AgentRunRelationship;
+  parentRunId?: string;
+  causedByRunItemId?: string;
   status: AgentRunStatus;
-  requestedAt: string;
+  startedAt?: string;
   requestedByUserId?: string;
   completedAt?: string;
-  summary: string;
-  prompt?: string;
-  messages?: AgentRunMessage[];
+  summary?: string;
   investigation?: AgentRunInvestigationSummary;
   authRequired?: AgentRunAuthRequired;
   errorMessage?: string;
-}
-
-export interface AgentRunMessage {
-  role: "system" | "user" | "assistant";
-  content: string;
 }
 
 export interface AgentRunInvestigationSummary {
@@ -186,12 +222,132 @@ export interface AgentRunAuthRequired {
   agentRunId: string;
 }
 
-export interface CreateAgentRunRequest {
+export type RunItemSource =
+  | { type: "user"; userId: string }
+  | { type: "agent"; agentRunId: string; agentKind: AgentKind }
+  | { type: "system" }
+  | { type: "tool"; toolName: string }
+  | { type: "external_service"; service: string };
+
+export type ContentBlock =
+  | { type: "text"; text: string }
+  | { type: "json"; value: unknown }
+  | { type: "image"; fileId: string; alt?: string }
+  | { type: "file"; fileId: string; name?: string; mediaType?: string }
+  | { type: "resource_ref"; resourceType: string; resourceId: string };
+
+export type RunItemKind =
+  | "message"
+  | "tool_call"
+  | "tool_result"
+  | "required_action"
+  | "action_resolution"
+  | "run_agent"
+  | "run_note";
+
+export interface RunItemBase {
+  id: string;
+  runId: string;
+  sequence: number;
+  kind: RunItemKind;
+  source: RunItemSource;
+  createdAt: string;
+}
+
+export interface MessageRunItem extends RunItemBase {
+  kind: "message";
+  role: "user" | "agent" | "system";
+  content: ContentBlock[];
+}
+
+export interface ToolCallRunItem extends RunItemBase {
+  kind: "tool_call";
+  toolCallId: string;
+  toolName: string;
+  arguments: unknown;
+  status: ToolCallStatus;
+}
+
+export interface ToolResultRunItem extends RunItemBase {
+  kind: "tool_result";
+  toolCallId: string;
+  content: ContentBlock[];
+  isError?: boolean;
+}
+
+export interface RequiredActionRunItem extends RunItemBase {
+  kind: "required_action";
+  requiredActionId: string;
+  actionType: string;
+  status: RequiredActionStatus;
+  content: ContentBlock[];
+  data?: unknown;
+  resolvedAt?: string;
+  resolvedBy?: RunItemSource;
+}
+
+export interface ActionResolutionRunItem extends RunItemBase {
+  kind: "action_resolution";
+  requiredActionId: string;
+  outcome: Exclude<RequiredActionStatus, "pending">;
+  content?: ContentBlock[];
+  data?: unknown;
+}
+
+export interface RunAgentRunItem extends RunItemBase {
+  kind: "run_agent";
+  relationship: Exclude<AgentRunRelationship, "root">;
+  agentKind: AgentKind;
+  childRunId: string;
+  toolCallId?: string;
+  status: AgentRunStatus;
+}
+
+export interface RunNoteRunItem extends RunItemBase {
+  kind: "run_note";
+  noteType: string;
+  message: string;
+  data?: unknown;
+}
+
+export type RunItem =
+  | MessageRunItem
+  | ToolCallRunItem
+  | ToolResultRunItem
+  | RequiredActionRunItem
+  | ActionResolutionRunItem
+  | RunAgentRunItem
+  | RunNoteRunItem;
+
+export interface PendingInput {
+  id: string;
+  conversationId: string;
+  source: Extract<RunItemSource, { type: "user" }>;
+  content: ContentBlock[];
+  status: PendingInputStatus;
+  acceptedAt: string;
+  consumedByRunId?: string;
+  consumedAt?: string;
+}
+
+export interface ConversationDetail {
+  conversation: Conversation;
+  runs: AgentRun[];
+  itemsByRunId: Record<string, RunItem[]>;
+  runtimeSessions: RuntimeSession[];
+}
+
+export interface CreateConversationRequest {
   agentKind: AgentKind;
   prompt: string;
   incidentId?: string;
   deviceId?: string;
-  sessionId?: string;
+}
+
+export interface CreateConversationRunRequest {
+  prompt: string;
+  incidentId?: string;
+  deviceId?: string;
 }
 
 export interface IncidentInvestigationContext {
@@ -212,11 +368,11 @@ export interface AgentRuntimeInvocation {
   incidentId?: string;
   deviceId?: string;
   actorId?: string;
+  investigationContext?: IncidentInvestigationContext;
 }
 
 export interface AgentRunResult {
   summary: string;
-  messages: AgentRunMessage[];
   investigation?: AgentRunInvestigationSummary;
   authRequired?: AgentRunAuthRequired;
 }
@@ -285,7 +441,11 @@ export interface PulseForgeSnapshot {
   incidentEvents: IncidentEvent[];
   remediationActions: RemediationAction[];
   tickets: Ticket[];
+  conversations: Conversation[];
+  runtimeSessions: RuntimeSession[];
   agentRuns: AgentRun[];
+  runItems: RunItem[];
+  pendingInputs: PendingInput[];
   auditLogs: AuditLogEntry[];
   dashboard: DashboardSummary;
 }

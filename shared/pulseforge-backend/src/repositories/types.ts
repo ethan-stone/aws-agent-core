@@ -1,16 +1,18 @@
 import type {
   AgentRun,
-  AgentRunResult,
   AuditActor,
   AuditLogEntry,
-  CreateAgentRunRequest,
+  Conversation,
   DashboardSummary,
   Device,
   DeviceMetricSnapshot,
   Incident,
   IncidentEvent,
+  PendingInput,
   PulseForgeSnapshot,
   RemediationAction,
+  RuntimeSession,
+  RunItem,
   Ticket,
 } from "@agent-core/pulseforge-domain";
 
@@ -18,6 +20,15 @@ export interface IncidentAggregate {
   incident: Incident;
   events: IncidentEvent[];
 }
+
+export type AppendRunItemInput = RunItem extends infer Item
+  ? Item extends RunItem
+    ? Omit<Item, "id" | "sequence" | "createdAt"> & {
+        id?: string;
+        createdAt?: string;
+      }
+    : never
+  : never;
 
 export interface PulseForgeRepository {
   getSnapshot(): Promise<PulseForgeSnapshot>;
@@ -27,7 +38,56 @@ export interface PulseForgeRepository {
   getDeviceTelemetry(deviceId: string): Promise<DeviceMetricSnapshot[] | null>;
   listIncidents(): Promise<Incident[]>;
   getIncident(incidentId: string): Promise<IncidentAggregate | null>;
+  getConversation(conversationId: string): Promise<Conversation | null>;
+  createConversation(
+    conversation: Omit<Conversation, "createdAt" | "updatedAt" | "status"> & {
+      status?: Conversation["status"];
+      createdAt?: string;
+      updatedAt?: string;
+    }
+  ): Promise<Conversation>;
+  updateConversationActiveRun(
+    conversationId: string,
+    activeRootRunId: string | null
+  ): Promise<Conversation | null>;
+  listRuntimeSessions(conversationId: string): Promise<RuntimeSession[]>;
+  getRuntimeSessionByProvider(
+    conversationId: string,
+    provider: string,
+    runtimeIdentity: string
+  ): Promise<RuntimeSession | null>;
+  createRuntimeSession(
+    session: Omit<RuntimeSession, "createdAt" | "status"> & {
+      status?: RuntimeSession["status"];
+      createdAt?: string;
+    }
+  ): Promise<RuntimeSession>;
+  touchRuntimeSession(
+    sessionId: string,
+    status?: RuntimeSession["status"]
+  ): Promise<RuntimeSession | null>;
   getAgentRun(runId: string): Promise<AgentRun | null>;
+  listAgentRuns(conversationId: string): Promise<AgentRun[]>;
+  createAgentRun(
+    run: Omit<AgentRun, "startedAt" | "status"> & {
+      status?: AgentRun["status"];
+      startedAt?: string;
+    }
+  ): Promise<AgentRun>;
+  updateAgentRunStatus(
+    runId: string,
+    update: {
+      status: AgentRun["status"];
+      summary?: string;
+      investigation?: AgentRun["investigation"];
+      authRequired?: AgentRun["authRequired"];
+      errorMessage?: string;
+      completedAt?: string;
+    }
+  ): Promise<AgentRun | null>;
+  appendRunItems(runId: string, items: AppendRunItemInput[]): Promise<RunItem[]>;
+  listRunItems(runId: string): Promise<RunItem[]>;
+  listPendingInputs(conversationId: string): Promise<PendingInput[]>;
   createIncidentEvent(event: Omit<IncidentEvent, "id" | "timestamp"> & {
     id?: string;
     timestamp?: string;
@@ -53,17 +113,5 @@ export interface PulseForgeRepository {
       timestamp?: string;
     }
   ): Promise<AuditLogEntry>;
-  createAgentRun(
-    run: CreateAgentRunRequest & { id: string; requestedByUserId?: string }
-  ): Promise<AgentRun>;
-  completeAgentRun(
-    runId: string,
-    result: AgentRunResult
-  ): Promise<AgentRun | null>;
-  requireAgentRunAuth(
-    runId: string,
-    result: NonNullable<AgentRunResult["authRequired"]>
-  ): Promise<AgentRun | null>;
-  failAgentRun(runId: string, errorMessage: string): Promise<AgentRun | null>;
   seedDemoData(): Promise<void>;
 }

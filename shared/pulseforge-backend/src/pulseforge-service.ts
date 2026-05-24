@@ -3,13 +3,13 @@ import { InMemoryPulseForgeRepository } from "./repositories/in-memory-repositor
 import { MongoPulseForgeRepository } from "./repositories/mongo-repository.js";
 import type { PulseForgeRepository } from "./repositories/types.js";
 import type {
-  AgentRunResult,
   AuditActor,
   AuditLogEntry,
-  CreateAgentRunRequest,
+  ConversationDetail,
   IncidentInvestigationContext,
   IncidentEvent,
   RemediationAction,
+  RuntimeSession,
   Ticket,
 } from "@agent-core/pulseforge-domain";
 import { demoRunbooks } from "@agent-core/pulseforge-domain";
@@ -105,6 +105,96 @@ export async function getAgentRun(runId: string) {
   return (await getRepository()).getAgentRun(runId);
 }
 
+export async function getConversation(conversationId: string) {
+  return (await getRepository()).getConversation(conversationId);
+}
+
+export async function getConversationDetail(
+  conversationId: string
+): Promise<ConversationDetail | null> {
+  const repository = await getRepository();
+  const conversation = await repository.getConversation(conversationId);
+  if (!conversation) {
+    return null;
+  }
+
+  const [runs, runtimeSessions] = await Promise.all([
+    repository.listAgentRuns(conversationId),
+    repository.listRuntimeSessions(conversationId),
+  ]);
+  const itemEntries = await Promise.all(
+    runs.map(async (run) => [run.id, await repository.listRunItems(run.id)] as const)
+  );
+
+  return {
+    conversation,
+    runs,
+    runtimeSessions,
+    itemsByRunId: Object.fromEntries(itemEntries),
+  };
+}
+
+export async function createConversation(
+  conversation: Parameters<PulseForgeRepository["createConversation"]>[0]
+) {
+  return (await getRepository()).createConversation(conversation);
+}
+
+export async function updateConversationActiveRun(
+  conversationId: string,
+  activeRootRunId: string | null
+) {
+  return (await getRepository()).updateConversationActiveRun(
+    conversationId,
+    activeRootRunId
+  );
+}
+
+export async function getRuntimeSessionByProvider(
+  conversationId: string,
+  provider: string,
+  runtimeIdentity: string
+) {
+  return (await getRepository()).getRuntimeSessionByProvider(
+    conversationId,
+    provider,
+    runtimeIdentity
+  );
+}
+
+export async function createRuntimeSession(
+  session: Parameters<PulseForgeRepository["createRuntimeSession"]>[0]
+) {
+  return (await getRepository()).createRuntimeSession(session);
+}
+
+export async function touchRuntimeSession(
+  sessionId: string,
+  status?: RuntimeSession["status"]
+) {
+  return (await getRepository()).touchRuntimeSession(sessionId, status);
+}
+
+export async function createAgentRun(
+  run: Parameters<PulseForgeRepository["createAgentRun"]>[0]
+) {
+  return (await getRepository()).createAgentRun(run);
+}
+
+export async function updateAgentRunStatus(
+  runId: string,
+  update: Parameters<PulseForgeRepository["updateAgentRunStatus"]>[1]
+) {
+  return (await getRepository()).updateAgentRunStatus(runId, update);
+}
+
+export async function appendRunItems(
+  runId: string,
+  items: Parameters<PulseForgeRepository["appendRunItems"]>[1]
+) {
+  return (await getRepository()).appendRunItems(runId, items);
+}
+
 export async function createIncidentEvent(
   event: Omit<IncidentEvent, "id" | "timestamp"> & {
     id?: string;
@@ -144,27 +234,6 @@ export async function createAuditLog(
   }
 ) {
   return (await getRepository()).createAuditLog(entry);
-}
-
-export async function createAgentRun(
-  run: CreateAgentRunRequest & { id: string; requestedByUserId?: string }
-) {
-  return (await getRepository()).createAgentRun(run);
-}
-
-export async function completeAgentRun(runId: string, result: AgentRunResult) {
-  return (await getRepository()).completeAgentRun(runId, result);
-}
-
-export async function requireAgentRunAuth(
-  runId: string,
-  authRequired: NonNullable<AgentRunResult["authRequired"]>
-) {
-  return (await getRepository()).requireAgentRunAuth(runId, authRequired);
-}
-
-export async function failAgentRun(runId: string, errorMessage: string) {
-  return (await getRepository()).failAgentRun(runId, errorMessage);
 }
 
 export async function seedDemoData() {

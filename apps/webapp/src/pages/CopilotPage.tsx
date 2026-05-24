@@ -1,10 +1,14 @@
 import { useState } from "react";
 import type {
   AgentRun,
-  AgentRunMessage,
-  AgentRunStreamEvent,
+  ContentBlock,
+  ConversationDetail,
+  MessageRunItem,
 } from "../../../../shared/pulseforge-domain/src/index.js";
-import { createAgentRunStream } from "../lib/api-client.js";
+import {
+  createConversation,
+  createConversationRun,
+} from "../lib/api-client.js";
 
 const starterPrompts = [
   {
@@ -25,92 +29,39 @@ const starterPrompts = [
 
 export function CopilotPage() {
   const [prompt, setPrompt] = useState(starterPrompts[0].prompt);
-  const [incidentId, setIncidentId] = useState(starterPrompts[0].incidentId ?? "");
+  const [incidentId, setIncidentId] = useState(
+    starterPrompts[0].incidentId ?? ""
+  );
   const [deviceId, setDeviceId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [run, setRun] = useState<AgentRun | null>(null);
+  const [conversation, setConversation] = useState<ConversationDetail | null>(
+    null
+  );
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setLoading(true);
     setError(null);
-    setRun(null);
 
     try {
-      const nextRun = await createAgentRunStream(
-        {
-          agentKind: "ops-copilot",
-          prompt,
-          incidentId: incidentId || undefined,
-          deviceId: deviceId || undefined,
-        },
-        handleAgentRunStreamEvent
-      );
-      setRun(nextRun);
+      const request = {
+        prompt,
+        incidentId: incidentId || undefined,
+        deviceId: deviceId || undefined,
+      };
+      const nextConversation = conversation
+        ? await createConversationRun(conversation.conversation.id, request)
+        : await createConversation({
+            agentKind: "ops-copilot",
+            ...request,
+          });
+      setConversation(nextConversation);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run agent");
     } finally {
       setLoading(false);
-    }
-  }
-
-  function handleAgentRunStreamEvent(event: AgentRunStreamEvent) {
-    if (event.event === "run") {
-      setRun(event.data);
-      return;
-    }
-
-    if (event.event === "message") {
-      setRun((current) =>
-        current
-          ? {
-              ...current,
-              messages: [
-                ...(current.messages ?? []),
-                { role: "assistant", content: event.data.text },
-              ],
-            }
-          : current
-      );
-      return;
-    }
-
-    if (event.event === "summary") {
-      setRun((current) =>
-        current
-          ? {
-              ...current,
-              summary: event.data.summary ?? current.summary,
-              investigation: {
-                title: event.data.title ?? "Investigation summary",
-                summary: event.data.summary ?? current.summary,
-                findings: event.data.findings ?? [],
-                recommendedActions: event.data.recommendedActions ?? [],
-              },
-            }
-          : current
-      );
-      return;
-    }
-
-    if (event.event === "auth_required") {
-      setRun((current) =>
-        current
-          ? {
-              ...current,
-              status: "auth_required",
-              summary: "Agent run requires delegated tool authorization.",
-              authRequired: event.data,
-            }
-          : current
-      );
-      return;
-    }
-
-    if (event.event === "error") {
-      setError(event.data.message);
     }
   }
 
@@ -126,8 +77,8 @@ export function CopilotPage() {
           </h2>
         </div>
         <p className="m-0 max-w-[34ch] text-sm text-slate-400">
-          This page now executes through the backend API, which owns agent
-          invocation and run persistence.
+          This page now executes through conversation runs, with ordered run
+          items as the interaction source of truth.
         </p>
       </header>
 
@@ -192,7 +143,7 @@ export function CopilotPage() {
 
             <div className="flex items-center justify-between gap-4">
               <div className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                Backend route: `POST /api/agent-runs/stream`
+                Backend route: `POST /api/conversations`
               </div>
               <button
                 type="submit"
@@ -210,9 +161,9 @@ export function CopilotPage() {
             <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
               Latest run
             </h3>
-            {run ? (
+            {conversation ? (
               <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                {run.status}
+                {latestRun(conversation)?.status}
               </span>
             ) : null}
           </div>
@@ -223,56 +174,65 @@ export function CopilotPage() {
             </div>
           ) : null}
 
-          {!run && !error ? (
+          {!conversation && !error ? (
             <p className="text-sm text-slate-400">
-              Submit a prompt to create an auditable agent run through the API.
+              Submit a prompt to create an auditable conversation through the API.
             </p>
           ) : null}
 
-          {run ? <AgentRunResultView run={run} /> : null}
+          {conversation ? <ConversationResultView detail={conversation} /> : null}
         </article>
       </div>
     </section>
   );
 }
 
-function AgentRunResultView(props: { run: AgentRun }) {
+function ConversationResultView(props: { detail: ConversationDetail }) {
+  const run = latestRun(props.detail);
+  if (!run) {
+    return null;
+  }
+
+  const items = props.detail.itemsByRunId[run.id] ?? [];
+  const messages = items.filter(
+    (item): item is MessageRunItem => item.kind === "message"
+  );
+
   return (
     <div className="grid gap-5">
       <div className="grid gap-2 border-t border-white/8 pt-4">
         <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
           Summary
         </span>
-        <p className="m-0 text-sm text-slate-200">{props.run.summary}</p>
-        {props.run.errorMessage ? (
+        <p className="m-0 text-sm text-slate-200">
+          {run.summary ?? "Agent run completed."}
+        </p>
+        {run.errorMessage ? (
           <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
-            {props.run.errorMessage}
+            {run.errorMessage}
           </div>
         ) : null}
       </div>
 
-      {props.run.investigation ? (
+      {run.investigation ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
           <h4 className="m-0 text-sm font-medium text-slate-100">
-            {props.run.investigation.title}
+            {run.investigation.title}
           </h4>
           <p className="m-0 text-sm text-slate-300">
-            {props.run.investigation.summary}
+            {run.investigation.summary}
           </p>
           <div className="grid gap-3 md:grid-cols-2">
-            <ResultList
-              label="Findings"
-              items={props.run.investigation.findings}
-            />
+            <ResultList label="Findings" items={run.investigation.findings} />
             <ResultList
               label="Recommended actions"
-              items={props.run.investigation.recommendedActions}
+              items={run.investigation.recommendedActions}
             />
           </div>
         </div>
       ) : null}
 
-      {props.run.authRequired ? (
+      {run.authRequired ? (
         <div className="grid gap-3 border border-amber-300/30 bg-amber-300/8 px-3 py-3 text-sm text-amber-100">
           <div>
             <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-amber-200/70">
@@ -280,16 +240,16 @@ function AgentRunResultView(props: { run: AgentRun }) {
             </div>
             <p className="m-0 text-amber-100">
               Copilot requires authorization to perform delegated actions with{" "}
-              {props.run.authRequired.providerDisplayName ??
-                props.run.authRequired.providerName}
+              {run.authRequired.providerDisplayName ??
+                run.authRequired.providerName}
               .
             </p>
           </div>
           <div className="text-xs text-amber-100/75">
-            Requested scopes: {props.run.authRequired.scopes.join(", ")}
+            Requested scopes: {run.authRequired.scopes.join(", ")}
           </div>
           <a
-            href={props.run.authRequired.authUrl}
+            href={run.authRequired.authUrl}
             target="_blank"
             rel="noreferrer"
             className="w-fit border border-amber-200/40 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-amber-50 transition-colors hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
@@ -299,37 +259,70 @@ function AgentRunResultView(props: { run: AgentRun }) {
         </div>
       ) : null}
 
-      {props.run.messages && props.run.messages.length > 0 ? (
+      {messages.length > 0 ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
           <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
             Messages
           </span>
           <div className="grid gap-2.5">
-            {props.run.messages.map((message, index) => (
-              <MessageRow key={`${message.role}-${index}`} message={message} />
+            {messages.map((message) => (
+              <MessageRow key={message.id} message={message} />
             ))}
           </div>
         </div>
       ) : null}
 
       <div className="grid gap-1 border-t border-white/8 pt-4 text-xs uppercase tracking-[0.08em] text-slate-500">
-        <span>Run Id: {props.run.id}</span>
-        <span>Agent: {props.run.agentKind}</span>
-        <span>Requested: {new Date(props.run.requestedAt).toLocaleString()}</span>
+        <span>Conversation Id: {props.detail.conversation.id}</span>
+        <span>Run Id: {run.id}</span>
+        <span>Agent: {run.agentKind}</span>
+        {run.startedAt ? (
+          <span>Started: {new Date(run.startedAt).toLocaleString()}</span>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function MessageRow(props: { message: AgentRunMessage }) {
+function MessageRow(props: { message: MessageRunItem }) {
   return (
     <div className="border border-white/8 bg-black/10 px-3 py-2.5">
       <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-slate-500">
         {props.message.role}
       </div>
-      <p className="m-0 text-sm text-slate-200">{props.message.content}</p>
+      <p className="m-0 whitespace-pre-line text-sm text-slate-200">
+        {contentToText(props.message.content)}
+      </p>
     </div>
   );
+}
+
+function latestRun(detail: ConversationDetail): AgentRun | null {
+  return detail.runs.at(-1) ?? null;
+}
+
+function contentToText(content: ContentBlock[]): string {
+  return content
+    .map((block) => {
+      if (block.type === "text") {
+        return block.text;
+      }
+
+      if (block.type === "json") {
+        return JSON.stringify(block.value);
+      }
+
+      if (block.type === "resource_ref") {
+        return `${block.resourceType}: ${block.resourceId}`;
+      }
+
+      if (block.type === "file") {
+        return block.name ?? block.fileId;
+      }
+
+      return block.alt ?? block.fileId;
+    })
+    .join("\n");
 }
 
 function ResultList(props: { label: string; items: string[] }) {

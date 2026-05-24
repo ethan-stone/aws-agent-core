@@ -1,14 +1,18 @@
 import type {
   AgentRun,
   AuditLogEntry,
+  Conversation,
   DashboardSummary,
   Device,
   DeviceMetricSnapshot,
   Incident,
   IncidentEvent,
+  PendingInput,
   PulseForgeSnapshot,
   RemediationAction,
+  RuntimeSession,
   RunbookDocument,
+  RunItem,
   Site,
   Ticket,
 } from "./types.js";
@@ -286,26 +290,112 @@ export const demoRunbooks: RunbookDocument[] = [
   },
 ];
 
+export const demoConversations: Conversation[] = [
+  {
+    id: "conv-1",
+    rootAgentKind: "anomaly-investigation",
+    status: "open",
+    createdAt: "2026-04-12T13:50:00.000Z",
+    updatedAt: "2026-04-12T13:55:00.000Z",
+  },
+  {
+    id: "conv-2",
+    rootAgentKind: "autonomous-remediation",
+    status: "open",
+    activeRootRunId: "run-2",
+    createdAt: "2026-04-12T14:20:00.000Z",
+    updatedAt: "2026-04-12T14:20:00.000Z",
+  },
+];
+
+export const demoRuntimeSessions: RuntimeSession[] = [
+  {
+    id: "runtime-session-1",
+    provider: "aws-agentcore",
+    runtimeIdentity: "demo-agent-runtime",
+    providerSessionId: "conv-1-agentcore",
+    conversationId: "conv-1",
+    status: "idle",
+    createdAt: "2026-04-12T13:50:00.000Z",
+    lastUsedAt: "2026-04-12T13:55:00.000Z",
+  },
+  {
+    id: "runtime-session-2",
+    provider: "aws-agentcore",
+    runtimeIdentity: "demo-agent-runtime",
+    providerSessionId: "conv-2-agentcore",
+    conversationId: "conv-2",
+    status: "active",
+    createdAt: "2026-04-12T14:20:00.000Z",
+    lastUsedAt: "2026-04-12T14:20:00.000Z",
+  },
+];
+
 export const demoAgentRuns: AgentRun[] = [
   {
     id: "run-1",
+    conversationId: "conv-1",
     incidentId: "inc-1001",
+    runtimeSessionId: "runtime-session-1",
     agentKind: "anomaly-investigation",
+    relationship: "root",
     status: "completed",
-    requestedAt: "2026-04-12T13:50:00.000Z",
+    startedAt: "2026-04-12T13:50:00.000Z",
     completedAt: "2026-04-12T13:55:00.000Z",
     summary:
       "Warm-temperature drift aligns with the latest firmware rollout and not ambient site changes.",
   },
   {
     id: "run-2",
+    conversationId: "conv-2",
     incidentId: "inc-1002",
+    runtimeSessionId: "runtime-session-2",
     agentKind: "autonomous-remediation",
+    relationship: "root",
     status: "queued",
-    requestedAt: "2026-04-12T14:20:00.000Z",
+    startedAt: "2026-04-12T14:20:00.000Z",
     summary: "Background remediation queued for gateway packet loss incident.",
   },
 ];
+
+export const demoRunItems: RunItem[] = [
+  {
+    id: "item-1",
+    runId: "run-1",
+    sequence: 0,
+    kind: "message",
+    role: "user",
+    source: { type: "user", userId: "demo-user" },
+    createdAt: "2026-04-12T13:50:00.000Z",
+    content: [
+      {
+        type: "text",
+        text: "Investigate incident inc-1001 and summarize the likely cause.",
+      },
+    ],
+  },
+  {
+    id: "item-2",
+    runId: "run-1",
+    sequence: 1,
+    kind: "message",
+    role: "agent",
+    source: {
+      type: "agent",
+      agentRunId: "run-1",
+      agentKind: "anomaly-investigation",
+    },
+    createdAt: "2026-04-12T13:55:00.000Z",
+    content: [
+      {
+        type: "text",
+        text: "Warm-temperature drift aligns with the latest firmware rollout and not ambient site changes.",
+      },
+    ],
+  },
+];
+
+export const demoPendingInputs: PendingInput[] = [];
 
 export const demoAuditLogs: AuditLogEntry[] = [];
 
@@ -335,7 +425,11 @@ export const demoSnapshot: PulseForgeSnapshot = {
   incidentEvents: demoIncidentEvents,
   remediationActions: demoRemediationActions,
   tickets: demoTickets,
+  conversations: demoConversations,
+  runtimeSessions: demoRuntimeSessions,
   agentRuns: demoAgentRuns,
+  runItems: demoRunItems,
+  pendingInputs: demoPendingInputs,
   auditLogs: demoAuditLogs,
   dashboard: demoDashboard,
 };

@@ -7,26 +7,54 @@ import {
 import { fromIni } from "@aws-sdk/credential-providers";
 import type {
   AgentRun,
-  AgentRunMessage,
-  AgentRunResult,
-  AgentRunStreamEvent,
+  AgentRunAuthRequired,
+  AgentRunInvestigationSummary,
   AgentRuntimeInvocation,
   AuthenticatedAppUser,
-  CreateAgentRunRequest,
+  ContentBlock,
+  Conversation,
+  ConversationDetail,
+  CreateConversationRequest,
+  CreateConversationRunRequest,
+  IncidentInvestigationContext,
+  RuntimeSession,
 } from "../../../../shared/pulseforge-domain/src/index.js";
+import type { AppendRunItemInput } from "../../../../shared/pulseforge-backend/src/index.js";
 import {
-  completeAgentRun,
+  appendRunItems,
   createAgentRun,
-  failAgentRun,
-  requireAgentRunAuth,
+  createConversation,
+  createRuntimeSession,
+  getConversation,
+  getConversationDetail,
+  getRuntimeSessionByProvider,
+  touchRuntimeSession,
+  updateAgentRunStatus,
+  updateConversationActiveRun,
 } from "../../../../shared/pulseforge-backend/src/index.js";
 
 const region = process.env.AWS_REGION ?? "us-east-1";
+const runtimeProvider = "aws-agentcore";
 const isDebugLoggingEnabled =
   process.env.API_LOG_LEVEL === "debug" || process.env.API_LOG_LEVEL === "info";
 let client: BedrockAgentCoreClient | null = null;
 
 type AgentRuntimeSseEvent = { event: string; data: unknown };
+
+export interface ParsedRuntimeResponse {
+  summary: string;
+  investigation?: AgentRunInvestigationSummary;
+  authRequired?: AgentRunAuthRequired;
+  items: AppendRunItemInput[];
+  hasCompletedOutput: boolean;
+}
+
+export class ActiveRootRunError extends Error {
+  constructor(conversationId: string, runId: string) {
+    super(`Conversation ${conversationId} already has active root run ${runId}`);
+    this.name = "ActiveRootRunError";
+  }
+}
 
 function getClient(): BedrockAgentCoreClient {
   if (!client) {
@@ -39,25 +67,6 @@ function getClient(): BedrockAgentCoreClient {
   }
 
   return client;
-}
-
-export async function runAgent(
-  request: CreateAgentRunRequest,
-  user?: AuthenticatedAppUser | null
-): Promise<AgentRun> {
-  let latestRun: AgentRun | null = null;
-
-  for await (const event of runAgentStream(request, user)) {
-    if (event.event === "run") {
-      latestRun = event.data;
-    }
-  }
-
-  if (!latestRun) {
-    throw new Error("Agent run did not produce a persisted run.");
-  }
-
-  return latestRun;
 }
 
 export async function completeAgentResourceTokenAuth(
@@ -82,71 +91,172 @@ export async function completeAgentResourceTokenAuth(
   );
 }
 
-export async function* runAgentStream(
-  request: CreateAgentRunRequest,
-  user?: AuthenticatedAppUser | null
-): AsyncGenerator<AgentRunStreamEvent> {
-  const runId = randomUUID();
-  const sessionId = request.sessionId ?? `agent-run-${runId}`;
-  const runtimeUserId = user?.sub ?? "pulseforge-webbackend";
+export async function createConversationAndRun(
+  request: CreateConversationRequest,
+  user?: AuthenticatedAppUser | null,
+  investigationContext?: IncidentInvestigationContext | null
+): Promise<ConversationDetail> {
+  const conversation = await createConversation({
+    id: randomUUID(),
+    rootAgentKind: request.agentKind,
+  });
 
-  const queued = await createAgentRun({
-    ...request,
-    id: runId,
-    sessionId,
+  return runRootAgent(conversation, request, user, investigationContext);
+}
+
+export async function runConversation(
+  conversationId: string,
+  request: CreateConversationRunRequest,
+  user?: AuthenticatedAppUser | null,
+  investigationContext?: IncidentInvestigationContext | null
+): Promise<ConversationDetail | null> {
+  const conversation = await getConversation(conversationId);
+  if (!conversation) {
+    return null;
+  }
+
+  if (conversation.activeRootRunId) {
+    throw new ActiveRootRunError(conversation.id, conversation.activeRootRunId);
+  }
+
+  return runRootAgent(
+    conversation,
+    {
+      ...request,
+      agentKind: conversation.rootAgentKind,
+    },
+    user,
+    investigationContext
+  );
+}
+
+async function runRootAgent(
+  conversation: Conversation,
+  request: CreateConversationRequest,
+  user?: AuthenticatedAppUser | null,
+  investigationContext?: IncidentInvestigationContext | null
+): Promise<ConversationDetail> {
+  const runtimeSession = await getOrCreateRuntimeSession(conversation.id);
+  const run = await createAgentRun({
+    id: randomUUID(),
+    conversationId: conversation.id,
+    incidentId: request.incidentId,
+    deviceId: request.deviceId,
+    runtimeSessionId: runtimeSession.id,
+    agentKind: conversation.rootAgentKind,
+    relationship: "root",
+    status: "running",
     requestedByUserId: user?.sub,
   });
 
-  yield { event: "run", data: queued };
+  await updateConversationActiveRun(conversation.id, run.id);
+  await appendRunItems(run.id, [
+    {
+      runId: run.id,
+      kind: "message",
+      role: "user",
+      source: { type: "user", userId: user?.sub ?? "anonymous" },
+      content: textContent(request.prompt),
+    },
+  ]);
 
   try {
-    const events: AgentRuntimeSseEvent[] = [];
-    for await (const event of invokeRuntimeStream(
+    await touchRuntimeSession(runtimeSession.id, "active");
+    const result = await invokeRuntime(
       request,
-      runId,
-      sessionId,
-      runtimeUserId
-    )) {
-      events.push(event);
+      run,
+      runtimeSession,
+      user?.sub ?? "pulseforge-webbackend",
+      investigationContext
+    );
 
-      const streamEvent = toAgentRunStreamEvent(event);
-      if (streamEvent) {
-        yield streamEvent;
-      }
+    if (result.items.length > 0) {
+      await appendRunItems(run.id, result.items);
     }
 
-    const result = buildAgentRunResult(events);
-    if (result.authRequired && !hasCompletedAgentOutput(events)) {
-      const authRequired = await requireAgentRunAuth(runId, result.authRequired);
-      yield { event: "run", data: authRequired ?? queued };
-      return;
+    if (result.authRequired && !result.hasCompletedOutput) {
+      await updateAgentRunStatus(run.id, {
+        status: "auth_required",
+        summary: result.summary,
+        authRequired: result.authRequired,
+      });
+    } else {
+      await updateAgentRunStatus(run.id, {
+        status: "completed",
+        summary: result.summary,
+        investigation: result.investigation,
+      });
     }
-
-    const completed = await completeAgentRun(runId, result);
-    yield { event: "run", data: completed ?? queued };
+    await touchRuntimeSession(runtimeSession.id, "idle");
   } catch (error) {
     const message = formatAgentInvocationError(error);
     console.error("[agent] invocation failed", {
-      runId,
-      sessionId,
+      runId: run.id,
+      conversationId: conversation.id,
+      runtimeSessionId: runtimeSession.providerSessionId,
       agentKind: request.agentKind,
       incidentId: request.incidentId,
       deviceId: request.deviceId,
-      runtimeUserId,
       error: message,
     });
-    const failed = await failAgentRun(runId, message);
-    yield { event: "error", data: { message } };
-    yield { event: "run", data: failed ?? queued };
+
+    await appendRunItems(run.id, [
+      {
+        runId: run.id,
+        kind: "run_note",
+        noteType: "agent_invocation_failed",
+        message,
+        source: { type: "system" },
+      },
+    ]);
+    await updateAgentRunStatus(run.id, {
+      status: "failed",
+      summary: "Agent run failed.",
+      errorMessage: message,
+    });
+    await touchRuntimeSession(runtimeSession.id, "idle");
+  } finally {
+    await updateConversationActiveRun(conversation.id, null);
   }
+
+  const detail = await getConversationDetail(conversation.id);
+  if (!detail) {
+    throw new Error("Conversation disappeared after agent run.");
+  }
+
+  return detail;
 }
 
-async function* invokeRuntimeStream(
-  request: CreateAgentRunRequest,
-  runId: string,
-  sessionId: string,
-  runtimeUserId: string
-): AsyncGenerator<AgentRuntimeSseEvent> {
+async function getOrCreateRuntimeSession(
+  conversationId: string
+): Promise<RuntimeSession> {
+  const runtimeIdentity = getRuntimeIdentity();
+  const existing = await getRuntimeSessionByProvider(
+    conversationId,
+    runtimeProvider,
+    runtimeIdentity
+  );
+  if (existing) {
+    return existing;
+  }
+
+  return createRuntimeSession({
+    id: randomUUID(),
+    provider: runtimeProvider,
+    runtimeIdentity,
+    providerSessionId: `conversation-${conversationId}`,
+    conversationId,
+    status: "active",
+  });
+}
+
+async function invokeRuntime(
+  request: CreateConversationRequest,
+  run: AgentRun,
+  runtimeSession: RuntimeSession,
+  runtimeUserId: string,
+  investigationContext?: IncidentInvestigationContext | null
+): Promise<ParsedRuntimeResponse> {
   const runtimeArn = process.env.AGENT_RUNTIME_ARN;
   const qualifier = process.env.AGENT_RUNTIME_QUALIFIER;
   if (!runtimeArn) {
@@ -156,12 +266,17 @@ async function* invokeRuntimeStream(
     throw new Error("AGENT_RUNTIME_QUALIFIER is not configured for the API.");
   }
 
-  const invocation = buildInvocationPayload(request, runId, runtimeUserId);
+  const invocation = buildInvocationPayload(
+    request,
+    run.id,
+    runtimeUserId,
+    investigationContext
+  );
   if (isDebugLoggingEnabled) {
     console.info("[agent] invoking aws runtime", {
       runtimeArn,
       qualifier,
-      sessionId,
+      runtimeSessionId: runtimeSession.providerSessionId,
       runtimeUserId,
       agentKind: request.agentKind,
       incidentId: request.incidentId,
@@ -175,51 +290,25 @@ async function* invokeRuntimeStream(
       qualifier,
       contentType: "application/json",
       accept: "text/event-stream",
-      runtimeSessionId: sessionId,
+      runtimeSessionId: runtimeSession.providerSessionId,
       runtimeUserId,
-      payload: new TextEncoder().encode(
-        JSON.stringify(invocation)
-      ),
+      payload: new TextEncoder().encode(JSON.stringify(invocation)),
     })
   );
 
-  if (isDebugLoggingEnabled) {
-    console.info("[agent] runtime stream opened", {
-      sessionId,
-    });
+  const events: AgentRuntimeSseEvent[] = [];
+  for await (const event of readAgentRuntimeEvents(response.response)) {
+    events.push(event);
   }
 
-  yield* readAgentRuntimeEvents(response.response);
-}
-
-function formatAgentInvocationError(error: unknown) {
-  if (error instanceof Error) {
-    const parts = [error.message];
-    const metadata = (error as Error & { $metadata?: { httpStatusCode?: number; requestId?: string } }).$metadata;
-    const name = (error as Error & { name?: string }).name;
-
-    if (name && name !== "Error") {
-      parts.unshift(name);
-    }
-
-    if (metadata?.httpStatusCode) {
-      parts.push(`status=${metadata.httpStatusCode}`);
-    }
-
-    if (metadata?.requestId) {
-      parts.push(`requestId=${metadata.requestId}`);
-    }
-
-    return parts.join(" | ");
-  }
-
-  return "Unknown error";
+  return parseAgentRuntimeResponse(events, run);
 }
 
 function buildInvocationPayload(
-  request: CreateAgentRunRequest,
+  request: CreateConversationRequest,
   runId: string,
-  runtimeUserId: string
+  runtimeUserId: string,
+  investigationContext?: IncidentInvestigationContext | null
 ): AgentRuntimeInvocation {
   return {
     agentRunId: runId,
@@ -228,19 +317,23 @@ function buildInvocationPayload(
     incidentId: request.incidentId,
     deviceId: request.deviceId,
     actorId: runtimeUserId,
+    investigationContext: investigationContext ?? undefined,
   };
 }
 
-function buildAgentRunResult(events: AgentRuntimeSseEvent[]): AgentRunResult {
-  const messages: AgentRunMessage[] = [];
+export function parseAgentRuntimeResponse(
+  events: AgentRuntimeSseEvent[],
+  run: Pick<AgentRun, "id" | "agentKind">
+): ParsedRuntimeResponse {
+  const items: AppendRunItemInput[] = [];
   let summary = "Agent run completed.";
-  let investigation: AgentRunResult["investigation"];
-  let authRequired: AgentRunResult["authRequired"];
+  let investigation: AgentRunInvestigationSummary | undefined;
+  let authRequired: AgentRunAuthRequired | undefined;
 
   for (const event of events) {
     const maybeText = asEventText(event.data);
     if (event.event === "message" && maybeText) {
-      messages.push({ role: "assistant", content: maybeText });
+      items.push(agentMessageItem(run, textContent(maybeText)));
       authRequired = undefined;
     }
 
@@ -263,56 +356,83 @@ function buildAgentRunResult(events: AgentRuntimeSseEvent[]): AgentRunResult {
       authRequired = undefined;
     }
 
-    if (event.event === "auth_required" && event.data) {
-      const data = event.data as AgentRunResult["authRequired"];
-      if (
-        data &&
-        typeof data.providerName === "string" &&
-        typeof data.authUrl === "string" &&
-        Array.isArray(data.scopes) &&
-        typeof data.agentRunId === "string"
-      ) {
-        authRequired = data;
-        summary = "Agent run requires delegated tool authorization.";
-      }
+    if (event.event === "auth_required" && isAuthRequiredData(event.data)) {
+      authRequired = {
+        ...event.data,
+        agentRunId: run.id,
+      };
+      summary = "Agent run requires delegated tool authorization.";
     }
   }
 
-  if (messages.length === 0) {
-    messages.push({ role: "assistant", content: summary });
+  const hasCompletedOutput = events.some(
+    (event) => event.event === "message" || event.event === "summary"
+  );
+
+  if (items.length === 0 && !authRequired) {
+    items.push(agentMessageItem(run, textContent(summary)));
   }
 
   return {
     summary,
-    messages,
     investigation,
     authRequired,
+    items,
+    hasCompletedOutput,
   };
 }
 
-function hasCompletedAgentOutput(events: AgentRuntimeSseEvent[]): boolean {
-  return events.some(
-    (event) => event.event === "message" || event.event === "summary"
+function agentMessageItem(
+  run: Pick<AgentRun, "id" | "agentKind">,
+  content: ContentBlock[]
+): AppendRunItemInput {
+  return {
+    runId: run.id,
+    kind: "message",
+    role: "agent",
+    source: { type: "agent", agentRunId: run.id, agentKind: run.agentKind },
+    content,
+  };
+}
+
+function textContent(text: string): ContentBlock[] {
+  return [{ type: "text", text }];
+}
+
+function getRuntimeIdentity() {
+  const runtimeArn = process.env.AGENT_RUNTIME_ARN;
+  const qualifier = process.env.AGENT_RUNTIME_QUALIFIER;
+  return [runtimeArn ?? "unconfigured-runtime", qualifier ?? "unconfigured-qualifier"].join(
+    ":"
   );
 }
 
-function toAgentRunStreamEvent(
-  event: AgentRuntimeSseEvent
-): AgentRunStreamEvent | null {
-  const maybeText = asEventText(event.data);
-  if (event.event === "message" && maybeText) {
-    return { event: "message", data: { text: maybeText } };
+function formatAgentInvocationError(error: unknown) {
+  if (error instanceof Error) {
+    const parts = [error.message];
+    const metadata = (
+      error as Error & {
+        $metadata?: { httpStatusCode?: number; requestId?: string };
+      }
+    ).$metadata;
+    const name = (error as Error & { name?: string }).name;
+
+    if (name && name !== "Error") {
+      parts.unshift(name);
+    }
+
+    if (metadata?.httpStatusCode) {
+      parts.push(`status=${metadata.httpStatusCode}`);
+    }
+
+    if (metadata?.requestId) {
+      parts.push(`requestId=${metadata.requestId}`);
+    }
+
+    return parts.join(" | ");
   }
 
-  if (event.event === "summary" && isSummaryData(event.data)) {
-    return { event: "summary", data: event.data };
-  }
-
-  if (event.event === "auth_required" && isAuthRequiredData(event.data)) {
-    return { event: "auth_required", data: event.data };
-  }
-
-  return null;
+  return "Unknown error";
 }
 
 function asEventText(data: unknown): string | null {
@@ -328,16 +448,7 @@ function asEventText(data: unknown): string | null {
   return null;
 }
 
-function isSummaryData(data: unknown): data is Extract<
-  AgentRunStreamEvent,
-  { event: "summary" }
->["data"] {
-  return typeof data === "object" && data !== null;
-}
-
-function isAuthRequiredData(
-  data: unknown
-): data is NonNullable<AgentRunResult["authRequired"]> {
+function isAuthRequiredData(data: unknown): data is AgentRunAuthRequired {
   return (
     typeof data === "object" &&
     data !== null &&
@@ -346,9 +457,7 @@ function isAuthRequiredData(
     "authUrl" in data &&
     typeof data.authUrl === "string" &&
     "scopes" in data &&
-    Array.isArray(data.scopes) &&
-    "agentRunId" in data &&
-    typeof data.agentRunId === "string"
+    Array.isArray(data.scopes)
   );
 }
 
@@ -463,7 +572,10 @@ function consumeSseBuffer(buffer: string, flush = false) {
 }
 
 function parseSse(rawText: string): AgentRuntimeSseEvent[] {
-  const chunks = rawText.split(/\n\n+/).map((chunk) => chunk.trim()).filter(Boolean);
+  const chunks = rawText
+    .split(/\n\n+/)
+    .map((chunk) => chunk.trim())
+    .filter(Boolean);
 
   return chunks
     .map(parseSseChunk)

@@ -51,6 +51,7 @@ Hono/OpenAPI tools API that:
 
 ## Conventions
 
+- Use pnpm as the package manager. Do not run `bun install`, do not add `bun.lock`, and do not add npm/yarn/bun workspace metadata.
 - Use `tsx` (not `ts-node`) for running TypeScript in apps.
 - Shared packages use the `@agent-core/` npm scope.
 - Apps may consume shared source directly when the package is bundled into a runtime image.

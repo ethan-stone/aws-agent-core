@@ -1,13 +1,16 @@
 import { Hono, type MiddlewareHandler } from "hono";
 import type {
+  AgentKind,
   AuthenticatedAppUser,
-  CreateAgentRunRequest,
+  CreateConversationRequest,
+  CreateConversationRunRequest,
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
-  getApiAuthConfig,
   appPermissions,
-  verifyAccessToken,
+  buildIncidentInvestigationContext,
   getAgentRun,
+  getApiAuthConfig,
+  getConversationDetail,
   getDashboard,
   getDevice,
   getDeviceTelemetry,
@@ -17,12 +20,14 @@ import {
   listDevices,
   listIncidents,
   seedDemoData,
+  verifyAccessToken,
 } from "../../../shared/pulseforge-backend/src/index.js";
 import {
+  ActiveRootRunError,
   completeAgentResourceTokenAuth,
-  runAgent,
+  createConversationAndRun,
+  runConversation,
 } from "./services/agent-service.js";
-import { runAgentStream } from "./services/agent-service.js";
 import type { ApiAppEnv } from "./types.js";
 
 const publicApiPaths = new Set(["/api/auth/config"]);
@@ -67,6 +72,23 @@ function requireUserPermission(
 
     return next();
   };
+}
+
+function isAgentKind(value: unknown): value is AgentKind {
+  return (
+    value === "ops-copilot" ||
+    value === "anomaly-investigation" ||
+    value === "remediation-planner" ||
+    value === "autonomous-remediation"
+  );
+}
+
+function asPrompt(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function asOptionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 export const app = new Hono<ApiAppEnv>();
@@ -243,87 +265,93 @@ app.post(
 );
 
 app.post(
-  "/api/agent-runs",
+  "/api/conversations",
   requireUserPermission(appPermissions.writeAgentRuns),
   async (c) => {
-    const body = (await c.req.json()) as Partial<CreateAgentRunRequest>;
+    const body = (await c.req.json()) as Partial<CreateConversationRequest>;
+    const prompt = asPrompt(body.prompt);
     const user = c.get("user");
 
-    if (!body.agentKind || !body.prompt) {
+    if (!isAgentKind(body.agentKind) || !prompt) {
       return c.json({ error: "agentKind and prompt are required" }, 400);
     }
 
-    const run = await runAgent(
+    const incidentId = asOptionalString(body.incidentId);
+    const investigationContext = incidentId
+      ? await buildIncidentInvestigationContext(incidentId)
+      : null;
+
+    const detail = await createConversationAndRun(
       {
         agentKind: body.agentKind,
-        prompt: body.prompt,
-        incidentId: body.incidentId,
-        deviceId: body.deviceId,
-        sessionId: body.sessionId,
+        prompt,
+        incidentId,
+        deviceId: asOptionalString(body.deviceId),
       },
-      user
+      user,
+      investigationContext
     );
 
-    return c.json(run);
+    const lastRun = detail.runs.at(-1);
+    return c.json(detail, lastRun?.status === "failed" ? 502 : 201);
   }
 );
 
 app.post(
-  "/api/agent-runs/stream",
+  "/api/conversations/:conversationId/runs",
   requireUserPermission(appPermissions.writeAgentRuns),
   async (c) => {
-    const body = (await c.req.json()) as Partial<CreateAgentRunRequest>;
+    const body = (await c.req.json()) as Partial<CreateConversationRunRequest>;
+    const prompt = asPrompt(body.prompt);
     const user = c.get("user");
 
-    if (!body.agentKind || !body.prompt) {
-      return c.json({ error: "agentKind and prompt are required" }, 400);
+    if (!prompt) {
+      return c.json({ error: "prompt is required" }, 400);
     }
-    const request: CreateAgentRunRequest = {
-      agentKind: body.agentKind,
-      prompt: body.prompt,
-      incidentId: body.incidentId,
-      deviceId: body.deviceId,
-      sessionId: body.sessionId,
-    };
 
-    const stream = new ReadableStream({
-      async start(controller) {
-        const encoder = new TextEncoder();
-        const write = (event: string, data: unknown) => {
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-          );
-        };
+    const incidentId = asOptionalString(body.incidentId);
+    const investigationContext = incidentId
+      ? await buildIncidentInvestigationContext(incidentId)
+      : null;
 
-        try {
-          for await (const event of runAgentStream(request, user)) {
-            write(event.event, event.data);
-          }
-        } catch (error) {
-          console.error("[agent] stream failed", {
-            agentKind: request.agentKind,
-            incidentId: request.incidentId,
-            deviceId: request.deviceId,
-            error: error instanceof Error ? error.message : String(error),
-          });
-          write("error", {
-            message:
-              error instanceof Error ? error.message : "Agent run failed.",
-          });
-        } finally {
-          controller.close();
-        }
-      },
-    });
+    try {
+      const detail = await runConversation(
+        c.req.param("conversationId"),
+        {
+          prompt,
+          incidentId,
+          deviceId: asOptionalString(body.deviceId),
+        },
+        user,
+        investigationContext
+      );
 
-    return new Response(stream, {
-      headers: {
-        ...corsHeaders,
-        "content-type": "text/event-stream",
-        "cache-control": "no-cache, no-transform",
-        connection: "keep-alive",
-      },
-    });
+      if (!detail) {
+        return c.json({ error: "Conversation not found" }, 404);
+      }
+
+      const lastRun = detail.runs.at(-1);
+      return c.json(detail, lastRun?.status === "failed" ? 502 : 200);
+    } catch (error) {
+      if (error instanceof ActiveRootRunError) {
+        return c.json({ error: error.message }, 409);
+      }
+
+      throw error;
+    }
+  }
+);
+
+app.get(
+  "/api/conversations/:conversationId",
+  requireUserPermission(appPermissions.writeAgentRuns),
+  async (c) => {
+    const detail = await getConversationDetail(c.req.param("conversationId"));
+    if (!detail) {
+      return c.json({ error: "Conversation not found" }, 404);
+    }
+
+    return c.json(detail);
   }
 );
 
