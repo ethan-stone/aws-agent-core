@@ -9,18 +9,18 @@ importers:
   .:
     dependencies:
       aws-cdk-lib:
-        specifier: ^2.251.0
-        version: 2.251.0(constructs@10.5.1)
+        specifier: ^2.257.0
+        version: 2.257.0(constructs@10.5.1)
       constructs:
         specifier: ^10.5.0
         version: 10.5.1
     devDependencies:
       '@aws-cdk/aws-bedrock-agentcore-alpha':
         specifier: 2.250.0-alpha.0
-        version: 2.250.0-alpha.0(@aws-cdk/aws-bedrock-alpha@2.250.0-alpha.0(aws-cdk-lib@2.251.0(constructs@10.5.1))(constructs@10.5.1))(aws-cdk-lib@2.251.0(constructs@10.5.1))(constructs@10.5.1)
+        version: 2.250.0-alpha.0(@aws-cdk/aws-bedrock-alpha@2.250.0-alpha.0(aws-cdk-lib@2.257.0(constructs@10.5.1))(constructs@10.5.1))(aws-cdk-lib@2.257.0(constructs@10.5.1))(constructs@10.5.1)
       '@aws-cdk/aws-bedrock-alpha':
         specifier: 2.250.0-alpha.0
-        version: 2.250.0-alpha.0(aws-cdk-lib@2.251.0(constructs@10.5.1))(constructs@10.5.1)
+        version: 2.250.0-alpha.0(aws-cdk-lib@2.257.0(constructs@10.5.1))(constructs@10.5.1)
       '@types/node':
         specifier: ^24.10.1
         version: 24.10.13
@@ -51,12 +51,6 @@ importers:
       '@aws/aws-distro-opentelemetry-node-autoinstrumentation':
         specifier: ^0.9.0
         version: 0.9.0
-      '@langchain/core':
-        specifier: ^1.1.42
-        version: 1.1.42(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.211.0(@opentelemetry/api@1.9.0))(ws@8.20.0)
-      '@langchain/langgraph':
-        specifier: ^1.2.9
-        version: 1.2.9(@langchain/core@1.1.42(@opentelemetry/api@1.9.0)(@opentelemetry/exporter-trace-otlp-proto@0.211.0(@opentelemetry/api@1.9.0))(ws@8.20.0))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)(zod-to-json-schema@3.25.2(zod@4.3.6))(zod@4.3.6)
       '@smithy/protocol-http':
         specifier: ^5.3.14
         version: 5.3.14
@@ -291,8 +285,8 @@ packages:
       aws-cdk-lib: ^2.250.0
       constructs: ^10.5.0
 
-  '@aws-cdk/cloud-assembly-schema@53.18.0':
-    resolution: {integrity: sha512-/fa6rOpokkfa5tVIdhsaexQq5MVVTSsZSD1Tu45YcrdyGRusGrM9RlPMCPrwvMS1UfdVFBhcgO9dl9ODWAWOeQ==}
+  '@aws-cdk/cloud-assembly-schema@53.27.0':
+    resolution: {integrity: sha512-OTxe/L2Vc60r2nYih7kFaFpn93sa7shJu9T0tQZsryeDE3HHOAuazKNmS6tLInOjJjVx/dvM5XGyUA+lZAiKxA==}
     engines: {node: '>= 18.0.0'}
     bundledDependencies:
       - jsonschema
@@ -2758,8 +2752,8 @@ packages:
   avvio@9.2.0:
     resolution: {integrity: sha512-2t/sy01ArdHHE0vRH5Hsay+RtCZt3dLPji7W7/MMOCEgze5b7SNDC4j5H6FnVgPkI1MTNFGzHdHrVXDDl7QSSQ==}
 
-  aws-cdk-lib@2.251.0:
-    resolution: {integrity: sha512-H1Jfz2Oyejn+yG24i+By9fZpYfg+E3h1XnFCF2wnt/MyGOTIePRph7MRGkX73ap10ERSpmd0Ly58OLVykFoSQA==}
+  aws-cdk-lib@2.257.0:
+    resolution: {integrity: sha512-GoHfWklrBJcMwLtDlY64pvaT7cD2KyDXC8sik89DR6jHl6nQsBtYTKSJCM+C/k4jgXaecbv8myNX75FySejq0A==}
     engines: {node: '>= 20.0.0'}
     peerDependencies:
       constructs: ^10.5.0
@@ -2882,6 +2876,10 @@ packages:
     resolution: {integrity: sha512-nTjqfcBFEipKdXCv4YDQWCfmcLZKm81ldF0pAopTvyrFGVbcR6P/VAAd5G7N+0tTr8QqiU0tFadD6FK4NtJwOA==}
     engines: {node: '>= 0.6'}
 
+  content-type@2.0.0:
+    resolution: {integrity: sha512-j/O/d7GcZCyNl7/hwZAb606rzqkyvaDctLmckbxLzHvFBzTJHuGEdodATcP3yIRoDrLHkIATJuvzbFlp/ki2cQ==}
+    engines: {node: '>=18'}
+
   convert-source-map@2.0.0:
     resolution: {integrity: sha512-Kvp459HrV2FEJ1CAsi1Ku+MY3kasH19TFykTz2xWmMeq6bk2NU3XXvfJ+Q61m0xktWwt+1HSYf3JZsTms3aRJg==}
 
@@ -2982,8 +2980,8 @@ packages:
   es-module-lexer@2.0.0:
     resolution: {integrity: sha512-5POEcUuZybH7IdmGsD8wlf0AI55wMecM9rVBTI/qEAy2c1kTOm3DjFYjrBdI2K3BaJjJYfYFeRtM0t9ssnRuxw==}
 
-  es-object-atoms@1.1.1:
-    resolution: {integrity: sha512-FGgH2h8zKNim9ljj7dankFPcICIK9Cp5bm+c2gQSYePhpaG5+esrLODihIorn+Pe6FGJzWhXQotPv73jTaldXA==}
+  es-object-atoms@1.1.2:
+    resolution: {integrity: sha512-HWcBoN6NileqtSydK2FqHbS/LoDd2pqrnQHLyJzBj4kOp/ky2MWMN694xOfkK8/SnUsW2DH7EfyVlydKCsm1Zw==}
     engines: {node: '>= 0.4'}
 
   esbuild@0.25.12:
@@ -3028,8 +3026,8 @@ packages:
     resolution: {integrity: sha512-knvyeauYhqjOYvQ66MznSMs83wmHrCycNEN6Ao+2AeYEfxUIkuiVxdEa1qlGEPK+We3n0THiDciYSsCcgW/DoA==}
     engines: {node: '>=12.0.0'}
 
-  express-rate-limit@8.4.1:
-    resolution: {integrity: sha512-NGVYwQSAyEQgzxX1iCM978PP9AdO/hW93gMcF6ZwQCm+rFvLsBH6w4xcXWTcliS8La5EPRN3p9wzItqBwJrfNw==}
+  express-rate-limit@8.5.2:
+    resolution: {integrity: sha512-5Kb34ipNX694DH48vN9irak1Qx30nb0PLYHXfJgw4YEjiC3ZEmZJhwOp+VfiCYwFzvFTdB9QkArYS5kXa2cx2A==}
     engines: {node: '>= 16'}
     peerDependencies:
       express: '>= 4.11'
@@ -3166,6 +3164,10 @@ packages:
     resolution: {integrity: sha512-qM0jDhFEaCBb4TxoW7f53Qrpv9RBiayUHo0S52JudprkhvpjIrGoU1mnnr29Fvd1U335ZFPZQY1wlkqgfGXyLg==}
     engines: {node: '>=16.9.0'}
 
+  hono@4.12.22:
+    resolution: {integrity: sha512-7fvVPbB92zNRsQke+uiRGwtTuef0tB2Dg4hWxYfFNvkQhIltWoyi0ONReM5LWA+jJWS3nfT5lTq+qbsIpX0IQw==}
+    engines: {node: '>=16.9.0'}
+
   http-errors@2.0.1:
     resolution: {integrity: sha512-4FbRdAX+bSdmo4AUFuS0WNiPz8NgFt+r8ThgNWmlrjQjt1Q7ZR9+zTlce2859x4KSXrwIsaeTqDoKQmtP8pLmQ==}
     engines: {node: '>= 0.8'}
@@ -3184,8 +3186,8 @@ packages:
   inherits@2.0.4:
     resolution: {integrity: sha512-k/vGaX4/Yla3WzyMCvTQOXYeIHvqOKtnqBduzTHpzpQZzAskKMhZ2K+EnBiSM9zGSoIFeMpXKxa4dYeZIQqewQ==}
 
-  ip-address@10.1.0:
-    resolution: {integrity: sha512-XXADHxXmvT9+CRxhXg56LJovE+bmWnEWB78LB83VZTprKTmaC5QfruXocxzTZ2Kl0DNwKuBdlIhjL8LeY8Sf8Q==}
+  ip-address@10.2.0:
+    resolution: {integrity: sha512-/+S6j4E9AHvW9SWMSEY9Xfy66O5PWvVEJ08O0y5JGyEKQpojb0K0GKpz/v5HJ/G0vi3D2sjGK78119oXZeE0qA==}
     engines: {node: '>= 12'}
 
   ipaddr.js@1.9.1:
@@ -3596,8 +3598,8 @@ packages:
     resolution: {integrity: sha512-vYt7UD1U9Wg6138shLtLOvdAu+8DsC/ilFtEVHcH+wydcSpNE20AfSOduf6MkRFahL5FY7X1oU7nKVZFtfq8Fg==}
     engines: {node: '>=6'}
 
-  qs@6.15.1:
-    resolution: {integrity: sha512-6YHEFRL9mfgcAvql/XhwTvf5jKcOiiupt2FiJxHkiX1z4j7WL8J/jRHYLluORvc1XxB5rV20KoeK00gVJamspg==}
+  qs@6.15.2:
+    resolution: {integrity: sha512-Rzq0KEyX/w/tEybncDgdkZrJgVUsUMk3xjh3t5bv3S1HTAtg+uOYt72+ZfwiQwKdysThkTBdL/rTi6HDmX9Ddw==}
     engines: {node: '>=0.6'}
 
   quick-format-unescaped@4.0.4:
@@ -3864,9 +3866,9 @@ packages:
     engines: {node: '>=18.0.0'}
     hasBin: true
 
-  type-is@2.0.1:
-    resolution: {integrity: sha512-OZs6gsjF4vMp32qrCbiVSkrFmXtG/AZhY3t0iAMrMBiAZyV9oALtXO8hsrHbMXF9x6L3grlFuwW2oAz7cav+Gw==}
-    engines: {node: '>= 0.6'}
+  type-is@2.1.0:
+    resolution: {integrity: sha512-faYHw0anBbc/kWF3zFTEnxSFOAGUX9GFbOBthvDdLsIlEoWOFOtS0zgCiQYwIskL9iGXZL3kAXD8OoZ4GmMATA==}
+    engines: {node: '>= 18'}
 
   typescript@5.9.3:
     resolution: {integrity: sha512-jl1vZzPDinLr9eUt3J/t7V6FgNEw9QjvBPdysz9KfQDD41fQrC2Y4vKQdiaUpFT4bXlb1RHhLpp8wtm6M5TgSw==}
@@ -4084,18 +4086,18 @@ snapshots:
 
   '@aws-cdk/asset-node-proxy-agent-v6@2.1.1': {}
 
-  '@aws-cdk/aws-bedrock-agentcore-alpha@2.250.0-alpha.0(@aws-cdk/aws-bedrock-alpha@2.250.0-alpha.0(aws-cdk-lib@2.251.0(constructs@10.5.1))(constructs@10.5.1))(aws-cdk-lib@2.251.0(constructs@10.5.1))(constructs@10.5.1)':
+  '@aws-cdk/aws-bedrock-agentcore-alpha@2.250.0-alpha.0(@aws-cdk/aws-bedrock-alpha@2.250.0-alpha.0(aws-cdk-lib@2.257.0(constructs@10.5.1))(constructs@10.5.1))(aws-cdk-lib@2.257.0(constructs@10.5.1))(constructs@10.5.1)':
     dependencies:
-      '@aws-cdk/aws-bedrock-alpha': 2.250.0-alpha.0(aws-cdk-lib@2.251.0(constructs@10.5.1))(constructs@10.5.1)
-      aws-cdk-lib: 2.251.0(constructs@10.5.1)
+      '@aws-cdk/aws-bedrock-alpha': 2.250.0-alpha.0(aws-cdk-lib@2.257.0(constructs@10.5.1))(constructs@10.5.1)
+      aws-cdk-lib: 2.257.0(constructs@10.5.1)
       constructs: 10.5.1
 
-  '@aws-cdk/aws-bedrock-alpha@2.250.0-alpha.0(aws-cdk-lib@2.251.0(constructs@10.5.1))(constructs@10.5.1)':
+  '@aws-cdk/aws-bedrock-alpha@2.250.0-alpha.0(aws-cdk-lib@2.257.0(constructs@10.5.1))(constructs@10.5.1)':
     dependencies:
-      aws-cdk-lib: 2.251.0(constructs@10.5.1)
+      aws-cdk-lib: 2.257.0(constructs@10.5.1)
       constructs: 10.5.1
 
-  '@aws-cdk/cloud-assembly-schema@53.18.0': {}
+  '@aws-cdk/cloud-assembly-schema@53.27.0': {}
 
   '@aws-crypto/crc32@3.0.0':
     dependencies:
@@ -6166,6 +6168,10 @@ snapshots:
     dependencies:
       hono: 4.12.15
 
+  '@hono/node-server@1.19.14(hono@4.12.22)':
+    dependencies:
+      hono: 4.12.22
+
   '@hono/zod-openapi@1.3.0(hono@4.12.15)(zod@4.3.6)':
     dependencies:
       '@asteasolutions/zod-to-openapi': 8.5.0(zod@4.3.6)
@@ -6258,7 +6264,7 @@ snapshots:
 
   '@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)':
     dependencies:
-      '@hono/node-server': 1.19.14(hono@4.12.15)
+      '@hono/node-server': 1.19.14(hono@4.12.22)
       ajv: 8.20.0
       ajv-formats: 3.0.1(ajv@8.20.0)
       content-type: 1.0.5
@@ -6267,8 +6273,8 @@ snapshots:
       eventsource: 3.0.7
       eventsource-parser: 3.0.8
       express: 5.2.1
-      express-rate-limit: 8.4.1(express@5.2.1)
-      hono: 4.12.15
+      express-rate-limit: 8.5.2(express@5.2.1)
+      hono: 4.12.22
       jose: 6.2.3
       json-schema-typed: 8.0.2
       pkce-challenge: 5.0.1
@@ -8059,11 +8065,11 @@ snapshots:
       '@fastify/error': 4.2.0
       fastq: 1.20.1
 
-  aws-cdk-lib@2.251.0(constructs@10.5.1):
+  aws-cdk-lib@2.257.0(constructs@10.5.1):
     dependencies:
       '@aws-cdk/asset-awscli-v1': 2.2.273
       '@aws-cdk/asset-node-proxy-agent-v6': 2.1.1
-      '@aws-cdk/cloud-assembly-schema': 53.18.0
+      '@aws-cdk/cloud-assembly-schema': 53.27.0
       constructs: 10.5.1
 
   aws-cdk@2.1118.0: {}
@@ -8110,9 +8116,9 @@ snapshots:
       http-errors: 2.0.1
       iconv-lite: 0.7.2
       on-finished: 2.4.1
-      qs: 6.15.1
+      qs: 6.15.2
       raw-body: 3.0.2
-      type-is: 2.0.1
+      type-is: 2.1.0
     transitivePeerDependencies:
       - supports-color
 
@@ -8165,6 +8171,8 @@ snapshots:
   content-disposition@1.1.0: {}
 
   content-type@1.0.5: {}
+
+  content-type@2.0.0: {}
 
   convert-source-map@2.0.0: {}
 
@@ -8241,7 +8249,7 @@ snapshots:
 
   es-module-lexer@2.0.0: {}
 
-  es-object-atoms@1.1.1:
+  es-object-atoms@1.1.2:
     dependencies:
       es-errors: 1.3.0
 
@@ -8325,10 +8333,10 @@ snapshots:
 
   expect-type@1.3.0: {}
 
-  express-rate-limit@8.4.1(express@5.2.1):
+  express-rate-limit@8.5.2(express@5.2.1):
     dependencies:
       express: 5.2.1
-      ip-address: 10.1.0
+      ip-address: 10.2.0
 
   express@5.2.1:
     dependencies:
@@ -8352,13 +8360,13 @@ snapshots:
       once: 1.4.0
       parseurl: 1.3.3
       proxy-addr: 2.0.7
-      qs: 6.15.1
+      qs: 6.15.2
       range-parser: 1.2.1
       router: 2.2.0
       send: 1.2.1
       serve-static: 2.2.1
       statuses: 2.0.2
-      type-is: 2.0.1
+      type-is: 2.1.0
       vary: 1.1.2
     transitivePeerDependencies:
       - supports-color
@@ -8488,7 +8496,7 @@ snapshots:
       call-bind-apply-helpers: 1.0.2
       es-define-property: 1.0.1
       es-errors: 1.3.0
-      es-object-atoms: 1.1.1
+      es-object-atoms: 1.1.2
       function-bind: 1.1.2
       get-proto: 1.0.1
       gopd: 1.2.0
@@ -8499,7 +8507,7 @@ snapshots:
   get-proto@1.0.1:
     dependencies:
       dunder-proto: 1.0.1
-      es-object-atoms: 1.1.1
+      es-object-atoms: 1.1.2
 
   get-tsconfig@4.13.6:
     dependencies:
@@ -8520,6 +8528,8 @@ snapshots:
   hono@4.12.12: {}
 
   hono@4.12.15: {}
+
+  hono@4.12.22: {}
 
   http-errors@2.0.1:
     dependencies:
@@ -8549,7 +8559,7 @@ snapshots:
 
   inherits@2.0.4: {}
 
-  ip-address@10.1.0: {}
+  ip-address@10.2.0: {}
 
   ipaddr.js@1.9.1: {}
 
@@ -8879,7 +8889,7 @@ snapshots:
 
   punycode@2.3.1: {}
 
-  qs@6.15.1:
+  qs@6.15.2:
     dependencies:
       side-channel: 1.1.0
 
@@ -9164,9 +9174,9 @@ snapshots:
     optionalDependencies:
       fsevents: 2.3.3
 
-  type-is@2.0.1:
+  type-is@2.1.0:
     dependencies:
-      content-type: 1.0.5
+      content-type: 2.0.0
       media-typer: 1.1.0
       mime-types: 3.0.2
 
