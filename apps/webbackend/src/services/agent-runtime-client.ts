@@ -17,6 +17,11 @@ import {
   type AgentRuntimeSseEvent,
   type ParsedRuntimeResponse,
 } from "./runtime-output-projection.js";
+import {
+  type WebBackendDiagnosticContext,
+  extendDiagnostics,
+  webBackendDiagnostics,
+} from "./webbackend-diagnostics.js";
 
 const region = process.env.AWS_REGION ?? "us-east-1";
 export const runtimeProvider = "aws-agentcore";
@@ -39,10 +44,11 @@ function getClient(): BedrockAgentCoreClient {
 
 export async function completeAgentResourceTokenAuth(
   sessionUri: string,
-  user: AuthenticatedAppUser
+  user: AuthenticatedAppUser,
+  diagnostics?: WebBackendDiagnosticContext
 ) {
   if (isDebugLoggingEnabled) {
-    console.info("[agent] completing resource token auth", {
+    webBackendDiagnostics.resourceTokenAuthCompleted(diagnostics, {
       sessionUri,
       userId: user.sub,
       clientId: user.clientId,
@@ -64,7 +70,8 @@ export async function invokeRootAgentRuntime(
   run: AgentRun,
   runtimeSession: RuntimeSession,
   runtimeUserId: string,
-  investigationContext?: IncidentInvestigationContext | null
+  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<ParsedRuntimeResponse> {
   const events: AgentRuntimeSseEvent[] = [];
   for await (const event of streamRootAgentRuntime(
@@ -72,7 +79,8 @@ export async function invokeRootAgentRuntime(
     run,
     runtimeSession,
     runtimeUserId,
-    investigationContext
+    investigationContext,
+    diagnostics
   )) {
     events.push(event);
   }
@@ -85,7 +93,8 @@ export async function* streamRootAgentRuntime(
   run: AgentRun,
   runtimeSession: RuntimeSession,
   runtimeUserId: string,
-  investigationContext?: IncidentInvestigationContext | null
+  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): AsyncGenerator<AgentRuntimeSseEvent> {
   const runtimeArn = process.env.AGENT_RUNTIME_ARN;
   const qualifier = process.env.AGENT_RUNTIME_QUALIFIER;
@@ -103,15 +112,22 @@ export async function* streamRootAgentRuntime(
     investigationContext
   );
   if (isDebugLoggingEnabled) {
-    console.info("[agent] invoking aws runtime", {
-      runtimeArn,
-      qualifier,
-      runtimeSessionId: runtimeSession.providerSessionId,
-      runtimeUserId,
-      agentKind: request.agentKind,
-      incidentId: request.incidentId,
-      deviceId: request.deviceId,
-    });
+    webBackendDiagnostics.runtimeInvocationStarted(
+      extendDiagnostics(diagnostics, {
+        runId: run.id,
+        conversationId: run.conversationId,
+        agentKind: request.agentKind,
+        runtimeSessionId: runtimeSession.id,
+        providerSessionId: runtimeSession.providerSessionId,
+        incidentId: request.incidentId,
+        deviceId: request.deviceId,
+      }),
+      {
+        runtimeArn,
+        qualifier,
+        runtimeUserId,
+      }
+    );
   }
 
   const response = await getClient().send(
@@ -126,7 +142,22 @@ export async function* streamRootAgentRuntime(
     })
   );
 
+  let eventIndex = 0;
   for await (const event of readAgentRuntimeEvents(response.response)) {
+    eventIndex += 1;
+    webBackendDiagnostics.runtimeEventReceived(
+      extendDiagnostics(diagnostics, {
+        runId: run.id,
+        conversationId: run.conversationId,
+        agentKind: request.agentKind,
+        runtimeSessionId: runtimeSession.id,
+        providerSessionId: runtimeSession.providerSessionId,
+      }),
+      {
+        event: event.event,
+        index: eventIndex,
+      }
+    );
     yield event;
   }
 }

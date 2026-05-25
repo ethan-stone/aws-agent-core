@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Hono, type MiddlewareHandler } from "hono";
 import type {
   AgentKind,
@@ -30,11 +31,15 @@ import {
   runConversation,
   runConversationStream,
 } from "./services/agent-service.js";
+import {
+  conversationDetailEventStream,
+  conversationRunStatus,
+  wantsConversationEventStream,
+} from "./services/conversation-run-transport.js";
+import { webBackendDiagnostics } from "./services/webbackend-diagnostics.js";
 import type { ApiAppEnv } from "./types.js";
 
 const publicApiPaths = new Set(["/api/auth/config"]);
-const isRequestLoggingEnabled =
-  process.env.API_LOG_LEVEL === "debug" || process.env.API_LOG_LEVEL === "info";
 const corsHeaders = {
   "access-control-allow-origin": "*",
   "access-control-allow-headers":
@@ -65,10 +70,22 @@ function requireUserPermission(
 
     const user = c.get("user");
     if (!user) {
+      webBackendDiagnostics.apiAuthRejected(c.get("requestContext"), {
+        reason: `missing_user_for_permission:${permission}`,
+      });
       return c.json({ error: "Authentication required" }, 401);
     }
 
     if (!user.permissions.includes(permission)) {
+      webBackendDiagnostics.apiAuthRejected(
+        {
+          ...c.get("requestContext"),
+          userId: user.sub,
+        },
+        {
+          reason: `missing_permission:${permission}`,
+        }
+      );
       return c.json({ error: "Forbidden" }, 403);
     }
 
@@ -93,50 +110,6 @@ function asOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
-function wantsEventStream(acceptHeader?: string | null) {
-  return acceptHeader?.includes("text/event-stream") ?? false;
-}
-
-function conversationDetailStream(
-  details: AsyncGenerator<unknown>,
-  status = 200
-) {
-  const encoder = new TextEncoder();
-
-  return new Response(
-    new ReadableStream({
-      async start(controller) {
-        const writeEvent = (event: string, data: unknown) => {
-          controller.enqueue(
-            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
-          );
-        };
-
-        try {
-          for await (const detail of details) {
-            writeEvent("conversation", detail);
-          }
-        } catch (error) {
-          writeEvent("error", {
-            error: error instanceof Error ? error.message : "Agent run failed.",
-          });
-        } finally {
-          controller.close();
-        }
-      },
-    }),
-    {
-      status,
-      headers: {
-        ...corsHeaders,
-        "content-type": "text/event-stream; charset=utf-8",
-        "cache-control": "no-cache, no-transform",
-        connection: "keep-alive",
-      },
-    }
-  );
-}
-
 export const app = new Hono<ApiAppEnv>();
 
 app.use("*", async (c, next) => {
@@ -151,18 +124,30 @@ app.use("*", async (c, next) => {
   return next();
 });
 
+app.use("*", async (c, next) => {
+  const requestId = c.req.header("x-request-id") ?? randomUUID();
+  c.set("requestContext", {
+    requestId,
+    method: c.req.method,
+    path: c.req.path,
+  });
+  c.header("x-request-id", requestId);
+  return next();
+});
+
 app.use("/api/*", async (c, next) => {
   const startedAt = Date.now();
   await next();
-
-  if (isRequestLoggingEnabled) {
-    console.info("[api]", {
-      method: c.req.method,
-      path: c.req.path,
+  webBackendDiagnostics.apiRequestCompleted(
+    {
+      ...c.get("requestContext"),
+      userId: c.get("user")?.sub,
+    },
+    {
       status: c.res.status,
       durationMs: Date.now() - startedAt,
-    });
-  }
+    }
+  );
 });
 
 app.use("/api/*", async (c, next) => {
@@ -179,6 +164,9 @@ app.use("/api/*", async (c, next) => {
 
   const token = getBearerToken(c.req.header("authorization"));
   if (!token) {
+    webBackendDiagnostics.apiAuthRejected(c.get("requestContext"), {
+      reason: "missing_bearer_token",
+    });
     return c.json({ error: "Authentication required" }, 401);
   }
 
@@ -187,6 +175,9 @@ app.use("/api/*", async (c, next) => {
     c.set("user", user);
     return next();
   } catch {
+    webBackendDiagnostics.apiAuthRejected(c.get("requestContext"), {
+      reason: "invalid_access_token",
+    });
     return c.json({ error: "Invalid access token" }, 401);
   }
 });
@@ -305,7 +296,11 @@ app.post(
       return c.json({ error: "Authentication required" }, 401);
     }
 
-    await completeAgentResourceTokenAuth(body.sessionUri, user);
+    await completeAgentResourceTokenAuth(
+      body.sessionUri,
+      user,
+      c.get("requestContext")
+    );
     return c.json({ ok: true });
   }
 );
@@ -334,25 +329,30 @@ app.post(
       deviceId: asOptionalString(body.deviceId),
     };
 
-    if (wantsEventStream(c.req.header("accept"))) {
-      return conversationDetailStream(
+    if (wantsConversationEventStream(c.req.header("accept"))) {
+      return conversationDetailEventStream(
+        c,
         await createConversationAndRunStream(
           request,
           user,
-          investigationContext
+          investigationContext,
+          c.get("requestContext")
         ),
-        201
+        {
+          status: 201,
+          diagnostics: c.get("requestContext"),
+        }
       );
     }
 
     const detail = await createConversationAndRun(
       request,
       user,
-      investigationContext
+      investigationContext,
+      c.get("requestContext")
     );
 
-    const lastRun = detail.runs.at(-1);
-    return c.json(detail, lastRun?.status === "failed" ? 502 : 201);
+    return c.json(detail, conversationRunStatus(detail, 201));
   }
 );
 
@@ -379,18 +379,20 @@ app.post(
         incidentId,
         deviceId: asOptionalString(body.deviceId),
       };
-      const detail = wantsEventStream(c.req.header("accept"))
+      const detail = wantsConversationEventStream(c.req.header("accept"))
         ? await runConversationStream(
             c.req.param("conversationId"),
             request,
             user,
-            investigationContext
+            investigationContext,
+            c.get("requestContext")
           )
         : await runConversation(
             c.req.param("conversationId"),
             request,
             user,
-            investigationContext
+            investigationContext,
+            c.get("requestContext")
           );
 
       if (!detail) {
@@ -398,11 +400,12 @@ app.post(
       }
 
       if (Symbol.asyncIterator in detail) {
-        return conversationDetailStream(detail);
+        return conversationDetailEventStream(c, detail, {
+          diagnostics: c.get("requestContext"),
+        });
       }
 
-      const lastRun = detail.runs.at(-1);
-      return c.json(detail, lastRun?.status === "failed" ? 502 : 200);
+      return c.json(detail, conversationRunStatus(detail, 200));
     } catch (error) {
       if (error instanceof ActiveRootRunError) {
         return c.json({ error: error.message }, 409);
@@ -440,11 +443,7 @@ app.get(
 );
 
 app.onError((error, c) => {
-  console.error("[api] unhandled error", {
-    method: c.req.method,
-    path: c.req.path,
-    error: error instanceof Error ? error.message : String(error),
-  });
+  webBackendDiagnostics.apiUnhandledError(c.get("requestContext"), error);
 
   return c.json({ error: "Internal server error" }, 500);
 });

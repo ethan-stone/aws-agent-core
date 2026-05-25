@@ -19,6 +19,11 @@ import {
 import type {
   AppendRunItemInput,
 } from "../../../../shared/pulseforge-backend/src/index.js";
+import {
+  type WebBackendDiagnosticContext,
+  extendDiagnostics,
+  webBackendDiagnostics,
+} from "./webbackend-diagnostics.js";
 
 export class ActiveRootRunError extends Error {
   constructor(conversationId: string, runId: string) {
@@ -30,17 +35,24 @@ export class ActiveRootRunError extends Error {
 export async function createConversationAndRun(
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null
+  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<ConversationDetail> {
   return collectFinalDetail(
-    await createConversationAndRunStream(request, user, investigationContext)
+    await createConversationAndRunStream(
+      request,
+      user,
+      investigationContext,
+      diagnostics
+    )
   );
 }
 
 export async function createConversationAndRunStream(
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null
+  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<AsyncGenerator<ConversationDetail>> {
   const conversation = await agentConversationStorage.conversations.create({
     id: randomUUID(),
@@ -51,7 +63,8 @@ export async function createConversationAndRunStream(
     conversation,
     request,
     user,
-    investigationContext
+    investigationContext,
+    diagnostics
   );
 }
 
@@ -59,13 +72,15 @@ export async function runConversation(
   conversationId: string,
   request: CreateConversationRunRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null
+  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<ConversationDetail | null> {
   const stream = await runConversationStream(
     conversationId,
     request,
     user,
-    investigationContext
+    investigationContext,
+    diagnostics
   );
   return stream ? collectFinalDetail(stream) : null;
 }
@@ -74,7 +89,8 @@ export async function runConversationStream(
   conversationId: string,
   request: CreateConversationRunRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null
+  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<AsyncGenerator<ConversationDetail> | null> {
   const conversation =
     await agentConversationStorage.conversations.get(conversationId);
@@ -93,7 +109,8 @@ export async function runConversationStream(
       agentKind: conversation.rootAgentKind,
     },
     user,
-    investigationContext
+    investigationContext,
+    diagnostics
   );
 }
 
@@ -101,15 +118,32 @@ async function* runRootAgentWithProgress(
   conversation: Conversation,
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null
+  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): AsyncGenerator<ConversationDetail> {
-  const runtimeSession = await getOrCreateRuntimeSession(conversation.id);
+  const conversationDiagnostics = extendDiagnostics(diagnostics, {
+    conversationId: conversation.id,
+    agentKind: conversation.rootAgentKind,
+    incidentId: request.incidentId,
+    deviceId: request.deviceId,
+    userId: user?.sub,
+  });
+  const runtimeSession = await getOrCreateRuntimeSession(
+    conversation.id,
+    conversationDiagnostics
+  );
   const run = await startRootAgentRun(
     conversation,
     request,
     runtimeSession,
-    user
+    user,
+    conversationDiagnostics
   );
+  const runDiagnostics = extendDiagnostics(conversationDiagnostics, {
+    runId: run.id,
+    runtimeSessionId: runtimeSession.id,
+    providerSessionId: runtimeSession.providerSessionId,
+  });
   const runtimeEvents: AgentRuntimeSseEvent[] = [];
   const liveRequiredActionIds = new Set<string>();
 
@@ -125,10 +159,18 @@ async function* runRootAgentWithProgress(
       run,
       runtimeSession,
       user?.sub ?? "pulseforge-webbackend",
-      investigationContext
+      investigationContext,
+      runDiagnostics
     )) {
       runtimeEvents.push(event);
-      if (await recordLiveRequiredAction(run, event, liveRequiredActionIds)) {
+      if (
+        await recordLiveRequiredAction(
+          run,
+          event,
+          liveRequiredActionIds,
+          runDiagnostics
+        )
+      ) {
         yield await getRequiredConversationDetail(conversation.id);
       }
     }
@@ -136,14 +178,21 @@ async function* runRootAgentWithProgress(
     const result = parseAgentRuntimeResponse(runtimeEvents, run);
     await recordCompletedRootAgentRun(
       run,
-      withoutLiveRequiredActions(result, liveRequiredActionIds)
+      withoutLiveRequiredActions(result, liveRequiredActionIds),
+      runDiagnostics
     );
     await agentConversationStorage.runtimeSessions.updateUsage(
       runtimeSession.id,
       "idle"
     );
   } catch (error) {
-    await recordFailedRootAgentRun(run, request, runtimeSession, error);
+    await recordFailedRootAgentRun(
+      run,
+      request,
+      runtimeSession,
+      error,
+      runDiagnostics
+    );
     await agentConversationStorage.runtimeSessions.updateUsage(
       runtimeSession.id,
       "idle"
@@ -159,7 +208,8 @@ async function* runRootAgentWithProgress(
 }
 
 async function getOrCreateRuntimeSession(
-  conversationId: string
+  conversationId: string,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<RuntimeSession> {
   const runtimeIdentity = agentRuntime.getRuntimeIdentity();
   const existing = await agentConversationStorage.runtimeSessions.getByProvider(
@@ -168,10 +218,20 @@ async function getOrCreateRuntimeSession(
     runtimeIdentity
   );
   if (existing) {
+    webBackendDiagnostics.runtimeSessionResolved(
+      extendDiagnostics(diagnostics, {
+        runtimeSessionId: existing.id,
+        providerSessionId: existing.providerSessionId,
+      }),
+      {
+        created: false,
+        runtimeIdentity,
+      }
+    );
     return existing;
   }
 
-  return agentConversationStorage.runtimeSessions.create({
+  const created = await agentConversationStorage.runtimeSessions.create({
     id: randomUUID(),
     provider: agentRuntime.runtimeProvider,
     runtimeIdentity,
@@ -179,13 +239,25 @@ async function getOrCreateRuntimeSession(
     conversationId,
     status: "active",
   });
+  webBackendDiagnostics.runtimeSessionResolved(
+    extendDiagnostics(diagnostics, {
+      runtimeSessionId: created.id,
+      providerSessionId: created.providerSessionId,
+    }),
+    {
+      created: true,
+      runtimeIdentity,
+    }
+  );
+  return created;
 }
 
 async function startRootAgentRun(
   conversation: Conversation,
   request: CreateConversationRequest,
   runtimeSession: RuntimeSession,
-  user?: AuthenticatedAppUser | null
+  user?: AuthenticatedAppUser | null,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<AgentRun> {
   const runId = randomUUID();
   const claimed = await agentConversationStorage.conversations.claimActiveRootRun(
@@ -224,6 +296,17 @@ async function startRootAgentRun(
       },
     ]);
 
+    webBackendDiagnostics.agentRunStarted(
+      extendDiagnostics(diagnostics, {
+        runId: run.id,
+        runtimeSessionId: runtimeSession.id,
+        providerSessionId: runtimeSession.providerSessionId,
+      }),
+      {
+        requestedByUserId: user?.sub,
+      }
+    );
+
     return run;
   } catch (error) {
     await agentConversationStorage.conversations.setActiveRootRun(
@@ -236,7 +319,8 @@ async function startRootAgentRun(
 
 async function recordCompletedRootAgentRun(
   run: AgentRun,
-  result: ParsedRuntimeResponse
+  result: ParsedRuntimeResponse,
+  diagnostics?: WebBackendDiagnosticContext
 ) {
   if (result.items.length > 0) {
     await agentConversationStorage.runItems.append(run.id, result.items);
@@ -248,6 +332,18 @@ async function recordCompletedRootAgentRun(
       summary: result.summary,
       authRequired: result.authRequired,
     });
+    webBackendDiagnostics.agentRunCompleted(
+      extendDiagnostics(diagnostics, {
+        runId: run.id,
+        conversationId: run.conversationId,
+        agentKind: run.agentKind,
+      }),
+      {
+        status: "auth_required",
+        itemCount: result.items.length,
+        summary: result.summary,
+      }
+    );
     return;
   }
 
@@ -256,12 +352,25 @@ async function recordCompletedRootAgentRun(
     summary: result.summary,
     investigation: result.investigation,
   });
+  webBackendDiagnostics.agentRunCompleted(
+    extendDiagnostics(diagnostics, {
+      runId: run.id,
+      conversationId: run.conversationId,
+      agentKind: run.agentKind,
+    }),
+    {
+      status: "completed",
+      itemCount: result.items.length,
+      summary: result.summary,
+    }
+  );
 }
 
 async function recordLiveRequiredAction(
   run: AgentRun,
   event: AgentRuntimeSseEvent,
-  liveRequiredActionIds: Set<string>
+  liveRequiredActionIds: Set<string>,
+  diagnostics?: WebBackendDiagnosticContext
 ): Promise<boolean> {
   if (event.event !== "auth_required" && event.event !== "required_action") {
     return false;
@@ -282,6 +391,18 @@ async function recordLiveRequiredAction(
   await agentConversationStorage.runItems.append(run.id, requiredActions);
   for (const item of requiredActions) {
     liveRequiredActionIds.add(item.requiredActionId);
+    webBackendDiagnostics.agentRequiredActionObserved(
+      extendDiagnostics(diagnostics, {
+        runId: run.id,
+        conversationId: run.conversationId,
+        agentKind: run.agentKind,
+      }),
+      {
+        actionType: item.actionType,
+        requiredActionId: item.requiredActionId,
+        status: item.status,
+      }
+    );
   }
 
   await agentConversationStorage.agentRuns.updateStatus(run.id, {
@@ -339,18 +460,22 @@ async function recordFailedRootAgentRun(
   run: AgentRun,
   request: CreateConversationRequest,
   runtimeSession: RuntimeSession,
-  error: unknown
+  error: unknown,
+  diagnostics?: WebBackendDiagnosticContext
 ) {
   const message = formatAgentInvocationError(error);
-  console.error("[agent] invocation failed", {
-    runId: run.id,
-    conversationId: run.conversationId,
-    runtimeSessionId: runtimeSession.providerSessionId,
-    agentKind: request.agentKind,
-    incidentId: request.incidentId,
-    deviceId: request.deviceId,
-    error: message,
-  });
+  webBackendDiagnostics.agentRunFailed(
+    extendDiagnostics(diagnostics, {
+      runId: run.id,
+      conversationId: run.conversationId,
+      runtimeSessionId: runtimeSession.id,
+      providerSessionId: runtimeSession.providerSessionId,
+      agentKind: request.agentKind,
+      incidentId: request.incidentId,
+      deviceId: request.deviceId,
+    }),
+    error
+  );
 
   await agentConversationStorage.runItems.append(run.id, [
     {
