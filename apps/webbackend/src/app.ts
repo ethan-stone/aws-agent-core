@@ -126,12 +126,24 @@ app.use("*", async (c, next) => {
 
 app.use("*", async (c, next) => {
   const requestId = c.req.header("x-request-id") ?? randomUUID();
-  c.set("requestContext", {
+  const requestContext = {
     requestId,
     method: c.req.method,
     path: c.req.path,
-  });
+  };
+  c.set("requestContext", requestContext);
   c.header("x-request-id", requestId);
+
+  const lambdaContext = c.env?.context;
+  if (lambdaContext) {
+    lambdaContext.callbackWaitsForEmptyEventLoop = false;
+    webBackendDiagnostics.lambdaContextConfigured(requestContext, {
+      awsRequestId: lambdaContext.awsRequestId,
+      callbackWaitsForEmptyEventLoop:
+        lambdaContext.callbackWaitsForEmptyEventLoop,
+    });
+  }
+
   return next();
 });
 

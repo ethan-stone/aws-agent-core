@@ -140,6 +140,13 @@ export const webBackendDiagnostics = {
     });
   },
 
+  lambdaContextConfigured(
+    context: WebBackendDiagnosticContext,
+    data: { awsRequestId?: string; callbackWaitsForEmptyEventLoop: boolean }
+  ) {
+    writeDiagnostic("debug", "lambda.context.configured", context, data);
+  },
+
   conversationStreamOpened(
     context: WebBackendDiagnosticContext | undefined,
     data: { status: number }

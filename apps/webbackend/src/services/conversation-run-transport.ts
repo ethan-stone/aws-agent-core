@@ -80,6 +80,7 @@ export function conversationDetailEventStream(
         snapshots,
         durationMs: Date.now() - startedAt,
       });
+      await stream.close();
     },
     async (error, stream) => {
       webBackendDiagnostics.conversationStreamError(
@@ -92,6 +93,7 @@ export function conversationDetailEventStream(
           error: error instanceof Error ? error.message : "Agent run failed.",
         }),
       });
+      await stream.close();
     }
   );
 }
