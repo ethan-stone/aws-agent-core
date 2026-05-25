@@ -83,6 +83,11 @@ describe("parseAgentRuntimeResponse", () => {
       actionType: "authorization",
       status: "pending",
     });
+    expect(result.items[0]).toMatchObject({
+      kind: "tool_call",
+      toolCallId: "tool-1",
+      status: "succeeded",
+    });
     expect(result.items[4]).toMatchObject({
       kind: "run_agent",
       relationship: "agent_as_tool",
@@ -125,6 +130,37 @@ describe("parseAgentRuntimeResponse", () => {
       "tool_call",
       "message",
     ]);
+  });
+
+  it("marks matching tool calls as failed when the result is an error", () => {
+    const result = parseAgentRuntimeResponse(
+      [
+        {
+          event: "tool_call",
+          data: {
+            toolCallId: "tool-1",
+            toolName: "create_incident_event",
+            arguments: { incidentId: "inc-1001" },
+          },
+        },
+        {
+          event: "tool_result",
+          data: {
+            toolCallId: "tool-1",
+            toolName: "create_incident_event",
+            content: "Backend returned HTTP 500.",
+            isError: true,
+          },
+        },
+      ],
+      { id: "run-1", agentKind: "ops-copilot" }
+    );
+
+    expect(result.items[0]).toMatchObject({
+      kind: "tool_call",
+      toolCallId: "tool-1",
+      status: "failed",
+    });
   });
 
   it("removes model thinking tags from operator-facing text", () => {

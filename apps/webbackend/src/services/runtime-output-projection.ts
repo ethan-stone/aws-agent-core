@@ -101,6 +101,11 @@ export function parseAgentRuntimeResponse(
     }
 
     if (event.event === "tool_result" && isToolResultData(data)) {
+      completeToolCall(
+        items,
+        data.toolCallId,
+        data.isError ? "failed" : "succeeded"
+      );
       items.push({
         runId: run.id,
         kind: "tool_result",
@@ -241,6 +246,20 @@ function normalizeRuntimeEventData(data: unknown): unknown {
   }
 
   return current;
+}
+
+function completeToolCall(
+  items: AppendRunItemInput[],
+  toolCallId: string,
+  status: "succeeded" | "failed"
+): void {
+  const toolCall = items.find(
+    (item): item is Extract<AppendRunItemInput, { kind: "tool_call" }> =>
+      item.kind === "tool_call" && item.toolCallId === toolCallId
+  );
+  if (toolCall) {
+    toolCall.status = status;
+  }
 }
 
 function stripThinkingBlocks(value: string): string {
