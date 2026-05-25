@@ -29,7 +29,7 @@ import type { RuntimeConfig } from "./runtime-config.js";
 
 interface RuntimeSseChunk {
   event: string;
-  data: string;
+  data: unknown;
 }
 
 export const agentRuntimeRequestSchema = z.object({
@@ -220,7 +220,7 @@ export async function* runPulseForgeAgentInvocation(
 function toRuntimeSseChunk(event: AgentRuntimeStreamEvent): RuntimeSseChunk {
   return {
     event: event.event,
-    data: JSON.stringify(event.data),
+    data: event.data,
   };
 }
 

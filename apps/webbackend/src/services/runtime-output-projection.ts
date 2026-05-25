@@ -29,36 +29,37 @@ export function parseAgentRuntimeResponse(
   let authRequired: AgentRunAuthRequired | undefined;
 
   for (const event of events) {
-    const maybeText = asEventText(event.data);
+    const data = normalizeRuntimeEventData(event.data);
+    const maybeText = asEventText(data);
     if (event.event === "message" && maybeText) {
       items.push(agentMessageItem(run, textContent(maybeText)));
       authRequired = undefined;
     }
 
-    if (event.event === "summary" && event.data) {
-      const data = event.data as {
+    if (event.event === "summary" && data) {
+      const summaryData = data as {
         summary?: string;
         title?: string;
         findings?: string[];
         recommendedActions?: string[];
       };
-      if (data.summary) {
-        summary = data.summary;
+      if (summaryData.summary) {
+        summary = summaryData.summary;
       }
       investigation = {
-        title: data.title ?? "Investigation summary",
-        summary: data.summary ?? summary,
-        findings: data.findings ?? [],
-        recommendedActions: data.recommendedActions ?? [],
+        title: summaryData.title ?? "Investigation summary",
+        summary: summaryData.summary ?? summary,
+        findings: summaryData.findings ?? [],
+        recommendedActions: summaryData.recommendedActions ?? [],
       };
       authRequired = undefined;
     }
 
-    if (event.event === "auth_required" && isAuthRequiredData(event.data)) {
+    if (event.event === "auth_required" && isAuthRequiredData(data)) {
       const requiredActionId =
-        event.data.requiredActionId ?? `auth:${run.id}:${items.length}`;
+        data.requiredActionId ?? `auth:${run.id}:${items.length}`;
       authRequired = {
-        ...event.data,
+        ...data,
         agentRunId: run.id,
       };
       items.push({
@@ -71,91 +72,91 @@ export function parseAgentRuntimeResponse(
         content: [
           {
             type: "text",
-            text: `Authorization required for ${event.data.providerDisplayName ?? event.data.providerName}.`,
+            text: `Authorization required for ${data.providerDisplayName ?? data.providerName}.`,
           },
         ],
         data: {
-          providerName: event.data.providerName,
-          providerDisplayName: event.data.providerDisplayName,
-          authUrl: event.data.authUrl,
-          scopes: event.data.scopes,
+          providerName: data.providerName,
+          providerDisplayName: data.providerDisplayName,
+          authUrl: data.authUrl,
+          scopes: data.scopes,
           agentRunId: run.id,
         },
       });
       summary = "Agent run requires delegated tool authorization.";
     }
 
-    if (event.event === "tool_call" && isToolCallData(event.data)) {
+    if (event.event === "tool_call" && isToolCallData(data)) {
       items.push({
         runId: run.id,
         kind: "tool_call",
-        toolCallId: event.data.toolCallId,
-        toolName: event.data.toolName,
-        arguments: event.data.arguments,
-        status: event.data.status ?? "pending",
+        toolCallId: data.toolCallId,
+        toolName: data.toolName,
+        arguments: data.arguments,
+        status: data.status ?? "pending",
         source: { type: "agent", agentRunId: run.id, agentKind: run.agentKind },
       });
     }
 
-    if (event.event === "tool_result" && isToolResultData(event.data)) {
+    if (event.event === "tool_result" && isToolResultData(data)) {
       items.push({
         runId: run.id,
         kind: "tool_result",
-        toolCallId: event.data.toolCallId,
-        content: toContentBlocks(event.data.content),
-        isError: event.data.isError,
+        toolCallId: data.toolCallId,
+        content: toContentBlocks(data.content),
+        isError: data.isError,
         source: {
           type: "tool",
-          toolName: event.data.toolName ?? "unknown_tool",
+          toolName: data.toolName ?? "unknown_tool",
         },
       });
     }
 
-    if (event.event === "required_action" && isRequiredActionData(event.data)) {
+    if (event.event === "required_action" && isRequiredActionData(data)) {
       items.push({
         runId: run.id,
         kind: "required_action",
-        requiredActionId: event.data.requiredActionId,
-        actionType: event.data.actionType,
+        requiredActionId: data.requiredActionId,
+        actionType: data.actionType,
         status: "pending",
-        content: event.data.content,
-        data: event.data.data,
+        content: data.content,
+        data: data.data,
         source: { type: "system" },
       });
     }
 
-    if (event.event === "action_resolution" && isActionResolutionData(event.data)) {
+    if (event.event === "action_resolution" && isActionResolutionData(data)) {
       items.push({
         runId: run.id,
         kind: "action_resolution",
-        requiredActionId: event.data.requiredActionId,
-        outcome: event.data.outcome,
-        content: event.data.content,
-        data: event.data.data,
+        requiredActionId: data.requiredActionId,
+        outcome: data.outcome,
+        content: data.content,
+        data: data.data,
         source: { type: "system" },
       });
     }
 
-    if (event.event === "run_agent" && isRunAgentData(event.data)) {
+    if (event.event === "run_agent" && isRunAgentData(data)) {
       items.push({
         runId: run.id,
         kind: "run_agent",
-        relationship: event.data.relationship,
-        agentKind: event.data.agentKind,
-        childRunId: event.data.childRunId,
-        toolCallId: event.data.toolCallId,
-        status: event.data.status,
+        relationship: data.relationship,
+        agentKind: data.agentKind,
+        childRunId: data.childRunId,
+        toolCallId: data.toolCallId,
+        status: data.status,
         source: { type: "agent", agentRunId: run.id, agentKind: run.agentKind },
       });
     }
 
-    if (event.event === "run_note" && isRunNoteData(event.data)) {
+    if (event.event === "run_note" && isRunNoteData(data)) {
       items.push({
         runId: run.id,
         kind: "run_note",
-        noteType: event.data.noteType,
-        message: event.data.message,
-        data: event.data.data,
+        noteType: data.noteType,
+        message: data.message,
+        data: data.data,
         source: { type: "system" },
       });
     }
@@ -221,6 +222,23 @@ function asEventText(data: unknown): string | null {
   }
 
   return null;
+}
+
+function normalizeRuntimeEventData(data: unknown): unknown {
+  let current = data;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    if (typeof current !== "string") {
+      return current;
+    }
+
+    try {
+      current = JSON.parse(current);
+    } catch {
+      return current;
+    }
+  }
+
+  return current;
 }
 
 function isAuthRequiredData(

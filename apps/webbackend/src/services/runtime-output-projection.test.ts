@@ -89,4 +89,41 @@ describe("parseAgentRuntimeResponse", () => {
       childRunId: "child-run-1",
     });
   });
+
+  it("accepts runtime event data that was JSON encoded by SSE serialization", () => {
+    const result = parseAgentRuntimeResponse(
+      [
+        {
+          event: "tool_call",
+          data: JSON.stringify({
+            toolCallId: "tool-1",
+            toolName: "get_incident_context",
+            arguments: { incidentId: "inc-1001" },
+          }),
+        },
+        {
+          event: "message",
+          data: JSON.stringify({
+            text: "The incident is correlated with firmware rollout.",
+          }),
+        },
+        {
+          event: "summary",
+          data: JSON.stringify({
+            title: "Investigation summary",
+            summary: "Firmware rollout is the likely cause.",
+            findings: ["Temperature drift began after firmware 1.14.7."],
+            recommendedActions: ["Rollback affected sensors."],
+          }),
+        },
+      ],
+      { id: "run-1", agentKind: "ops-copilot" }
+    );
+
+    expect(result.summary).toBe("Firmware rollout is the likely cause.");
+    expect(result.items.map((item) => item.kind)).toEqual([
+      "tool_call",
+      "message",
+    ]);
+  });
 });
