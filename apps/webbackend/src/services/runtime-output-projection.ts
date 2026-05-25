@@ -68,7 +68,7 @@ export function parseAgentRuntimeResponse(
         runId: run.id,
         kind: "required_action",
         requiredActionId,
-        actionType: "authorization",
+        actionType: "auth_required",
         status: "pending",
         source: { type: "system" },
         content: [
@@ -78,6 +78,7 @@ export function parseAgentRuntimeResponse(
           },
         ],
         data: {
+          type: "auth_required",
           providerName: data.providerName,
           providerDisplayName: data.providerDisplayName,
           authUrl: data.authUrl,
@@ -127,7 +128,7 @@ export function parseAgentRuntimeResponse(
         actionType: data.actionType,
         status: "pending",
         content: data.content,
-        data: data.data,
+        data: data.data ?? { type: data.actionType },
         source: { type: "system" },
       });
     }

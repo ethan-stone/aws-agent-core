@@ -80,8 +80,15 @@ describe("parseAgentRuntimeResponse", () => {
     expect(result.items[1]).toMatchObject({
       kind: "required_action",
       requiredActionId: "auth-1",
-      actionType: "authorization",
+      actionType: "auth_required",
       status: "pending",
+      data: {
+        type: "auth_required",
+        providerName: "pulseforge-backend",
+        authUrl: "https://example.com/auth",
+        scopes: ["read:incidents"],
+        agentRunId: "run-1",
+      },
     });
     expect(result.items[0]).toMatchObject({
       kind: "tool_call",

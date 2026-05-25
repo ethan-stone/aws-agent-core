@@ -202,6 +202,7 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
 
   const items = props.detail.itemsByRunId[run.id] ?? [];
   const summary = cleanText(run.summary ?? "No summary returned.");
+  const authAction = findPendingAuthAction(items);
   const investigation = run.investigation
     ? {
         title: cleanText(run.investigation.title),
@@ -253,7 +254,7 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
         </div>
       ) : null}
 
-      {run.authRequired ? (
+      {authAction ? (
         <div className="grid gap-3 border border-amber-300/30 bg-amber-300/8 px-3 py-3 text-sm text-amber-100">
           <div>
             <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-amber-200/70">
@@ -261,16 +262,16 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
             </div>
             <p className="m-0 text-amber-100">
               Copilot requires authorization to perform delegated actions with{" "}
-              {run.authRequired.providerDisplayName ??
-                run.authRequired.providerName}
+              {authAction.data.providerDisplayName ??
+                authAction.data.providerName}
               .
             </p>
           </div>
           <div className="text-xs text-amber-100/75">
-            Requested scopes: {run.authRequired.scopes.join(", ")}
+            Requested scopes: {authAction.data.scopes.join(", ")}
           </div>
           <a
-            href={run.authRequired.authUrl}
+            href={authAction.data.authUrl}
             target="_blank"
             rel="noreferrer"
             className="w-fit border border-amber-200/40 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-amber-50 transition-colors hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
@@ -388,6 +389,50 @@ function ResultList(props: { label: string; items: string[] }) {
   );
 }
 
+type AuthRequiredActionItem = Extract<
+  RunItem,
+  { kind: "required_action" }
+> & {
+  actionType: "auth_required";
+  data: {
+    type: "auth_required";
+    providerName: string;
+    providerDisplayName?: string;
+    authUrl: string;
+    scopes: string[];
+    agentRunId: string;
+  };
+};
+
+function findPendingAuthAction(items: RunItem[]): AuthRequiredActionItem | null {
+  return (
+    items.find(
+      (item): item is AuthRequiredActionItem =>
+        item.kind === "required_action" &&
+        item.actionType === "auth_required" &&
+        item.status === "pending" &&
+        isAuthRequiredActionData(item.data)
+    ) ?? null
+  );
+}
+
+function isAuthRequiredActionData(
+  value: unknown
+): value is AuthRequiredActionItem["data"] {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "auth_required" &&
+    "providerName" in value &&
+    typeof value.providerName === "string" &&
+    "authUrl" in value &&
+    typeof value.authUrl === "string" &&
+    "scopes" in value &&
+    Array.isArray(value.scopes)
+  );
+}
+
 function runItemDisplay(item: RunItem): {
   label: string;
   body: string;
@@ -420,6 +465,17 @@ function runItemDisplay(item: RunItem): {
   }
 
   if (item.kind === "required_action") {
+    if (
+      item.actionType === "auth_required" &&
+      isAuthRequiredActionData(item.data)
+    ) {
+      return {
+        label: "Authorization required",
+        body: `Authorize ${item.data.providerDisplayName ?? item.data.providerName}.`,
+        meta: item.status,
+      };
+    }
+
     return {
       label: "Action required",
       body: contentToText(item.content) || item.actionType,
