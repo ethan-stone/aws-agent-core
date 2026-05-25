@@ -128,6 +128,7 @@ function conversationDetailStream(
     {
       status,
       headers: {
+        ...corsHeaders,
         "content-type": "text/event-stream; charset=utf-8",
         "cache-control": "no-cache, no-transform",
         connection: "keep-alive",
