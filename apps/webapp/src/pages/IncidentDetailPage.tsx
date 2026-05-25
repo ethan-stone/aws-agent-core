@@ -1,11 +1,11 @@
 import {
-  type AgentRun,
+  type ConversationDetail,
   demoIncidents,
   demoSnapshot,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import { useMemo, useState } from "react";
 import { useParams } from "react-router-dom";
-import { createAgentRun, fetchIncident } from "../lib/api-client.js";
+import { createConversation, fetchIncident } from "../lib/api-client.js";
 import { useResource } from "../lib/use-resource.js";
 
 export function IncidentDetailPage() {
@@ -29,7 +29,7 @@ export function IncidentDetailPage() {
     initialValue,
     [incidentId]
   );
-  const [investigationRun, setInvestigationRun] = useState<AgentRun | null>(null);
+  const [investigation, setInvestigation] = useState<ConversationDetail | null>(null);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -94,7 +94,7 @@ export function IncidentDetailPage() {
           AI investigation
         </h3>
 
-        {!investigationRun ? (
+        {!investigation ? (
           <p className="mt-3.5 text-sm text-slate-400">
             Run an investigation to generate findings and recommended actions for this incident.
           </p>
@@ -104,33 +104,48 @@ export function IncidentDetailPage() {
               <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
                 Summary
               </span>
-              <p className="m-0 text-sm text-slate-200">{investigationRun.summary}</p>
+              <p className="m-0 text-sm text-slate-200">
+                {cleanText(
+                  latestRun(investigation)?.summary ?? "Agent run completed."
+                )}
+              </p>
             </div>
 
-            {investigationRun.investigation ? (
+            {latestRun(investigation)?.investigation ? (
               <div className="grid gap-3">
                 <h4 className="m-0 text-sm font-medium text-slate-100">
-                  {investigationRun.investigation.title}
+                  {cleanText(
+                    latestRun(investigation)?.investigation?.title ?? ""
+                  )}
                 </h4>
                 <p className="m-0 text-sm text-slate-300">
-                  {investigationRun.investigation.summary}
+                  {cleanText(
+                    latestRun(investigation)?.investigation?.summary ?? ""
+                  )}
                 </p>
                 <div className="grid gap-3 md:grid-cols-2">
                   <SimpleList
                     label="Findings"
-                    items={investigationRun.investigation.findings}
+                    items={
+                      latestRun(investigation)?.investigation?.findings.map(
+                        cleanText
+                      ) ?? []
+                    }
                   />
                   <SimpleList
                     label="Recommended actions"
-                    items={investigationRun.investigation.recommendedActions}
+                    items={
+                      latestRun(investigation)?.investigation
+                        ?.recommendedActions.map(cleanText) ?? []
+                    }
                   />
                 </div>
               </div>
             ) : null}
 
-            {investigationRun.errorMessage ? (
+            {latestRun(investigation)?.errorMessage ? (
               <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
-                {investigationRun.errorMessage}
+                {latestRun(investigation)?.errorMessage}
               </div>
             ) : null}
           </div>
@@ -144,12 +159,12 @@ export function IncidentDetailPage() {
     setError(null);
 
     try {
-      const run = await createAgentRun({
+      const detail = await createConversation({
         agentKind: "ops-copilot",
         prompt: `Investigate incident ${incidentId}. Summarize the likely cause, strongest evidence, and next operator actions.`,
         incidentId,
       });
-      setInvestigationRun(run);
+      setInvestigation(detail);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to investigate incident"
@@ -158,6 +173,17 @@ export function IncidentDetailPage() {
       setRunning(false);
     }
   }
+}
+
+function latestRun(detail: ConversationDetail) {
+  return detail.runs.at(-1) ?? null;
+}
+
+function cleanText(value: string): string {
+  return value
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<\/?thinking>/gi, "")
+    .trim();
 }
 
 function SimpleList(props: { label: string; items: string[] }) {

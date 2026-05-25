@@ -1,8 +1,8 @@
 import {
   type ApiAuthConfig,
-  type AgentRun,
-  type AgentRunStreamEvent,
-  type CreateAgentRunRequest,
+  type ConversationDetail,
+  type CreateConversationRequest,
+  type CreateConversationRunRequest,
   demoDashboard,
   demoDevices,
   demoIncidents,
@@ -78,6 +78,145 @@ async function requestJson<T>(
   return (await response.json()) as T;
 }
 
+async function requestConversationDetail(
+  path: string,
+  init: RequestInit,
+  onUpdate?: (detail: ConversationDetail) => void
+): Promise<ConversationDetail> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      Accept: "text/event-stream",
+      "Content-Type": "application/json",
+      ...withAuthHeaders(init.headers),
+    },
+  });
+
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+
+  if (!response.body) {
+    return (await response.json()) as ConversationDetail;
+  }
+
+  let latestDetail: ConversationDetail | null = null;
+  for await (const event of readSseEvents(response.body)) {
+    if (event.event === "conversation") {
+      latestDetail = event.data as ConversationDetail;
+      onUpdate?.(latestDetail);
+    }
+
+    if (event.event === "error") {
+      const data = event.data as { error?: string };
+      throw new Error(data.error ?? "Agent run failed.");
+    }
+  }
+
+  if (!latestDetail) {
+    throw new Error("Agent run did not return a conversation.");
+  }
+
+  return latestDetail;
+}
+
+async function throwResponseError(response: Response): Promise<never> {
+  let message = `HTTP ${response.status}`;
+
+  try {
+    const body = (await response.json()) as {
+      error?: string;
+      errorMessage?: string;
+    };
+    if (body.errorMessage) {
+      message = body.errorMessage;
+    } else if (body.error) {
+      message = body.error;
+    }
+  } catch {
+    // Ignore JSON parsing failures and fall back to status text.
+  }
+
+  throw new Error(message);
+}
+
+async function* readSseEvents(
+  body: ReadableStream<Uint8Array>
+): AsyncGenerator<{ event: string; data: unknown }> {
+  const reader = body.getReader();
+  const decoder = new TextDecoder();
+  let buffer = "";
+
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) {
+        break;
+      }
+      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
+      const parsed = consumeSseBuffer(buffer);
+      buffer = parsed.remaining;
+      yield* parsed.events;
+    }
+
+    buffer += decoder.decode();
+    yield* consumeSseBuffer(buffer, true).events;
+  } finally {
+    reader.releaseLock();
+  }
+}
+
+function consumeSseBuffer(buffer: string, flush = false) {
+  const events: Array<{ event: string; data: unknown }> = [];
+  let remaining = buffer;
+  let separatorIndex = remaining.indexOf("\n\n");
+
+  while (separatorIndex >= 0) {
+    const chunk = remaining.slice(0, separatorIndex);
+    remaining = remaining.slice(separatorIndex + 2);
+    const event = parseSseChunk(chunk);
+    if (event) {
+      events.push(event);
+    }
+    separatorIndex = remaining.indexOf("\n\n");
+  }
+
+  if (flush) {
+    const event = parseSseChunk(remaining);
+    if (event) {
+      events.push(event);
+    }
+    remaining = "";
+  }
+
+  return { events, remaining };
+}
+
+function parseSseChunk(chunk: string): { event: string; data: unknown } | null {
+  const trimmed = chunk.trim();
+  if (!trimmed) {
+    return null;
+  }
+
+  let event = "message";
+  const dataLines: string[] = [];
+
+  for (const line of trimmed.split("\n")) {
+    if (line.startsWith("event:")) {
+      event = line.slice("event:".length).trim();
+    } else if (line.startsWith("data:")) {
+      dataLines.push(line.slice("data:".length).trim());
+    }
+  }
+
+  const dataText = dataLines.join("\n");
+  try {
+    return { event, data: JSON.parse(dataText) };
+  } catch {
+    return { event, data: { text: dataText } };
+  }
+}
+
 export async function fetchDashboard(): Promise<DashboardSummary> {
   return getJson("/api/dashboard", demoDashboard);
 }
@@ -141,13 +280,18 @@ export async function fetchIncident(incidentId: string): Promise<{
   );
 }
 
-export async function createAgentRun(
-  request: CreateAgentRunRequest
-): Promise<AgentRun> {
-  return requestJson("/api/agent-runs", {
-    method: "POST",
-    body: JSON.stringify(request),
-  });
+export async function createConversation(
+  request: CreateConversationRequest,
+  onUpdate?: (detail: ConversationDetail) => void
+): Promise<ConversationDetail> {
+  return requestConversationDetail(
+    "/api/conversations",
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    },
+    onUpdate
+  );
 }
 
 export async function completeResourceTokenAuth(
@@ -159,158 +303,23 @@ export async function completeResourceTokenAuth(
   });
 }
 
-export async function createAgentRunStream(
-  request: CreateAgentRunRequest,
-  onEvent: (event: AgentRunStreamEvent) => void
-): Promise<AgentRun> {
-  const response = await fetch(`${API_BASE}/api/agent-runs/stream`, {
-    method: "POST",
-    headers: {
-      Accept: "text/event-stream",
-      "Content-Type": "application/json",
-      ...withAuthHeaders(),
+export async function createConversationRun(
+  conversationId: string,
+  request: CreateConversationRunRequest,
+  onUpdate?: (detail: ConversationDetail) => void
+): Promise<ConversationDetail> {
+  return requestConversationDetail(
+    `/api/conversations/${conversationId}/runs`,
+    {
+      method: "POST",
+      body: JSON.stringify(request),
     },
-    body: JSON.stringify(request),
-  });
-
-  if (!response.ok) {
-    let message = `HTTP ${response.status}`;
-    try {
-      const body = (await response.json()) as {
-        error?: string;
-        errorMessage?: string;
-      };
-      message = body.errorMessage ?? body.error ?? message;
-    } catch {
-      // Keep the status fallback.
-    }
-    throw new Error(message);
-  }
-
-  if (!response.body) {
-    throw new Error("Agent stream response did not include a body.");
-  }
-
-  let latestRun: AgentRun | null = null;
-  for await (const event of readSseEvents(response.body)) {
-    const parsed = toAgentRunStreamEvent(event);
-    if (!parsed) {
-      continue;
-    }
-
-    onEvent(parsed);
-    if (parsed.event === "run") {
-      latestRun = parsed.data;
-    }
-  }
-
-  if (!latestRun) {
-    throw new Error("Agent stream closed before returning a run.");
-  }
-
-  return latestRun;
+    onUpdate
+  );
 }
 
-export async function fetchAgentRun(runId: string): Promise<AgentRun> {
-  return requestJson(`/api/agent-runs/${runId}`);
-}
-
-async function* readSseEvents(
-  stream: ReadableStream<Uint8Array>
-): AsyncGenerator<{ event: string; data: unknown }> {
-  const reader = stream.getReader();
-  const decoder = new TextDecoder();
-  let buffer = "";
-
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) {
-        break;
-      }
-
-      buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, "\n");
-      let separatorIndex = buffer.indexOf("\n\n");
-      while (separatorIndex >= 0) {
-        const chunk = buffer.slice(0, separatorIndex);
-        buffer = buffer.slice(separatorIndex + 2);
-        const event = parseSseChunk(chunk);
-        if (event) {
-          yield event;
-        }
-        separatorIndex = buffer.indexOf("\n\n");
-      }
-    }
-
-    buffer += decoder.decode();
-    const finalEvent = parseSseChunk(buffer);
-    if (finalEvent) {
-      yield finalEvent;
-    }
-  } finally {
-    reader.releaseLock();
-  }
-}
-
-function parseSseChunk(chunk: string) {
-  const trimmed = chunk.trim();
-  if (!trimmed) {
-    return null;
-  }
-
-  let event = "message";
-  const dataLines: string[] = [];
-  for (const line of trimmed.split("\n")) {
-    if (line.startsWith("event:")) {
-      event = line.slice("event:".length).trim();
-    } else if (line.startsWith("data:")) {
-      dataLines.push(line.slice("data:".length).trim());
-    }
-  }
-
-  const dataText = dataLines.join("\n");
-  try {
-    return { event, data: JSON.parse(dataText) };
-  } catch {
-    return { event, data: { text: dataText } };
-  }
-}
-
-function toAgentRunStreamEvent(event: {
-  event: string;
-  data: unknown;
-}): AgentRunStreamEvent | null {
-  if (event.event === "run") {
-    return { event: "run", data: event.data as AgentRun };
-  }
-
-  if (
-    event.event === "message" &&
-    typeof event.data === "object" &&
-    event.data !== null &&
-    "text" in event.data &&
-    typeof event.data.text === "string"
-  ) {
-    return { event: "message", data: { text: event.data.text } };
-  }
-
-  if (event.event === "summary") {
-    return { event: "summary", data: event.data as Extract<AgentRunStreamEvent, { event: "summary" }>["data"] };
-  }
-
-  if (event.event === "auth_required") {
-    return { event: "auth_required", data: event.data as Extract<AgentRunStreamEvent, { event: "auth_required" }>["data"] };
-  }
-
-  if (
-    event.event === "error" &&
-    typeof event.data === "object" &&
-    event.data !== null &&
-    "message" in event.data &&
-    typeof event.data.message === "string"
-  ) {
-    return { event: "error", data: { message: event.data.message } };
-  }
-
-  return null;
+export async function fetchConversation(
+  conversationId: string
+): Promise<ConversationDetail> {
+  return requestJson(`/api/conversations/${conversationId}`);
 }

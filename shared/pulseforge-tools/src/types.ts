@@ -75,10 +75,32 @@ export interface PulseForgeToolExecutionContext {
   getAuthorizationScopes?: (
     provider: PulseForgeCredentialProviderDescriptor
   ) => readonly PulseForgeToolScope[];
+  onToolCallStarted?: (details: {
+    toolCallId: string;
+    toolName: PulseForgeToolName;
+    input: unknown;
+  }) => void | Promise<void>;
+  onToolCallCompleted?: (details: {
+    toolCallId: string;
+    toolName: PulseForgeToolName;
+    output: JsonValue;
+  }) => void | Promise<void>;
+  onToolCallFailed?: (details: {
+    toolCallId: string;
+    toolName: PulseForgeToolName;
+    error: JsonValue;
+  }) => void | Promise<void>;
   onAuthorizationRequired?: (details: {
+    requiredActionId: string;
     providerName: string;
     providerDisplayName: string;
     authUrl: string;
+    scopes: string[];
+    agentRunId: string;
+  }) => void | Promise<void>;
+  onAuthorizationResolved?: (details: {
+    requiredActionId: string;
+    providerName: string;
     scopes: string[];
     agentRunId: string;
   }) => void | Promise<void>;

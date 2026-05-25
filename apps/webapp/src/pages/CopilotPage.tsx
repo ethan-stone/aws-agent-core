@@ -1,10 +1,14 @@
 import { useState } from "react";
 import type {
   AgentRun,
-  AgentRunMessage,
-  AgentRunStreamEvent,
+  ContentBlock,
+  ConversationDetail,
+  RunItem,
 } from "../../../../shared/pulseforge-domain/src/index.js";
-import { createAgentRunStream } from "../lib/api-client.js";
+import {
+  createConversation,
+  createConversationRun,
+} from "../lib/api-client.js";
 
 const starterPrompts = [
   {
@@ -25,92 +29,46 @@ const starterPrompts = [
 
 export function CopilotPage() {
   const [prompt, setPrompt] = useState(starterPrompts[0].prompt);
-  const [incidentId, setIncidentId] = useState(starterPrompts[0].incidentId ?? "");
+  const [incidentId, setIncidentId] = useState(
+    starterPrompts[0].incidentId ?? ""
+  );
   const [deviceId, setDeviceId] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [run, setRun] = useState<AgentRun | null>(null);
+  const [conversation, setConversation] = useState<ConversationDetail | null>(
+    null
+  );
 
   async function handleSubmit(event: React.FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setLoading(true);
     setError(null);
-    setRun(null);
 
     try {
-      const nextRun = await createAgentRunStream(
-        {
-          agentKind: "ops-copilot",
-          prompt,
-          incidentId: incidentId || undefined,
-          deviceId: deviceId || undefined,
-        },
-        handleAgentRunStreamEvent
-      );
-      setRun(nextRun);
+      const request = {
+        prompt,
+        incidentId: incidentId || undefined,
+        deviceId: deviceId || undefined,
+      };
+      const nextConversation = conversation
+        ? await createConversationRun(
+            conversation.conversation.id,
+            request,
+            setConversation
+          )
+        : await createConversation(
+            {
+              agentKind: "ops-copilot",
+              ...request,
+            },
+            setConversation
+          );
+      setConversation(nextConversation);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run agent");
     } finally {
       setLoading(false);
-    }
-  }
-
-  function handleAgentRunStreamEvent(event: AgentRunStreamEvent) {
-    if (event.event === "run") {
-      setRun(event.data);
-      return;
-    }
-
-    if (event.event === "message") {
-      setRun((current) =>
-        current
-          ? {
-              ...current,
-              messages: [
-                ...(current.messages ?? []),
-                { role: "assistant", content: event.data.text },
-              ],
-            }
-          : current
-      );
-      return;
-    }
-
-    if (event.event === "summary") {
-      setRun((current) =>
-        current
-          ? {
-              ...current,
-              summary: event.data.summary ?? current.summary,
-              investigation: {
-                title: event.data.title ?? "Investigation summary",
-                summary: event.data.summary ?? current.summary,
-                findings: event.data.findings ?? [],
-                recommendedActions: event.data.recommendedActions ?? [],
-              },
-            }
-          : current
-      );
-      return;
-    }
-
-    if (event.event === "auth_required") {
-      setRun((current) =>
-        current
-          ? {
-              ...current,
-              status: "auth_required",
-              summary: "Agent run requires delegated tool authorization.",
-              authRequired: event.data,
-            }
-          : current
-      );
-      return;
-    }
-
-    if (event.event === "error") {
-      setError(event.data.message);
     }
   }
 
@@ -121,13 +79,13 @@ export function CopilotPage() {
           <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
             Agents
           </p>
-          <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-[-0.05em] text-slate-50">
+          <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-normal text-slate-50">
             Ops Copilot Workspace
           </h2>
         </div>
         <p className="m-0 max-w-[34ch] text-sm text-slate-400">
-          This page now executes through the backend API, which owns agent
-          invocation and run persistence.
+          Current incident context, fleet evidence, and operator-ready next
+          actions.
         </p>
       </header>
 
@@ -192,7 +150,7 @@ export function CopilotPage() {
 
             <div className="flex items-center justify-between gap-4">
               <div className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                Backend route: `POST /api/agent-runs/stream`
+                {conversation ? "Conversation open" : "New conversation"}
               </div>
               <button
                 type="submit"
@@ -207,12 +165,12 @@ export function CopilotPage() {
 
         <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
           <div className="mb-4 flex items-center justify-between gap-4">
-            <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
+            <h3 className="m-0 text-[15px] tracking-normal text-slate-100">
               Latest run
             </h3>
-            {run ? (
+            {conversation ? (
               <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                {run.status}
+                {latestRun(conversation)?.status}
               </span>
             ) : null}
           </div>
@@ -223,56 +181,80 @@ export function CopilotPage() {
             </div>
           ) : null}
 
-          {!run && !error ? (
+          {!conversation && !error ? (
             <p className="text-sm text-slate-400">
-              Submit a prompt to create an auditable agent run through the API.
+              Submit a prompt to create an auditable conversation through the API.
             </p>
           ) : null}
 
-          {run ? <AgentRunResultView run={run} /> : null}
+          {conversation ? <ConversationResultView detail={conversation} /> : null}
         </article>
       </div>
     </section>
   );
 }
 
-function AgentRunResultView(props: { run: AgentRun }) {
+function ConversationResultView(props: { detail: ConversationDetail }) {
+  const run = latestRun(props.detail);
+  if (!run) {
+    return null;
+  }
+
+  const items = props.detail.itemsByRunId[run.id] ?? [];
+  const summary = cleanText(run.summary ?? "No summary returned.");
+  const authAction = findPendingAuthAction(items);
+  const investigation = run.investigation
+    ? {
+        title: cleanText(run.investigation.title),
+        summary: cleanText(run.investigation.summary),
+        findings: run.investigation.findings.map(cleanText).filter(Boolean),
+        recommendedActions: run.investigation.recommendedActions
+          .map(cleanText)
+          .filter(Boolean),
+      }
+    : null;
+
   return (
     <div className="grid gap-5">
-      <div className="grid gap-2 border-t border-white/8 pt-4">
-        <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-          Summary
-        </span>
-        <p className="m-0 text-sm text-slate-200">{props.run.summary}</p>
-        {props.run.errorMessage ? (
+      <div className="grid gap-3 border-t border-white/8 pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+            Run summary
+          </span>
+          <span className={statusBadgeClass(run.status)}>{run.status}</span>
+        </div>
+        <p className="m-0 text-sm leading-6 text-slate-100">{summary}</p>
+        {run.errorMessage ? (
           <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
-            {props.run.errorMessage}
+            {run.errorMessage}
           </div>
         ) : null}
       </div>
 
-      {props.run.investigation ? (
+      {investigation ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
-          <h4 className="m-0 text-sm font-medium text-slate-100">
-            {props.run.investigation.title}
-          </h4>
-          <p className="m-0 text-sm text-slate-300">
-            {props.run.investigation.summary}
+          <div className="grid gap-1">
+            <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+              Investigation
+            </span>
+            <h4 className="m-0 text-sm font-medium text-slate-100">
+              {investigation.title}
+            </h4>
+          </div>
+          <p className="m-0 text-sm leading-6 text-slate-300">
+            {investigation.summary}
           </p>
           <div className="grid gap-3 md:grid-cols-2">
-            <ResultList
-              label="Findings"
-              items={props.run.investigation.findings}
-            />
+            <ResultList label="Findings" items={investigation.findings} />
             <ResultList
               label="Recommended actions"
-              items={props.run.investigation.recommendedActions}
+              items={investigation.recommendedActions}
             />
           </div>
         </div>
       ) : null}
 
-      {props.run.authRequired ? (
+      {authAction ? (
         <div className="grid gap-3 border border-amber-300/30 bg-amber-300/8 px-3 py-3 text-sm text-amber-100">
           <div>
             <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-amber-200/70">
@@ -280,16 +262,16 @@ function AgentRunResultView(props: { run: AgentRun }) {
             </div>
             <p className="m-0 text-amber-100">
               Copilot requires authorization to perform delegated actions with{" "}
-              {props.run.authRequired.providerDisplayName ??
-                props.run.authRequired.providerName}
+              {authAction.data.providerDisplayName ??
+                authAction.data.providerName}
               .
             </p>
           </div>
           <div className="text-xs text-amber-100/75">
-            Requested scopes: {props.run.authRequired.scopes.join(", ")}
+            Requested scopes: {authAction.data.scopes.join(", ")}
           </div>
           <a
-            href={props.run.authRequired.authUrl}
+            href={authAction.data.authUrl}
             target="_blank"
             rel="noreferrer"
             className="w-fit border border-amber-200/40 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-amber-50 transition-colors hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
@@ -299,37 +281,93 @@ function AgentRunResultView(props: { run: AgentRun }) {
         </div>
       ) : null}
 
-      {props.run.messages && props.run.messages.length > 0 ? (
+      {items.length > 0 ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
-          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-            Messages
-          </span>
-          <div className="grid gap-2.5">
-            {props.run.messages.map((message, index) => (
-              <MessageRow key={`${message.role}-${index}`} message={message} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+              Activity
+            </span>
+            <span className="text-xs text-slate-500">{items.length} items</span>
+          </div>
+          <div className="grid gap-0">
+            {items.map((item) => (
+              <RunItemRow key={item.id} item={item} />
             ))}
           </div>
         </div>
       ) : null}
 
       <div className="grid gap-1 border-t border-white/8 pt-4 text-xs uppercase tracking-[0.08em] text-slate-500">
-        <span>Run Id: {props.run.id}</span>
-        <span>Agent: {props.run.agentKind}</span>
-        <span>Requested: {new Date(props.run.requestedAt).toLocaleString()}</span>
+        <span>Conversation Id: {props.detail.conversation.id}</span>
+        <span>Run Id: {run.id}</span>
+        <span>Agent: {run.agentKind}</span>
+        {run.startedAt ? (
+          <span>Started: {new Date(run.startedAt).toLocaleString()}</span>
+        ) : null}
       </div>
     </div>
   );
 }
 
-function MessageRow(props: { message: AgentRunMessage }) {
+function RunItemRow(props: { item: RunItem }) {
+  const details = runItemDisplay(props.item);
+
   return (
-    <div className="border border-white/8 bg-black/10 px-3 py-2.5">
-      <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-slate-500">
-        {props.message.role}
+    <div className="grid grid-cols-[18px_minmax(0,1fr)] gap-3 border-l border-white/10 py-3 first:pt-0 last:pb-0">
+      <div className="relative">
+        <span className="absolute left-[-5px] top-1.5 h-2.5 w-2.5 rounded-full border border-slate-500 bg-slate-950" />
       </div>
-      <p className="m-0 text-sm text-slate-200">{props.message.content}</p>
+      <div className="min-w-0">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
+            {details.label}
+          </span>
+          {details.meta ? (
+            <span className="text-xs text-slate-600">{details.meta}</span>
+          ) : null}
+        </div>
+        {details.format === "code" ? (
+          <pre className="m-0 overflow-x-auto whitespace-pre rounded border border-white/8 bg-black/20 px-3 py-2 font-mono text-xs leading-5 text-slate-200">
+            {details.body}
+          </pre>
+        ) : (
+          <p className="m-0 whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
+            {details.body}
+          </p>
+        )}
+      </div>
     </div>
   );
+}
+
+function latestRun(detail: ConversationDetail): AgentRun | null {
+  return detail.runs.at(-1) ?? null;
+}
+
+function contentToText(content: ContentBlock[]): string {
+  const text = content
+    .map((block) => {
+      if (block.type === "text") {
+        return cleanText(block.text);
+      }
+
+      if (block.type === "json") {
+        return JSON.stringify(block.value, null, 2);
+      }
+
+      if (block.type === "resource_ref") {
+        return `${block.resourceType}: ${block.resourceId}`;
+      }
+
+      if (block.type === "file") {
+        return block.name ?? block.fileId;
+      }
+
+      return block.alt ?? block.fileId;
+    })
+    .join("\n");
+
+  return cleanText(text);
 }
 
 function ResultList(props: { label: string; items: string[] }) {
@@ -349,4 +387,154 @@ function ResultList(props: { label: string; items: string[] }) {
       )}
     </div>
   );
+}
+
+type AuthRequiredActionItem = Extract<
+  RunItem,
+  { kind: "required_action" }
+> & {
+  actionType: "auth_required";
+  data: {
+    type: "auth_required";
+    providerName: string;
+    providerDisplayName?: string;
+    authUrl: string;
+    scopes: string[];
+    agentRunId: string;
+  };
+};
+
+function findPendingAuthAction(items: RunItem[]): AuthRequiredActionItem | null {
+  return (
+    items.find(
+      (item): item is AuthRequiredActionItem =>
+        item.kind === "required_action" &&
+        item.actionType === "auth_required" &&
+        item.status === "pending" &&
+        isAuthRequiredActionData(item.data)
+    ) ?? null
+  );
+}
+
+function isAuthRequiredActionData(
+  value: unknown
+): value is AuthRequiredActionItem["data"] {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "auth_required" &&
+    "providerName" in value &&
+    typeof value.providerName === "string" &&
+    "authUrl" in value &&
+    typeof value.authUrl === "string" &&
+    "scopes" in value &&
+    Array.isArray(value.scopes)
+  );
+}
+
+function runItemDisplay(item: RunItem): {
+  label: string;
+  body: string;
+  meta?: string;
+  format?: "text" | "code";
+} {
+  if (item.kind === "message") {
+    return {
+      label: item.role === "agent" ? "Agent response" : item.role,
+      body: contentToText(item.content) || "No message content returned.",
+      meta: formatTime(item.createdAt),
+    };
+  }
+
+  if (item.kind === "tool_call") {
+    return {
+      label: "Tool call",
+      body: item.toolName,
+      meta: item.status,
+    };
+  }
+
+  if (item.kind === "tool_result") {
+    return {
+      label: item.isError ? "Tool error" : "Tool result",
+      body: contentToText(item.content) || "Tool completed.",
+      meta: item.toolCallId,
+      format: hasJsonContent(item.content) ? "code" : "text",
+    };
+  }
+
+  if (item.kind === "required_action") {
+    if (
+      item.actionType === "auth_required" &&
+      isAuthRequiredActionData(item.data)
+    ) {
+      return {
+        label: "Authorization required",
+        body: `Authorize ${item.data.providerDisplayName ?? item.data.providerName}.`,
+        meta: item.status,
+      };
+    }
+
+    return {
+      label: "Action required",
+      body: contentToText(item.content) || item.actionType,
+      meta: item.status,
+    };
+  }
+
+  if (item.kind === "action_resolution") {
+    return {
+      label: "Action resolved",
+      body: contentToText(item.content ?? []) || `Action ${item.outcome}.`,
+      meta: item.requiredActionId,
+    };
+  }
+
+  if (item.kind === "run_agent") {
+    return {
+      label: "Agent run",
+      body: item.agentKind,
+      meta: item.status,
+    };
+  }
+
+  return {
+    label: "Run note",
+    body: cleanText(item.message),
+    meta: item.noteType,
+  };
+}
+
+function hasJsonContent(content: ContentBlock[]): boolean {
+  return content.some((block) => block.type === "json");
+}
+
+function cleanText(value: string): string {
+  return value
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<\/?thinking>/gi, "")
+    .trim();
+}
+
+function formatTime(value: string): string {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function statusBadgeClass(status: AgentRun["status"]): string {
+  const base =
+    "border px-2 py-1 text-[11px] uppercase tracking-[0.08em]";
+  if (status === "completed") {
+    return `${base} border-emerald-300/25 text-emerald-200`;
+  }
+  if (status === "failed" || status === "cancelled") {
+    return `${base} border-rose-300/25 text-rose-200`;
+  }
+  if (status === "auth_required" || status === "waiting_for_action") {
+    return `${base} border-amber-300/25 text-amber-200`;
+  }
+  return `${base} border-sky-300/25 text-sky-200`;
 }
