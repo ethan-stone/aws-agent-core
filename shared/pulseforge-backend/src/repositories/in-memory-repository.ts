@@ -155,6 +155,24 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     return updated;
   }
 
+  async claimConversationActiveRun(
+    conversationId: string,
+    activeRootRunId: string
+  ): Promise<Conversation | null> {
+    const existing = this.conversations.get(conversationId);
+    if (!existing || existing.activeRootRunId) {
+      return null;
+    }
+
+    const updated: Conversation = {
+      ...existing,
+      activeRootRunId,
+      updatedAt: new Date().toISOString(),
+    };
+    this.conversations.set(conversationId, updated);
+    return updated;
+  }
+
   async listRuntimeSessions(conversationId: string): Promise<RuntimeSession[]> {
     return [...this.runtimeSessions.values()].filter(
       (session) => session.conversationId === conversationId

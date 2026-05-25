@@ -4,5 +4,7 @@ export {
 export {
   ActiveRootRunError,
   createConversationAndRun,
+  createConversationAndRunStream,
   runConversation,
+  runConversationStream,
 } from "./root-agent-run-lifecycle.js";

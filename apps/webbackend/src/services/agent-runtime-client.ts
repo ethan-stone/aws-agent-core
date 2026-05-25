@@ -66,6 +66,27 @@ export async function invokeRootAgentRuntime(
   runtimeUserId: string,
   investigationContext?: IncidentInvestigationContext | null
 ): Promise<ParsedRuntimeResponse> {
+  const events: AgentRuntimeSseEvent[] = [];
+  for await (const event of streamRootAgentRuntime(
+    request,
+    run,
+    runtimeSession,
+    runtimeUserId,
+    investigationContext
+  )) {
+    events.push(event);
+  }
+
+  return parseAgentRuntimeResponse(events, run);
+}
+
+export async function* streamRootAgentRuntime(
+  request: CreateConversationRequest,
+  run: AgentRun,
+  runtimeSession: RuntimeSession,
+  runtimeUserId: string,
+  investigationContext?: IncidentInvestigationContext | null
+): AsyncGenerator<AgentRuntimeSseEvent> {
   const runtimeArn = process.env.AGENT_RUNTIME_ARN;
   const qualifier = process.env.AGENT_RUNTIME_QUALIFIER;
   if (!runtimeArn) {
@@ -105,12 +126,9 @@ export async function invokeRootAgentRuntime(
     })
   );
 
-  const events: AgentRuntimeSseEvent[] = [];
   for await (const event of readAgentRuntimeEvents(response.response)) {
-    events.push(event);
+    yield event;
   }
-
-  return parseAgentRuntimeResponse(events, run);
 }
 
 export function getRuntimeIdentity() {

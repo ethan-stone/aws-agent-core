@@ -150,6 +150,16 @@ export async function updateConversationActiveRun(
   );
 }
 
+export async function claimConversationActiveRun(
+  conversationId: string,
+  activeRootRunId: string
+) {
+  return (await getRepository()).claimConversationActiveRun(
+    conversationId,
+    activeRootRunId
+  );
+}
+
 export async function getRuntimeSessionByProvider(
   conversationId: string,
   provider: string,

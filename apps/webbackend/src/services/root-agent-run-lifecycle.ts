@@ -11,7 +11,14 @@ import type {
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import { agentConversationStorage } from "./agent-conversation-storage.js";
 import * as agentRuntime from "./agent-runtime-client.js";
-import type { ParsedRuntimeResponse } from "./runtime-output-projection.js";
+import {
+  parseAgentRuntimeResponse,
+  type AgentRuntimeSseEvent,
+  type ParsedRuntimeResponse,
+} from "./runtime-output-projection.js";
+import type {
+  AppendRunItemInput,
+} from "../../../../shared/pulseforge-backend/src/index.js";
 
 export class ActiveRootRunError extends Error {
   constructor(conversationId: string, runId: string) {
@@ -25,12 +32,27 @@ export async function createConversationAndRun(
   user?: AuthenticatedAppUser | null,
   investigationContext?: IncidentInvestigationContext | null
 ): Promise<ConversationDetail> {
+  return collectFinalDetail(
+    await createConversationAndRunStream(request, user, investigationContext)
+  );
+}
+
+export async function createConversationAndRunStream(
+  request: CreateConversationRequest,
+  user?: AuthenticatedAppUser | null,
+  investigationContext?: IncidentInvestigationContext | null
+): Promise<AsyncGenerator<ConversationDetail>> {
   const conversation = await agentConversationStorage.conversations.create({
     id: randomUUID(),
     rootAgentKind: request.agentKind,
   });
 
-  return runRootAgent(conversation, request, user, investigationContext);
+  return runRootAgentWithProgress(
+    conversation,
+    request,
+    user,
+    investigationContext
+  );
 }
 
 export async function runConversation(
@@ -39,6 +61,21 @@ export async function runConversation(
   user?: AuthenticatedAppUser | null,
   investigationContext?: IncidentInvestigationContext | null
 ): Promise<ConversationDetail | null> {
+  const stream = await runConversationStream(
+    conversationId,
+    request,
+    user,
+    investigationContext
+  );
+  return stream ? collectFinalDetail(stream) : null;
+}
+
+export async function runConversationStream(
+  conversationId: string,
+  request: CreateConversationRunRequest,
+  user?: AuthenticatedAppUser | null,
+  investigationContext?: IncidentInvestigationContext | null
+): Promise<AsyncGenerator<ConversationDetail> | null> {
   const conversation =
     await agentConversationStorage.conversations.get(conversationId);
   if (!conversation) {
@@ -49,7 +86,7 @@ export async function runConversation(
     throw new ActiveRootRunError(conversation.id, conversation.activeRootRunId);
   }
 
-  return runRootAgent(
+  return runRootAgentWithProgress(
     conversation,
     {
       ...request,
@@ -60,12 +97,12 @@ export async function runConversation(
   );
 }
 
-async function runRootAgent(
+async function* runRootAgentWithProgress(
   conversation: Conversation,
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
   investigationContext?: IncidentInvestigationContext | null
-): Promise<ConversationDetail> {
+): AsyncGenerator<ConversationDetail> {
   const runtimeSession = await getOrCreateRuntimeSession(conversation.id);
   const run = await startRootAgentRun(
     conversation,
@@ -73,21 +110,34 @@ async function runRootAgent(
     runtimeSession,
     user
   );
+  const runtimeEvents: AgentRuntimeSseEvent[] = [];
+  const liveRequiredActionIds = new Set<string>();
+
+  yield await getRequiredConversationDetail(conversation.id);
 
   try {
     await agentConversationStorage.runtimeSessions.updateUsage(
       runtimeSession.id,
       "active"
     );
-    const result = await agentRuntime.invokeRootAgentRuntime(
+    for await (const event of agentRuntime.streamRootAgentRuntime(
       request,
       run,
       runtimeSession,
       user?.sub ?? "pulseforge-webbackend",
       investigationContext
-    );
+    )) {
+      runtimeEvents.push(event);
+      if (await recordLiveRequiredAction(run, event, liveRequiredActionIds)) {
+        yield await getRequiredConversationDetail(conversation.id);
+      }
+    }
 
-    await recordCompletedRootAgentRun(run, result);
+    const result = parseAgentRuntimeResponse(runtimeEvents, run);
+    await recordCompletedRootAgentRun(
+      run,
+      withoutLiveRequiredActions(result, liveRequiredActionIds)
+    );
     await agentConversationStorage.runtimeSessions.updateUsage(
       runtimeSession.id,
       "idle"
@@ -105,13 +155,7 @@ async function runRootAgent(
     );
   }
 
-  const detail =
-    await agentConversationStorage.conversations.getDetail(conversation.id);
-  if (!detail) {
-    throw new Error("Conversation disappeared after agent run.");
-  }
-
-  return detail;
+  yield await getRequiredConversationDetail(conversation.id);
 }
 
 async function getOrCreateRuntimeSession(
@@ -143,33 +187,51 @@ async function startRootAgentRun(
   runtimeSession: RuntimeSession,
   user?: AuthenticatedAppUser | null
 ): Promise<AgentRun> {
-  const run = await agentConversationStorage.agentRuns.create({
-    id: randomUUID(),
-    conversationId: conversation.id,
-    incidentId: request.incidentId,
-    deviceId: request.deviceId,
-    runtimeSessionId: runtimeSession.id,
-    agentKind: conversation.rootAgentKind,
-    relationship: "root",
-    status: "running",
-    requestedByUserId: user?.sub,
-  });
-
-  await agentConversationStorage.conversations.setActiveRootRun(
+  const runId = randomUUID();
+  const claimed = await agentConversationStorage.conversations.claimActiveRootRun(
     conversation.id,
-    run.id
+    runId
   );
-  await agentConversationStorage.runItems.append(run.id, [
-    {
-      runId: run.id,
-      kind: "message",
-      role: "user",
-      source: { type: "user", userId: user?.sub ?? "anonymous" },
-      content: [{ type: "text", text: request.prompt }],
-    },
-  ]);
+  if (!claimed) {
+    const latest =
+      await agentConversationStorage.conversations.get(conversation.id);
+    throw new ActiveRootRunError(
+      conversation.id,
+      latest?.activeRootRunId ?? "unknown"
+    );
+  }
 
-  return run;
+  try {
+    const run = await agentConversationStorage.agentRuns.create({
+      id: runId,
+      conversationId: conversation.id,
+      incidentId: request.incidentId,
+      deviceId: request.deviceId,
+      runtimeSessionId: runtimeSession.id,
+      agentKind: conversation.rootAgentKind,
+      relationship: "root",
+      status: "running",
+      requestedByUserId: user?.sub,
+    });
+
+    await agentConversationStorage.runItems.append(run.id, [
+      {
+        runId: run.id,
+        kind: "message",
+        role: "user",
+        source: { type: "user", userId: user?.sub ?? "anonymous" },
+        content: [{ type: "text", text: request.prompt }],
+      },
+    ]);
+
+    return run;
+  } catch (error) {
+    await agentConversationStorage.conversations.setActiveRootRun(
+      conversation.id,
+      null
+    );
+    throw error;
+  }
 }
 
 async function recordCompletedRootAgentRun(
@@ -194,6 +256,83 @@ async function recordCompletedRootAgentRun(
     summary: result.summary,
     investigation: result.investigation,
   });
+}
+
+async function recordLiveRequiredAction(
+  run: AgentRun,
+  event: AgentRuntimeSseEvent,
+  liveRequiredActionIds: Set<string>
+): Promise<boolean> {
+  if (event.event !== "auth_required" && event.event !== "required_action") {
+    return false;
+  }
+
+  const result = parseAgentRuntimeResponse([event], run);
+  const requiredActions = result.items.filter(
+    (
+      item
+    ): item is Extract<AppendRunItemInput, { kind: "required_action" }> =>
+      item.kind === "required_action" &&
+      !liveRequiredActionIds.has(item.requiredActionId)
+  );
+  if (requiredActions.length === 0) {
+    return false;
+  }
+
+  await agentConversationStorage.runItems.append(run.id, requiredActions);
+  for (const item of requiredActions) {
+    liveRequiredActionIds.add(item.requiredActionId);
+  }
+
+  await agentConversationStorage.agentRuns.updateStatus(run.id, {
+    status: result.authRequired ? "auth_required" : "waiting_for_action",
+    summary: result.summary,
+    authRequired: result.authRequired,
+  });
+
+  return true;
+}
+
+function withoutLiveRequiredActions(
+  result: ParsedRuntimeResponse,
+  liveRequiredActionIds: Set<string>
+): ParsedRuntimeResponse {
+  if (liveRequiredActionIds.size === 0) {
+    return result;
+  }
+
+  return {
+    ...result,
+    items: result.items.filter(
+      (item) =>
+        item.kind !== "required_action" ||
+        !liveRequiredActionIds.has(item.requiredActionId)
+    ),
+  };
+}
+
+async function collectFinalDetail(
+  stream: AsyncGenerator<ConversationDetail>
+): Promise<ConversationDetail> {
+  let finalDetail: ConversationDetail | null = null;
+  for await (const detail of stream) {
+    finalDetail = detail;
+  }
+  if (!finalDetail) {
+    throw new Error("Agent run did not produce a conversation detail.");
+  }
+  return finalDetail;
+}
+
+async function getRequiredConversationDetail(
+  conversationId: string
+): Promise<ConversationDetail> {
+  const detail =
+    await agentConversationStorage.conversations.getDetail(conversationId);
+  if (!detail) {
+    throw new Error("Conversation disappeared after agent run.");
+  }
+  return detail;
 }
 
 async function recordFailedRootAgentRun(

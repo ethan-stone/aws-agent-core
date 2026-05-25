@@ -52,11 +52,18 @@ export function CopilotPage() {
         deviceId: deviceId || undefined,
       };
       const nextConversation = conversation
-        ? await createConversationRun(conversation.conversation.id, request)
-        : await createConversation({
-            agentKind: "ops-copilot",
-            ...request,
-          });
+        ? await createConversationRun(
+            conversation.conversation.id,
+            request,
+            setConversation
+          )
+        : await createConversation(
+            {
+              agentKind: "ops-copilot",
+              ...request,
+            },
+            setConversation
+          );
       setConversation(nextConversation);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to run agent");

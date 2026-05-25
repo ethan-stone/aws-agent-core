@@ -1,5 +1,6 @@
 import {
   appendRunItems,
+  claimConversationActiveRun,
   createAgentRun,
   createConversation,
   createRuntimeSession,
@@ -16,6 +17,7 @@ export const agentConversationStorage = {
     create: createConversation,
     get: getConversation,
     getDetail: getConversationDetail,
+    claimActiveRootRun: claimConversationActiveRun,
     setActiveRootRun: updateConversationActiveRun,
   },
   runtimeSessions: {

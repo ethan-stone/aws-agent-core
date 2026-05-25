@@ -26,7 +26,9 @@ import {
   ActiveRootRunError,
   completeAgentResourceTokenAuth,
   createConversationAndRun,
+  createConversationAndRunStream,
   runConversation,
+  runConversationStream,
 } from "./services/agent-service.js";
 import type { ApiAppEnv } from "./types.js";
 
@@ -89,6 +91,49 @@ function asPrompt(value: unknown): string | null {
 
 function asOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function wantsEventStream(acceptHeader?: string | null) {
+  return acceptHeader?.includes("text/event-stream") ?? false;
+}
+
+function conversationDetailStream(
+  details: AsyncGenerator<unknown>,
+  status = 200
+) {
+  const encoder = new TextEncoder();
+
+  return new Response(
+    new ReadableStream({
+      async start(controller) {
+        const writeEvent = (event: string, data: unknown) => {
+          controller.enqueue(
+            encoder.encode(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`)
+          );
+        };
+
+        try {
+          for await (const detail of details) {
+            writeEvent("conversation", detail);
+          }
+        } catch (error) {
+          writeEvent("error", {
+            error: error instanceof Error ? error.message : "Agent run failed.",
+          });
+        } finally {
+          controller.close();
+        }
+      },
+    }),
+    {
+      status,
+      headers: {
+        "content-type": "text/event-stream; charset=utf-8",
+        "cache-control": "no-cache, no-transform",
+        connection: "keep-alive",
+      },
+    }
+  );
 }
 
 export const app = new Hono<ApiAppEnv>();
@@ -281,13 +326,26 @@ app.post(
       ? await buildIncidentInvestigationContext(incidentId)
       : null;
 
+    const request = {
+      agentKind: body.agentKind,
+      prompt,
+      incidentId,
+      deviceId: asOptionalString(body.deviceId),
+    };
+
+    if (wantsEventStream(c.req.header("accept"))) {
+      return conversationDetailStream(
+        await createConversationAndRunStream(
+          request,
+          user,
+          investigationContext
+        ),
+        201
+      );
+    }
+
     const detail = await createConversationAndRun(
-      {
-        agentKind: body.agentKind,
-        prompt,
-        incidentId,
-        deviceId: asOptionalString(body.deviceId),
-      },
+      request,
       user,
       investigationContext
     );
@@ -315,19 +373,31 @@ app.post(
       : null;
 
     try {
-      const detail = await runConversation(
-        c.req.param("conversationId"),
-        {
-          prompt,
-          incidentId,
-          deviceId: asOptionalString(body.deviceId),
-        },
-        user,
-        investigationContext
-      );
+      const request = {
+        prompt,
+        incidentId,
+        deviceId: asOptionalString(body.deviceId),
+      };
+      const detail = wantsEventStream(c.req.header("accept"))
+        ? await runConversationStream(
+            c.req.param("conversationId"),
+            request,
+            user,
+            investigationContext
+          )
+        : await runConversation(
+            c.req.param("conversationId"),
+            request,
+            user,
+            investigationContext
+          );
 
       if (!detail) {
         return c.json({ error: "Conversation not found" }, 404);
+      }
+
+      if (Symbol.asyncIterator in detail) {
+        return conversationDetailStream(detail);
       }
 
       const lastRun = detail.runs.at(-1);

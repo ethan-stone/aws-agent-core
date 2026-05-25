@@ -50,6 +50,10 @@ export interface PulseForgeRepository {
     conversationId: string,
     activeRootRunId: string | null
   ): Promise<Conversation | null>;
+  claimConversationActiveRun(
+    conversationId: string,
+    activeRootRunId: string
+  ): Promise<Conversation | null>;
   listRuntimeSessions(conversationId: string): Promise<RuntimeSession[]>;
   getRuntimeSessionByProvider(
     conversationId: string,

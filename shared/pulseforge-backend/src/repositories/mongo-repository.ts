@@ -1,4 +1,10 @@
-import { MongoClient, type Collection, type Db, type WithId } from "mongodb";
+import {
+  MongoClient,
+  type Collection,
+  type Db,
+  type Filter,
+  type WithId,
+} from "mongodb";
 import {
   demoAgentRuns,
   demoAuditLogs,
@@ -347,6 +353,29 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     );
 
     return this.getConversation(conversationId);
+  }
+
+  async claimConversationActiveRun(
+    conversationId: string,
+    activeRootRunId: string
+  ): Promise<Conversation | null> {
+    const claimableConversationFilter = {
+      id: conversationId,
+      $or: [
+        { activeRootRunId: { $exists: false } },
+        { activeRootRunId: null },
+        { activeRootRunId: undefined },
+      ],
+    } as Filter<PersistedConversation>;
+    const item = await this.collections().conversations.findOneAndUpdate(
+      claimableConversationFilter,
+      { $set: { activeRootRunId, updatedAt: new Date() } },
+      { returnDocument: "after" }
+    );
+
+    return item
+      ? mapPersistedConversation(stripMongoId<PersistedConversation>(item))
+      : null;
   }
 
   async listRuntimeSessions(conversationId: string): Promise<RuntimeSession[]> {
