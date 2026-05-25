@@ -318,9 +318,15 @@ function RunItemRow(props: { item: RunItem }) {
             <span className="text-xs text-slate-600">{details.meta}</span>
           ) : null}
         </div>
-        <p className="m-0 whitespace-pre-line break-words text-sm leading-6 text-slate-200">
-          {details.body}
-        </p>
+        {details.format === "code" ? (
+          <pre className="m-0 overflow-x-auto whitespace-pre rounded border border-white/8 bg-black/20 px-3 py-2 font-mono text-xs leading-5 text-slate-200">
+            {details.body}
+          </pre>
+        ) : (
+          <p className="m-0 whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
+            {details.body}
+          </p>
+        )}
       </div>
     </div>
   );
@@ -379,6 +385,7 @@ function runItemDisplay(item: RunItem): {
   label: string;
   body: string;
   meta?: string;
+  format?: "text" | "code";
 } {
   if (item.kind === "message") {
     return {
@@ -401,6 +408,7 @@ function runItemDisplay(item: RunItem): {
       label: item.isError ? "Tool error" : "Tool result",
       body: contentToText(item.content) || "Tool completed.",
       meta: item.toolCallId,
+      format: hasJsonContent(item.content) ? "code" : "text",
     };
   }
 
@@ -433,6 +441,10 @@ function runItemDisplay(item: RunItem): {
     body: cleanText(item.message),
     meta: item.noteType,
   };
+}
+
+function hasJsonContent(content: ContentBlock[]): boolean {
+  return content.some((block) => block.type === "json");
 }
 
 function cleanText(value: string): string {
