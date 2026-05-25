@@ -10,6 +10,7 @@ import {
   touchRuntimeSession,
   updateAgentRunStatus,
   updateConversationActiveRun,
+  updateRequiredActionStatus,
 } from "../../../../shared/pulseforge-backend/src/index.js";
 
 export const agentConversationStorage = {
@@ -31,5 +32,6 @@ export const agentConversationStorage = {
   },
   runItems: {
     append: appendRunItems,
+    updateRequiredActionStatus,
   },
 } as const;

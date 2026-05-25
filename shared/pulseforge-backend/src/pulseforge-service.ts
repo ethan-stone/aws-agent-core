@@ -205,6 +205,18 @@ export async function appendRunItems(
   return (await getRepository()).appendRunItems(runId, items);
 }
 
+export async function updateRequiredActionStatus(
+  runId: string,
+  requiredActionId: string,
+  update: Parameters<PulseForgeRepository["updateRequiredActionStatus"]>[2]
+) {
+  return (await getRepository()).updateRequiredActionStatus(
+    runId,
+    requiredActionId,
+    update
+  );
+}
+
 export async function createIncidentEvent(
   event: Omit<IncidentEvent, "id" | "timestamp"> & {
     id?: string;

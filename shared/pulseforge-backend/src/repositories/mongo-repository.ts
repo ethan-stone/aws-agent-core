@@ -3,6 +3,7 @@ import {
   type Collection,
   type Db,
   type Filter,
+  type UpdateFilter,
   type WithId,
 } from "mongodb";
 import {
@@ -495,9 +496,16 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       set.completedAt = new Date(update.completedAt ?? Date.now());
     }
 
+    const mongoUpdate: UpdateFilter<PersistedAgentRun> = {
+      $set: removeUndefined(set),
+    };
+    if (shouldClearAuthRequired(update.status)) {
+      mongoUpdate.$unset = { authRequired: "" };
+    }
+
     await this.collections().agentRuns.updateOne(
       { id: runId },
-      { $set: removeUndefined(set) }
+      mongoUpdate
     );
 
     return this.getAgentRun(runId);
@@ -528,6 +536,35 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     }
 
     return created.map(mapPersistedRunItem);
+  }
+
+  async updateRequiredActionStatus(
+    runId: string,
+    requiredActionId: string,
+    update: Parameters<PulseForgeRepository["updateRequiredActionStatus"]>[2]
+  ): Promise<RunItem | null> {
+    const resolvedAt = update.resolvedAt ?? new Date().toISOString();
+    await this.collections().runItems.updateOne(
+      {
+        runId,
+        kind: "required_action",
+        requiredActionId,
+      },
+      {
+        $set: removeUndefined({
+          status: update.status,
+          resolvedAt,
+          resolvedBy: update.resolvedBy,
+        }),
+      }
+    );
+
+    const item = await this.collections().runItems.findOne({
+      runId,
+      kind: "required_action",
+      requiredActionId,
+    });
+    return item ? mapPersistedRunItem(stripMongoId<PersistedRunItem>(item)) : null;
   }
 
   async listRunItems(runId: string): Promise<RunItem[]> {
@@ -891,6 +928,15 @@ function mapPersistedAuditLogEntry(
 
 function isTerminalAgentRunStatus(status: AgentRun["status"]) {
   return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function shouldClearAuthRequired(status: AgentRun["status"]) {
+  return (
+    status === "running" ||
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
 }
 
 function removeUndefined<T extends Record<string, unknown>>(value: T): T {

@@ -199,11 +199,13 @@ export async function* runPulseForgeAgentInvocation(
     })
     .finally(() => runtimeEvents.close());
 
-  while (finalEvents === undefined && invocationError === undefined) {
+  while (true) {
     const event = await runtimeEvents.next();
-    if (event) {
-      yield toRuntimeSseChunk(event);
+    if (!event) {
+      break;
     }
+
+    yield toRuntimeSseChunk(event);
   }
 
   await memory.persistMessages(agent.messages);

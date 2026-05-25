@@ -146,6 +146,7 @@ async function* runRootAgentWithProgress(
   });
   const runtimeEvents: AgentRuntimeSseEvent[] = [];
   const liveRequiredActionIds = new Set<string>();
+  const liveActionResolutionIds = new Set<string>();
 
   yield await getRequiredConversationDetail(conversation.id);
 
@@ -173,12 +174,26 @@ async function* runRootAgentWithProgress(
       ) {
         yield await getRequiredConversationDetail(conversation.id);
       }
+      if (
+        await recordLiveActionResolution(
+          run,
+          event,
+          liveActionResolutionIds,
+          runDiagnostics
+        )
+      ) {
+        yield await getRequiredConversationDetail(conversation.id);
+      }
     }
 
     const result = parseAgentRuntimeResponse(runtimeEvents, run);
     await recordCompletedRootAgentRun(
       run,
-      withoutLiveRequiredActions(result, liveRequiredActionIds),
+      withoutLiveRequiredActionUpdates(
+        result,
+        liveRequiredActionIds,
+        liveActionResolutionIds
+      ),
       runDiagnostics
     );
     await agentConversationStorage.runtimeSessions.updateUsage(
@@ -414,11 +429,70 @@ async function recordLiveRequiredAction(
   return true;
 }
 
-function withoutLiveRequiredActions(
+async function recordLiveActionResolution(
+  run: AgentRun,
+  event: AgentRuntimeSseEvent,
+  liveActionResolutionIds: Set<string>,
+  diagnostics?: WebBackendDiagnosticContext
+): Promise<boolean> {
+  if (event.event !== "action_resolution") {
+    return false;
+  }
+
+  const result = parseAgentRuntimeResponse([event], run);
+  const resolutions = result.items.filter(
+    (
+      item
+    ): item is Extract<AppendRunItemInput, { kind: "action_resolution" }> =>
+      item.kind === "action_resolution" &&
+      !liveActionResolutionIds.has(item.requiredActionId)
+  );
+  if (resolutions.length === 0) {
+    return false;
+  }
+
+  await agentConversationStorage.runItems.append(run.id, resolutions);
+  for (const item of resolutions) {
+    liveActionResolutionIds.add(item.requiredActionId);
+    await agentConversationStorage.runItems.updateRequiredActionStatus(
+      run.id,
+      item.requiredActionId,
+      {
+        status: item.outcome,
+        resolvedBy: { type: "system" },
+      }
+    );
+    webBackendDiagnostics.agentRequiredActionObserved(
+      extendDiagnostics(diagnostics, {
+        runId: run.id,
+        conversationId: run.conversationId,
+        agentKind: run.agentKind,
+      }),
+      {
+        actionType: "action_resolution",
+        requiredActionId: item.requiredActionId,
+        status: item.outcome,
+      }
+    );
+  }
+
+  await agentConversationStorage.agentRuns.updateStatus(run.id, {
+    status: "running",
+    authRequired: undefined,
+  });
+
+  return true;
+}
+
+function withoutLiveRequiredActionUpdates(
   result: ParsedRuntimeResponse,
-  liveRequiredActionIds: Set<string>
+  liveRequiredActionIds: Set<string>,
+  liveActionResolutionIds: Set<string>
 ): ParsedRuntimeResponse {
-  if (liveRequiredActionIds.size === 0) {
+  if (
+    liveRequiredActionIds.size === 0 &&
+    liveActionResolutionIds.size === 0
+  ) {
     return result;
   }
 
@@ -426,8 +500,12 @@ function withoutLiveRequiredActions(
     ...result,
     items: result.items.filter(
       (item) =>
-        item.kind !== "required_action" ||
-        !liveRequiredActionIds.has(item.requiredActionId)
+        !(
+          (item.kind === "required_action" &&
+            liveRequiredActionIds.has(item.requiredActionId)) ||
+          (item.kind === "action_resolution" &&
+            liveActionResolutionIds.has(item.requiredActionId))
+        )
     ),
   };
 }

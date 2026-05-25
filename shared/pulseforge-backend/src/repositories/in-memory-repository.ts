@@ -287,7 +287,9 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
         (isTerminalAgentRunStatus(update.status) ? new Date().toISOString() : existing.completedAt),
       summary: update.summary ?? existing.summary,
       investigation: update.investigation ?? existing.investigation,
-      authRequired: update.authRequired ?? existing.authRequired,
+      authRequired: shouldClearAuthRequired(update.status)
+        ? update.authRequired
+        : update.authRequired ?? existing.authRequired,
       errorMessage: update.errorMessage ?? existing.errorMessage,
     };
 
@@ -313,6 +315,32 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     }
 
     return created;
+  }
+
+  async updateRequiredActionStatus(
+    runId: string,
+    requiredActionId: string,
+    update: Parameters<PulseForgeRepository["updateRequiredActionStatus"]>[2]
+  ): Promise<RunItem | null> {
+    const existing = [...this.runItems.values()].find(
+      (item) =>
+        item.runId === runId &&
+        item.kind === "required_action" &&
+        item.requiredActionId === requiredActionId
+    );
+
+    if (!existing || existing.kind !== "required_action") {
+      return null;
+    }
+
+    const updated: RunItem = {
+      ...existing,
+      status: update.status,
+      resolvedAt: update.resolvedAt ?? new Date().toISOString(),
+      resolvedBy: update.resolvedBy,
+    };
+    this.runItems.set(existing.id, updated);
+    return updated;
   }
 
   async listRunItems(runId: string): Promise<RunItem[]> {
@@ -458,4 +486,13 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
 
 function isTerminalAgentRunStatus(status: AgentRun["status"]) {
   return status === "completed" || status === "failed" || status === "cancelled";
+}
+
+function shouldClearAuthRequired(status: AgentRun["status"]) {
+  return (
+    status === "running" ||
+    status === "completed" ||
+    status === "failed" ||
+    status === "cancelled"
+  );
 }

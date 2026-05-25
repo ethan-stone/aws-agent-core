@@ -10,9 +10,11 @@ import type {
   IncidentEvent,
   PendingInput,
   PulseForgeSnapshot,
+  RequiredActionStatus,
   RemediationAction,
   RuntimeSession,
   RunItem,
+  RunItemSource,
   Ticket,
 } from "@agent-core/pulseforge-domain";
 
@@ -90,6 +92,15 @@ export interface PulseForgeRepository {
     }
   ): Promise<AgentRun | null>;
   appendRunItems(runId: string, items: AppendRunItemInput[]): Promise<RunItem[]>;
+  updateRequiredActionStatus(
+    runId: string,
+    requiredActionId: string,
+    update: {
+      status: Exclude<RequiredActionStatus, "pending">;
+      resolvedAt?: string;
+      resolvedBy?: RunItemSource;
+    }
+  ): Promise<RunItem | null>;
   listRunItems(runId: string): Promise<RunItem[]>;
   listPendingInputs(conversationId: string): Promise<PendingInput[]>;
   createIncidentEvent(event: Omit<IncidentEvent, "id" | "timestamp"> & {

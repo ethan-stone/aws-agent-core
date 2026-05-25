@@ -81,7 +81,8 @@ describe("parseAgentRuntimeResponse", () => {
       kind: "required_action",
       requiredActionId: "auth-1",
       actionType: "auth_required",
-      status: "pending",
+      status: "resolved",
+      resolvedBy: { type: "system" },
       data: {
         type: "auth_required",
         providerName: "pulseforge-backend",
@@ -90,6 +91,7 @@ describe("parseAgentRuntimeResponse", () => {
         agentRunId: "run-1",
       },
     });
+    expect(result.items[1]).toHaveProperty("resolvedAt");
     expect(result.items[0]).toMatchObject({
       kind: "tool_call",
       toolCallId: "tool-1",

@@ -134,6 +134,8 @@ export function parseAgentRuntimeResponse(
     }
 
     if (event.event === "action_resolution" && isActionResolutionData(data)) {
+      resolveRequiredAction(items, data.requiredActionId, data.outcome);
+      authRequired = undefined;
       items.push({
         runId: run.id,
         kind: "action_resolution",
@@ -261,6 +263,26 @@ function completeToolCall(
   if (toolCall) {
     toolCall.status = status;
   }
+}
+
+function resolveRequiredAction(
+  items: AppendRunItemInput[],
+  requiredActionId: string,
+  status: "resolved" | "declined" | "expired" | "cancelled"
+): void {
+  const requiredAction = items.find(
+    (item): item is Extract<AppendRunItemInput, { kind: "required_action" }> =>
+      item.kind === "required_action" &&
+      item.requiredActionId === requiredActionId
+  );
+
+  if (!requiredAction) {
+    return;
+  }
+
+  requiredAction.status = status;
+  requiredAction.resolvedAt = new Date().toISOString();
+  requiredAction.resolvedBy = { type: "system" };
 }
 
 function stripThinkingBlocks(value: string): string {
