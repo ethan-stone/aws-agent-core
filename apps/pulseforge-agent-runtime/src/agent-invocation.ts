@@ -171,7 +171,7 @@ export async function* runPulseForgeAgentInvocation(
 
   const agentInvocation = (async (): Promise<AgentRuntimeStreamEvent[]> => {
     const result = await agent.invoke(buildAgentPrompt(request));
-    const text = String(result);
+    const text = stripThinkingBlocks(String(result));
 
     console.info("[agent] invocation completed", {
       agentRunId: request.agentRunId,
@@ -453,4 +453,11 @@ function truncate(value: string, maxLength: number): string {
   }
 
   return `${value.slice(0, maxLength - 3)}...`;
+}
+
+function stripThinkingBlocks(value: string): string {
+  return value
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<\/?thinking>/gi, "")
+    .trim();
 }

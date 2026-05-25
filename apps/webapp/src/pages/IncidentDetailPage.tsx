@@ -105,28 +105,38 @@ export function IncidentDetailPage() {
                 Summary
               </span>
               <p className="m-0 text-sm text-slate-200">
-                {latestRun(investigation)?.summary ?? "Agent run completed."}
+                {cleanText(
+                  latestRun(investigation)?.summary ?? "Agent run completed."
+                )}
               </p>
             </div>
 
             {latestRun(investigation)?.investigation ? (
               <div className="grid gap-3">
                 <h4 className="m-0 text-sm font-medium text-slate-100">
-                  {latestRun(investigation)?.investigation?.title}
+                  {cleanText(
+                    latestRun(investigation)?.investigation?.title ?? ""
+                  )}
                 </h4>
                 <p className="m-0 text-sm text-slate-300">
-                  {latestRun(investigation)?.investigation?.summary}
+                  {cleanText(
+                    latestRun(investigation)?.investigation?.summary ?? ""
+                  )}
                 </p>
                 <div className="grid gap-3 md:grid-cols-2">
                   <SimpleList
                     label="Findings"
-                    items={latestRun(investigation)?.investigation?.findings ?? []}
+                    items={
+                      latestRun(investigation)?.investigation?.findings.map(
+                        cleanText
+                      ) ?? []
+                    }
                   />
                   <SimpleList
                     label="Recommended actions"
                     items={
                       latestRun(investigation)?.investigation
-                        ?.recommendedActions ?? []
+                        ?.recommendedActions.map(cleanText) ?? []
                     }
                   />
                 </div>
@@ -167,6 +177,13 @@ export function IncidentDetailPage() {
 
 function latestRun(detail: ConversationDetail) {
   return detail.runs.at(-1) ?? null;
+}
+
+function cleanText(value: string): string {
+  return value
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<\/?thinking>/gi, "")
+    .trim();
 }
 
 function SimpleList(props: { label: string; items: string[] }) {

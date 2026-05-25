@@ -32,7 +32,7 @@ export function parseAgentRuntimeResponse(
     const data = normalizeRuntimeEventData(event.data);
     const maybeText = asEventText(data);
     if (event.event === "message" && maybeText) {
-      items.push(agentMessageItem(run, textContent(maybeText)));
+      items.push(agentMessageItem(run, textContent(stripThinkingBlocks(maybeText))));
       authRequired = undefined;
     }
 
@@ -44,13 +44,15 @@ export function parseAgentRuntimeResponse(
         recommendedActions?: string[];
       };
       if (summaryData.summary) {
-        summary = summaryData.summary;
+        summary = stripThinkingBlocks(summaryData.summary);
       }
       investigation = {
-        title: summaryData.title ?? "Investigation summary",
-        summary: summaryData.summary ?? summary,
-        findings: summaryData.findings ?? [],
-        recommendedActions: summaryData.recommendedActions ?? [],
+        title: stripThinkingBlocks(summaryData.title ?? "Investigation summary"),
+        summary: stripThinkingBlocks(summaryData.summary ?? summary),
+        findings: (summaryData.findings ?? []).map(stripThinkingBlocks),
+        recommendedActions: (summaryData.recommendedActions ?? []).map(
+          stripThinkingBlocks
+        ),
       };
       authRequired = undefined;
     }
@@ -239,6 +241,13 @@ function normalizeRuntimeEventData(data: unknown): unknown {
   }
 
   return current;
+}
+
+function stripThinkingBlocks(value: string): string {
+  return value
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<\/?thinking>/gi, "")
+    .trim();
 }
 
 function isAuthRequiredData(

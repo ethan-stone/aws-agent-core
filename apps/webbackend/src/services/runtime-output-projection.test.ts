@@ -126,4 +126,48 @@ describe("parseAgentRuntimeResponse", () => {
       "message",
     ]);
   });
+
+  it("removes model thinking tags from operator-facing text", () => {
+    const result = parseAgentRuntimeResponse(
+      [
+        {
+          event: "message",
+          data: {
+            text: "<thinking>internal chain goes here</thinking>\n\nUse the prior firmware cohort as the comparison group.",
+          },
+        },
+        {
+          event: "summary",
+          data: {
+            title: "Ops Copilot summary",
+            summary:
+              "<thinking>internal summary plan</thinking>Compare affected freezer sensors against same-site devices.",
+            findings: [
+              "<thinking>private note</thinking>Firmware version 1.14.7 is common to the affected devices.",
+            ],
+            recommendedActions: [
+              "<thinking>private note</thinking>Check same-site devices on the prior firmware cohort.",
+            ],
+          },
+        },
+      ],
+      { id: "run-1", agentKind: "ops-copilot" }
+    );
+
+    expect(result.summary).toBe(
+      "Compare affected freezer sensors against same-site devices."
+    );
+    expect(result.items[0]).toMatchObject({
+      kind: "message",
+      content: [
+        {
+          type: "text",
+          text: "Use the prior firmware cohort as the comparison group.",
+        },
+      ],
+    });
+    expect(result.investigation?.findings).toEqual([
+      "Firmware version 1.14.7 is common to the affected devices.",
+    ]);
+  });
 });

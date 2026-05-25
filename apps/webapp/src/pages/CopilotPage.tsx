@@ -3,7 +3,7 @@ import type {
   AgentRun,
   ContentBlock,
   ConversationDetail,
-  MessageRunItem,
+  RunItem,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import {
   createConversation,
@@ -72,13 +72,13 @@ export function CopilotPage() {
           <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
             Agents
           </p>
-          <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-[-0.05em] text-slate-50">
+          <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-normal text-slate-50">
             Ops Copilot Workspace
           </h2>
         </div>
         <p className="m-0 max-w-[34ch] text-sm text-slate-400">
-          This page now executes through conversation runs, with ordered run
-          items as the interaction source of truth.
+          Current incident context, fleet evidence, and operator-ready next
+          actions.
         </p>
       </header>
 
@@ -143,7 +143,7 @@ export function CopilotPage() {
 
             <div className="flex items-center justify-between gap-4">
               <div className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                Backend route: `POST /api/conversations`
+                {conversation ? "Conversation open" : "New conversation"}
               </div>
               <button
                 type="submit"
@@ -158,7 +158,7 @@ export function CopilotPage() {
 
         <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
           <div className="mb-4 flex items-center justify-between gap-4">
-            <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
+            <h3 className="m-0 text-[15px] tracking-normal text-slate-100">
               Latest run
             </h3>
             {conversation ? (
@@ -194,19 +194,28 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
   }
 
   const items = props.detail.itemsByRunId[run.id] ?? [];
-  const messages = items.filter(
-    (item): item is MessageRunItem => item.kind === "message"
-  );
+  const summary = cleanText(run.summary ?? "No summary returned.");
+  const investigation = run.investigation
+    ? {
+        title: cleanText(run.investigation.title),
+        summary: cleanText(run.investigation.summary),
+        findings: run.investigation.findings.map(cleanText).filter(Boolean),
+        recommendedActions: run.investigation.recommendedActions
+          .map(cleanText)
+          .filter(Boolean),
+      }
+    : null;
 
   return (
     <div className="grid gap-5">
-      <div className="grid gap-2 border-t border-white/8 pt-4">
-        <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-          Summary
-        </span>
-        <p className="m-0 text-sm text-slate-200">
-          {run.summary ?? "Agent run completed."}
-        </p>
+      <div className="grid gap-3 border-t border-white/8 pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+            Run summary
+          </span>
+          <span className={statusBadgeClass(run.status)}>{run.status}</span>
+        </div>
+        <p className="m-0 text-sm leading-6 text-slate-100">{summary}</p>
         {run.errorMessage ? (
           <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
             {run.errorMessage}
@@ -214,19 +223,24 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
         ) : null}
       </div>
 
-      {run.investigation ? (
+      {investigation ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
-          <h4 className="m-0 text-sm font-medium text-slate-100">
-            {run.investigation.title}
-          </h4>
-          <p className="m-0 text-sm text-slate-300">
-            {run.investigation.summary}
+          <div className="grid gap-1">
+            <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+              Investigation
+            </span>
+            <h4 className="m-0 text-sm font-medium text-slate-100">
+              {investigation.title}
+            </h4>
+          </div>
+          <p className="m-0 text-sm leading-6 text-slate-300">
+            {investigation.summary}
           </p>
           <div className="grid gap-3 md:grid-cols-2">
-            <ResultList label="Findings" items={run.investigation.findings} />
+            <ResultList label="Findings" items={investigation.findings} />
             <ResultList
               label="Recommended actions"
-              items={run.investigation.recommendedActions}
+              items={investigation.recommendedActions}
             />
           </div>
         </div>
@@ -259,14 +273,17 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
         </div>
       ) : null}
 
-      {messages.length > 0 ? (
+      {items.length > 0 ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
-          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-            Messages
-          </span>
-          <div className="grid gap-2.5">
-            {messages.map((message) => (
-              <MessageRow key={message.id} message={message} />
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+              Activity
+            </span>
+            <span className="text-xs text-slate-500">{items.length} items</span>
+          </div>
+          <div className="grid gap-0">
+            {items.map((item) => (
+              <RunItemRow key={item.id} item={item} />
             ))}
           </div>
         </div>
@@ -284,15 +301,27 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
   );
 }
 
-function MessageRow(props: { message: MessageRunItem }) {
+function RunItemRow(props: { item: RunItem }) {
+  const details = runItemDisplay(props.item);
+
   return (
-    <div className="border border-white/8 bg-black/10 px-3 py-2.5">
-      <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-slate-500">
-        {props.message.role}
+    <div className="grid grid-cols-[18px_minmax(0,1fr)] gap-3 border-l border-white/10 py-3 first:pt-0 last:pb-0">
+      <div className="relative">
+        <span className="absolute left-[-5px] top-1.5 h-2.5 w-2.5 rounded-full border border-slate-500 bg-slate-950" />
       </div>
-      <p className="m-0 whitespace-pre-line text-sm text-slate-200">
-        {contentToText(props.message.content)}
-      </p>
+      <div className="min-w-0">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
+            {details.label}
+          </span>
+          {details.meta ? (
+            <span className="text-xs text-slate-600">{details.meta}</span>
+          ) : null}
+        </div>
+        <p className="m-0 whitespace-pre-line break-words text-sm leading-6 text-slate-200">
+          {details.body}
+        </p>
+      </div>
     </div>
   );
 }
@@ -302,14 +331,14 @@ function latestRun(detail: ConversationDetail): AgentRun | null {
 }
 
 function contentToText(content: ContentBlock[]): string {
-  return content
+  const text = content
     .map((block) => {
       if (block.type === "text") {
-        return block.text;
+        return cleanText(block.text);
       }
 
       if (block.type === "json") {
-        return JSON.stringify(block.value);
+        return JSON.stringify(block.value, null, 2);
       }
 
       if (block.type === "resource_ref") {
@@ -323,6 +352,8 @@ function contentToText(content: ContentBlock[]): string {
       return block.alt ?? block.fileId;
     })
     .join("\n");
+
+  return cleanText(text);
 }
 
 function ResultList(props: { label: string; items: string[] }) {
@@ -342,4 +373,93 @@ function ResultList(props: { label: string; items: string[] }) {
       )}
     </div>
   );
+}
+
+function runItemDisplay(item: RunItem): {
+  label: string;
+  body: string;
+  meta?: string;
+} {
+  if (item.kind === "message") {
+    return {
+      label: item.role === "agent" ? "Agent response" : item.role,
+      body: contentToText(item.content) || "No message content returned.",
+      meta: formatTime(item.createdAt),
+    };
+  }
+
+  if (item.kind === "tool_call") {
+    return {
+      label: "Tool call",
+      body: item.toolName,
+      meta: item.status,
+    };
+  }
+
+  if (item.kind === "tool_result") {
+    return {
+      label: item.isError ? "Tool error" : "Tool result",
+      body: contentToText(item.content) || "Tool completed.",
+      meta: item.toolCallId,
+    };
+  }
+
+  if (item.kind === "required_action") {
+    return {
+      label: "Action required",
+      body: contentToText(item.content) || item.actionType,
+      meta: item.status,
+    };
+  }
+
+  if (item.kind === "action_resolution") {
+    return {
+      label: "Action resolved",
+      body: contentToText(item.content ?? []) || `Action ${item.outcome}.`,
+      meta: item.requiredActionId,
+    };
+  }
+
+  if (item.kind === "run_agent") {
+    return {
+      label: "Agent run",
+      body: item.agentKind,
+      meta: item.status,
+    };
+  }
+
+  return {
+    label: "Run note",
+    body: cleanText(item.message),
+    meta: item.noteType,
+  };
+}
+
+function cleanText(value: string): string {
+  return value
+    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
+    .replace(/<\/?thinking>/gi, "")
+    .trim();
+}
+
+function formatTime(value: string): string {
+  return new Date(value).toLocaleTimeString([], {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function statusBadgeClass(status: AgentRun["status"]): string {
+  const base =
+    "border px-2 py-1 text-[11px] uppercase tracking-[0.08em]";
+  if (status === "completed") {
+    return `${base} border-emerald-300/25 text-emerald-200`;
+  }
+  if (status === "failed" || status === "cancelled") {
+    return `${base} border-rose-300/25 text-rose-200`;
+  }
+  if (status === "auth_required" || status === "waiting_for_action") {
+    return `${base} border-amber-300/25 text-amber-200`;
+  }
+  return `${base} border-sky-300/25 text-sky-200`;
 }
