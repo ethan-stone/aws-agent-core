@@ -330,6 +330,11 @@ export interface PendingInput {
   consumedAt?: string;
 }
 
+/**
+ * Client read model projected from the canonical Conversation, AgentRuns,
+ * RuntimeSessions, and RunItems. UI code may render from this shape, but
+ * should not treat it as a separate source of truth.
+ */
 export interface ConversationDetail {
   conversation: Conversation;
   runs: AgentRun[];
@@ -361,6 +366,11 @@ export interface IncidentInvestigationContext {
   runbook?: RunbookDocument;
 }
 
+/**
+ * Agent-facing input projection. The backend builds this from Conversation,
+ * AgentRun, RuntimeSession, user input, and optional domain context before
+ * invoking the provider runtime.
+ */
 export interface AgentRuntimeInvocation {
   agentRunId: string;
   agentKind: AgentKind;
@@ -370,6 +380,86 @@ export interface AgentRuntimeInvocation {
   actorId?: string;
   investigationContext?: IncidentInvestigationContext;
 }
+
+/**
+ * Agent-facing output projection. Runtime SSE events are not stored directly;
+ * the backend maps them into canonical RunItems and denormalized AgentRun
+ * result fields.
+ */
+export type AgentRuntimeStreamEvent =
+  | {
+      event: "message";
+      data: { text: string };
+    }
+  | {
+      event: "summary";
+      data: {
+        summary?: string;
+        title?: string;
+        findings?: string[];
+        recommendedActions?: string[];
+      };
+    }
+  | {
+      event: "tool_call";
+      data: {
+        toolCallId: string;
+        toolName: string;
+        arguments: unknown;
+        status?: ToolCallStatus;
+      };
+    }
+  | {
+      event: "tool_result";
+      data: {
+        toolCallId: string;
+        toolName?: string;
+        content: unknown;
+        isError?: boolean;
+      };
+    }
+  | {
+      event: "required_action";
+      data: {
+        requiredActionId: string;
+        actionType: string;
+        content: ContentBlock[];
+        data?: unknown;
+      };
+    }
+  | {
+      event: "action_resolution";
+      data: {
+        requiredActionId: string;
+        outcome: Exclude<RequiredActionStatus, "pending">;
+        content?: ContentBlock[];
+        data?: unknown;
+      };
+    }
+  | {
+      event: "run_agent";
+      data: {
+        relationship: Exclude<AgentRunRelationship, "root">;
+        agentKind: AgentKind;
+        childRunId: string;
+        toolCallId?: string;
+        status: AgentRunStatus;
+      };
+    }
+  | {
+      event: "auth_required";
+      data: AgentRunAuthRequired & {
+        requiredActionId?: string;
+      };
+    }
+  | {
+      event: "run_note";
+      data: {
+        noteType: string;
+        message: string;
+        data?: unknown;
+      };
+    };
 
 export interface AgentRunResult {
   summary: string;

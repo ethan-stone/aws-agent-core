@@ -3,6 +3,6 @@ packages:
   - shared/*
 
 allowBuilds:
-  esbuild: set this to true or false
-  protobufjs: set this to true or false
+  esbuild: true
+  protobufjs: true
   unrs-resolver: true

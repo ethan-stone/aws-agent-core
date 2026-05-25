@@ -3,13 +3,21 @@ import type {
   PulseForgeToolDefinition,
   PulseForgeToolExecutionContext,
 } from "./types.js";
+import { randomUUID } from "node:crypto";
 
 export async function executePulseForgeTool(
   definition: PulseForgeToolDefinition,
   input: unknown,
   context: PulseForgeToolExecutionContext
 ): Promise<JsonValue> {
+  const toolCallId = randomUUID();
   const parsedInput = definition.inputSchema.parse(input);
+  await context.onToolCallStarted?.({
+    toolCallId,
+    toolName: definition.name,
+    input: parsedInput,
+  });
+
   const provider = definition.credentialProvider;
   const runtimeProvider = context.providers[provider.key];
   if (!runtimeProvider) {
@@ -19,6 +27,8 @@ export async function executePulseForgeTool(
     [...(context.getAuthorizationScopes?.(provider) ?? definition.requiredScopes)],
     runtimeProvider.resourceServerIdentifier
   );
+  const requiredActionId = `${toolCallId}:auth:${provider.key}`;
+  let authorizationRequired = false;
   const invoke = runtimeProvider.credentialProvider.withAccessToken(
     {
       providerName: runtimeProvider.providerName,
@@ -26,6 +36,7 @@ export async function executePulseForgeTool(
       authFlow: "USER_FEDERATION",
       callbackUrl: runtimeProvider.oauthCallbackUrl,
       onAuthUrl: async (authUrl) => {
+        authorizationRequired = true;
         console.info("[tools] PulseForge tool authorization URL received", {
           tool: definition.name,
           agentRunId: context.agentRunId,
@@ -36,6 +47,7 @@ export async function executePulseForgeTool(
           authUrl: summarizeAuthorizationUrl(authUrl),
         });
         await context.onAuthorizationRequired?.({
+          requiredActionId,
           providerName: runtimeProvider.providerName,
           providerDisplayName: provider.displayName,
           authUrl,
@@ -45,6 +57,14 @@ export async function executePulseForgeTool(
       },
     },
     async (toolInput: typeof parsedInput, accessToken) => {
+      if (authorizationRequired) {
+        await context.onAuthorizationResolved?.({
+          requiredActionId,
+          providerName: runtimeProvider.providerName,
+          scopes: oauthScopes,
+          agentRunId: context.agentRunId,
+        });
+      }
       const response = await callPulseForgeToolEndpoint(
         definition,
         toolInput,
@@ -56,8 +76,15 @@ export async function executePulseForgeTool(
   );
 
   try {
-    return await invoke(parsedInput);
+    const output = await invoke(parsedInput);
+    await context.onToolCallCompleted?.({
+      toolCallId,
+      toolName: definition.name,
+      output,
+    });
+    return output;
   } catch (error) {
+    const serialized = serializeUnknownError(error);
     console.error("[tools] PulseForge tool execution threw", {
       tool: definition.name,
       agentRunId: context.agentRunId,
@@ -65,7 +92,12 @@ export async function executePulseForgeTool(
       providerKey: provider.key,
       scopes: oauthScopes,
       oauthCallbackUrlConfigured: Boolean(runtimeProvider.oauthCallbackUrl),
-      error: serializeUnknownError(error),
+      error: serialized,
+    });
+    await context.onToolCallFailed?.({
+      toolCallId,
+      toolName: definition.name,
+      error: serialized,
     });
 
     throw error;

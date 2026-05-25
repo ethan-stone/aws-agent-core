@@ -60,7 +60,22 @@ Hono/OpenAPI tools API that:
 
 ## Memory Integration
 
-The PulseForge runtime treats AgentCore Memory Events as canonical short-term session state:
+PulseForge treats the domain database as canonical product history. AgentCore
+memory is the agent-facing projection/cache used to continue model context.
+
+The projection chain is:
+
+- Domain source of truth: `Conversation`, `AgentRun`, `RuntimeSession`, `RunItem`
+- UI read model: `ConversationDetail`
+- Agent input projection: `AgentRuntimeInvocation`
+- Agent output projection: `AgentRuntimeStreamEvent`, mapped back into `RunItem`
+- Agent memory projection: Strands `Message[]` persisted in AgentCore Memory
+  Events under `RuntimeSession.providerSessionId`
+
+See `docs/agent-conversation-projections.md` for the full contract.
+
+The PulseForge runtime treats AgentCore Memory Events as canonical short-term
+state for the agent runtime, not as canonical product history:
 
 - `AgentCoreEventSessionStore` loads persisted Events before invocation.
 - The Strands agent receives those loaded messages as its initial conversation history.

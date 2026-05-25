@@ -8,8 +8,7 @@ import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
 import * as cr from "aws-cdk-lib/custom-resources";
 import * as cognito from "aws-cdk-lib/aws-cognito";
-import * as bedrockAgentCoreL1 from "aws-cdk-lib/aws-bedrockagentcore";
-import * as bedrockAgentCore from "@aws-cdk/aws-bedrock-agentcore-alpha";
+import * as bedrockAgentCore from "aws-cdk-lib/aws-bedrockagentcore";
 import * as kms from "aws-cdk-lib/aws-kms";
 import * as secretsmanager from "aws-cdk-lib/aws-secretsmanager";
 
@@ -125,7 +124,7 @@ export class AgentCoreStack extends Stack {
       this.node.tryGetContext("pulseForgeToolsAuthReturnUrl") ??
       "http://localhost:5173/oauth2/callback";
     const pulseForgeToolsOauthProvider =
-      new bedrockAgentCoreL1.CfnOAuth2CredentialProvider(
+      new bedrockAgentCore.CfnOAuth2CredentialProvider(
         this,
         "PulseForgeToolsOauthProvider",
         {
@@ -305,7 +304,7 @@ export class AgentCoreStack extends Stack {
     const pulseForgeRuntimeEnvironment: Record<string, string> = {
       PULSEFORGE_RUNTIME_ENV: "aws",
       MEMORY_ID: memory.memoryId,
-      ENABLE_AGENTCORE_LONG_TERM_MEMORY: "true",
+      ENABLE_AGENTCORE_LONG_TERM_MEMORY: "false",
       PULSEFORGE_REQUIRE_TOOLS: "true",
       PULSEFORGE_TOOLS_API_URL: pulseForgeToolsApiUrl,
       PULSEFORGE_TOOL_AUTH_MODE: "agentcore-runtime",
@@ -313,8 +312,13 @@ export class AgentCoreStack extends Stack {
       PULSEFORGE_TOOLS_RESOURCE_SERVER_IDENTIFIER:
         pulseForgeBackendResourceServerIdentifier,
       OAUTH_CALLBACK_URL: pulseForgeToolsAuthReturnUrl,
+      OTEL_SEMCONV_STABILITY_OPT_IN:
+        "gen_ai_latest_experimental,gen_ai_tool_definitions",
+      OTEL_TRACES_EXPORTER: "otlp",
+      OTEL_TRACES_SAMPLER: "always_on",
+      OTEL_SERVICE_NAME: "pulseforge_ops_agent",
+      OTEL_BSP_SCHEDULE_DELAY: "100",
     };
-
     const pulseForgeRuntime = new bedrockAgentCore.Runtime(
       this,
       "PulseForgeAgentRuntime",
@@ -324,6 +328,7 @@ export class AgentCoreStack extends Stack {
         authorizerConfiguration:
           bedrockAgentCore.RuntimeAuthorizerConfiguration.usingIAM(),
         environmentVariables: pulseForgeRuntimeEnvironment,
+        tracingEnabled: true,
       }
     );
 
@@ -377,7 +382,6 @@ export class AgentCoreStack extends Stack {
         ],
       })
     );
-
     memoryKmsKey.grantEncryptDecrypt(pulseForgeRuntime.role);
     pulseForgeRuntime.addToRolePolicy(
       new iam.PolicyStatement({
@@ -478,7 +482,7 @@ export class AgentCoreStack extends Stack {
       .addResource("{proxy+}")
       .addMethod("ANY", webBackendIntegration);
 
-    // --- AgentCore Log Delivery / Tracing ---
+    // --- AgentCore Log Delivery ---
     // Runtime logs and WorkloadIdentity logs are configured as distinct delivery
     // sources because the identity tab is backed by the WorkloadIdentity ARN.
     // We derive short, replacement-safe names from the generated runtime/memory
@@ -617,103 +621,6 @@ export class AgentCoreStack extends Stack {
     );
     memoryTraceDelivery.addDependency(memoryTraceSource);
     memoryTraceDelivery.addDependency(xrayDestination);
-
-    // --- X-Ray / Transaction Search Observability ---
-
-    // 1. CloudWatch Logs resource policy allowing X-Ray to write spans
-    const xrayLogsPolicy = new logs.ResourcePolicy(
-      this,
-      "XRaySpansResourcePolicy",
-      {
-        resourcePolicyName: "XRayTransactionSearchAccess",
-        policyStatements: [
-          new iam.PolicyStatement({
-            sid: "TransactionSearchXRayAccess",
-            effect: iam.Effect.ALLOW,
-            principals: [new iam.ServicePrincipal("xray.amazonaws.com")],
-            actions: ["logs:PutLogEvents"],
-            resources: [
-              `arn:aws:logs:${this.region}:${this.account}:log-group:aws/spans:*`,
-              `arn:aws:logs:${this.region}:${this.account}:log-group:/aws/application-signals/data:*`,
-            ],
-            conditions: {
-              ArnLike: {
-                "aws:SourceArn": `arn:aws:xray:${this.region}:${this.account}:*`,
-              },
-              StringEquals: {
-                "aws:SourceAccount": this.account,
-              },
-            },
-          }),
-        ],
-      }
-    );
-
-    // 2. Set trace segment destination to CloudWatch Logs
-    const traceDestination = new cr.AwsCustomResource(
-      this,
-      "TraceSegmentDestination",
-      {
-        onCreate: {
-          service: "XRay",
-          action: "UpdateTraceSegmentDestination",
-          parameters: { Destination: "CloudWatchLogs" },
-          physicalResourceId: cr.PhysicalResourceId.of(
-            "trace-segment-destination"
-          ),
-          ignoreErrorCodesMatching: ".*",
-        },
-        onUpdate: {
-          service: "XRay",
-          action: "UpdateTraceSegmentDestination",
-          parameters: { Destination: "CloudWatchLogs" },
-          physicalResourceId: cr.PhysicalResourceId.of(
-            "trace-segment-destination"
-          ),
-          ignoreErrorCodesMatching: ".*",
-        },
-        policy: cr.AwsCustomResourcePolicy.fromStatements([
-          new iam.PolicyStatement({
-            actions: [
-              "xray:UpdateTraceSegmentDestination",
-              "application-signals:StartDiscovery",
-            ],
-            resources: ["*"],
-          }),
-        ]),
-      }
-    );
-    traceDestination.node.addDependency(xrayLogsPolicy);
-
-    // 3. Configure transaction search indexing percentage
-    const indexingRule = new cr.AwsCustomResource(this, "IndexingRule", {
-      onCreate: {
-        service: "XRay",
-        action: "UpdateIndexingRule",
-        parameters: {
-          Name: "Default",
-          Rule: { Probabilistic: { DesiredSamplingPercentage: 100 } },
-        },
-        physicalResourceId: cr.PhysicalResourceId.of("xray-indexing-rule"),
-      },
-      onUpdate: {
-        service: "XRay",
-        action: "UpdateIndexingRule",
-        parameters: {
-          Name: "Default",
-          Rule: { Probabilistic: { DesiredSamplingPercentage: 100 } },
-        },
-        physicalResourceId: cr.PhysicalResourceId.of("xray-indexing-rule"),
-      },
-      policy: cr.AwsCustomResourcePolicy.fromStatements([
-        new iam.PolicyStatement({
-          actions: ["xray:UpdateIndexingRule"],
-          resources: ["*"],
-        }),
-      ]),
-    });
-    indexingRule.node.addDependency(xrayLogsPolicy);
-    indexingRule.node.addDependency(traceDestination);
 
     // --- Outputs ---
 

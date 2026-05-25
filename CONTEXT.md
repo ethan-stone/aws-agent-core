@@ -20,6 +20,10 @@ _Avoid_: Conversation, session, invocation
 A provider-level execution context that preserves runtime state across related **AgentRuns**. A **RuntimeSession** is identified by provider, runtime identity, and provider session id, and an **AgentRun** only links to one when it owns or targets provider runtime state directly.
 _Avoid_: Conversation, AgentRun, chat session
 
+**AgentConversationStorage**:
+The backend Module used by agent lifecycle code to persist and read **Conversation**, **AgentRun**, **RunItem**, and **RuntimeSession** records. Call sites use this Module explicitly so storage operations are distinguishable from local lifecycle behavior.
+_Avoid_: Unqualified repository verb imports, local helper names that hide storage access
+
 **RunItem**:
 An ordered domain record emitted, consumed, or observed during an **AgentRun**. **RunItems** are append-only by default; rare exceptions update current status on long-running items such as required actions or coordinated agent runs.
 _Avoid_: ConversationItem, Message when referring to non-text interaction artifacts

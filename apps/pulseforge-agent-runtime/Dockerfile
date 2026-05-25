@@ -1,5 +1,5 @@
 FROM node:22-slim AS base
-RUN corepack enable && corepack prepare pnpm@latest --activate
+RUN corepack enable && corepack prepare pnpm@11.3.0 --activate
 
 # Install dependencies
 FROM base AS deps
