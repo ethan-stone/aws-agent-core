@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   AgentRun,
   ContentBlock,
@@ -26,6 +26,7 @@ const starterPrompts = [
     deviceId: "dev-freezer-014",
   },
 ];
+const timelinePreviewLimit = 520;
 
 export function CopilotPage() {
   const [prompt, setPrompt] = useState(starterPrompts[0].prompt);
@@ -196,14 +197,13 @@ export function CopilotPage() {
 
 function ConversationResultView(props: { detail: ConversationDetail }) {
   const run = latestRun(props.detail);
-  if (!run) {
-    return null;
-  }
-
-  const items = props.detail.itemsByRunId[run.id] ?? [];
-  const summary = cleanText(run.summary ?? "No summary returned.");
+  const items = [...(run ? props.detail.itemsByRunId[run.id] ?? [] : [])].sort(
+    (left, right) => left.sequence - right.sequence
+  );
+  const timelineEndRef = useRef<HTMLDivElement | null>(null);
+  const isActive = run ? isRunActive(run.status) : false;
   const authAction = findPendingAuthAction(items);
-  const investigation = run.investigation
+  const investigation = run?.investigation
     ? {
         title: cleanText(run.investigation.title),
         summary: cleanText(run.investigation.summary),
@@ -214,22 +214,70 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
       }
     : null;
 
+  useEffect(() => {
+    if (isActive) {
+      timelineEndRef.current?.scrollIntoView({
+        block: "nearest",
+        behavior: "smooth",
+      });
+    }
+  }, [isActive, items.length, run?.status]);
+
+  if (!run) {
+    return null;
+  }
+
   return (
     <div className="grid gap-5">
       <div className="grid gap-3 border-t border-white/8 pt-4">
         <div className="flex flex-wrap items-center justify-between gap-3">
-          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-            Run summary
-          </span>
+          <div className="grid gap-1">
+            <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+              Live run
+            </span>
+            <span className="text-sm text-slate-300">
+              {runStageText(run, items)}
+            </span>
+          </div>
           <span className={statusBadgeClass(run.status)}>{run.status}</span>
         </div>
-        <p className="m-0 text-sm leading-6 text-slate-100">{summary}</p>
         {run.errorMessage ? (
           <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
             {run.errorMessage}
           </div>
         ) : null}
       </div>
+
+      <div className="grid gap-3 border-t border-white/8 pt-4">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+            Activity
+          </span>
+          <span className="text-xs text-slate-500">
+            {items.length} {items.length === 1 ? "item" : "items"}
+          </span>
+        </div>
+        <div className="grid gap-0">
+          {items.length > 0 ? (
+            items.map((item) => <RunItemRow key={item.id} item={item} />)
+          ) : (
+            <RunProgressRow status={run.status} />
+          )}
+          {isActive && items.length > 0 ? <RunProgressRow status={run.status} /> : null}
+          <div ref={timelineEndRef} />
+        </div>
+      </div>
+
+      {run.summary ? (
+        <div className="grid gap-3 border-t border-white/8 pt-4">
+          <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
+            Final response
+          </span>
+          <p className="m-0 whitespace-pre-wrap text-sm leading-6 text-slate-100">
+            {cleanText(run.summary)}
+          </p>
+        </div>
+      ) : null}
 
       {investigation ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
@@ -281,22 +329,6 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
         </div>
       ) : null}
 
-      {items.length > 0 ? (
-        <div className="grid gap-3 border-t border-white/8 pt-4">
-          <div className="flex flex-wrap items-center justify-between gap-3">
-            <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-              Activity
-            </span>
-            <span className="text-xs text-slate-500">{items.length} items</span>
-          </div>
-          <div className="grid gap-0">
-            {items.map((item) => (
-              <RunItemRow key={item.id} item={item} />
-            ))}
-          </div>
-        </div>
-      ) : null}
-
       <div className="grid gap-1 border-t border-white/8 pt-4 text-xs uppercase tracking-[0.08em] text-slate-500">
         <span>Conversation Id: {props.detail.conversation.id}</span>
         <span>Run Id: {run.id}</span>
@@ -311,11 +343,17 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
 
 function RunItemRow(props: { item: RunItem }) {
   const details = runItemDisplay(props.item);
+  const [expanded, setExpanded] = useState(false);
+  const canExpand = details.body.length > timelinePreviewLimit;
+  const visibleBody =
+    canExpand && !expanded
+      ? `${details.body.slice(0, timelinePreviewLimit).trimEnd()}...`
+      : details.body;
 
   return (
     <div className="grid grid-cols-[18px_minmax(0,1fr)] gap-3 border-l border-white/10 py-3 first:pt-0 last:pb-0">
       <div className="relative">
-        <span className="absolute left-[-5px] top-1.5 h-2.5 w-2.5 rounded-full border border-slate-500 bg-slate-950" />
+        <span className={timelineDotClass(details.tone)} />
       </div>
       <div className="min-w-0">
         <div className="mb-1 flex flex-wrap items-center gap-2">
@@ -323,18 +361,82 @@ function RunItemRow(props: { item: RunItem }) {
             {details.label}
           </span>
           {details.meta ? (
-            <span className="text-xs text-slate-600">{details.meta}</span>
+            <span className={metaBadgeClass(details.tone)}>{details.meta}</span>
+          ) : null}
+          {details.time ? (
+            <span className="text-xs text-slate-600">{details.time}</span>
           ) : null}
         </div>
+        {details.title ? (
+          <div className="mb-1 text-sm font-medium text-slate-100">
+            {details.title}
+          </div>
+        ) : null}
+        {canExpand ? (
+          <OutputToggleButton
+            expanded={expanded}
+            onClick={() => setExpanded((value) => !value)}
+          />
+        ) : null}
         {details.format === "code" ? (
-          <pre className="m-0 overflow-x-auto whitespace-pre rounded border border-white/8 bg-black/20 px-3 py-2 font-mono text-xs leading-5 text-slate-200">
-            {details.body}
+          <pre className="m-0 mt-2 overflow-x-auto whitespace-pre rounded border border-white/8 bg-black/20 px-3 py-2 font-mono text-xs leading-5 text-slate-200">
+            {visibleBody}
           </pre>
         ) : (
-          <p className="m-0 whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
-            {details.body}
+          <p className="m-0 mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
+            {visibleBody}
           </p>
         )}
+        {canExpand && expanded ? (
+          <OutputToggleButton
+            expanded={expanded}
+            onClick={() => setExpanded(false)}
+            position="bottom"
+          />
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
+function OutputToggleButton(props: {
+  expanded: boolean;
+  onClick: () => void;
+  position?: "top" | "bottom";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={props.onClick}
+      className={`w-fit border border-white/10 px-2.5 py-1 text-xs text-slate-300 transition-colors hover:border-white/25 hover:text-slate-50 ${
+        props.position === "bottom" ? "mt-2" : ""
+      }`}
+    >
+      {props.expanded ? "Show preview" : "Show full output"}
+    </button>
+  );
+}
+
+function RunProgressRow(props: { status: AgentRun["status"] }) {
+  return (
+    <div className="grid grid-cols-[18px_minmax(0,1fr)] gap-3 border-l border-white/10 py-3 first:pt-0 last:pb-0">
+      <div className="relative">
+        <span className="absolute left-[-6px] top-1.5 h-3 w-3 rounded-full border border-sky-300/40 bg-sky-300/30" />
+      </div>
+      <div className="min-w-0">
+        <div className="mb-1 flex flex-wrap items-center gap-2">
+          <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
+            {isRunActive(props.status) ? "Waiting" : "No activity"}
+          </span>
+          <span className="border border-sky-300/20 px-2 py-0.5 text-xs text-sky-200">
+            {props.status}
+          </span>
+        </div>
+        <p className="m-0 text-sm leading-6 text-slate-300">
+          {isRunActive(props.status)
+            ? "Listening for the next streamed run item..."
+            : "No run items were recorded for this run."}
+        </p>
       </div>
     </div>
   );
@@ -436,22 +538,35 @@ function isAuthRequiredActionData(
 function runItemDisplay(item: RunItem): {
   label: string;
   body: string;
+  title?: string;
   meta?: string;
+  time?: string;
   format?: "text" | "code";
+  tone?: "neutral" | "success" | "warning" | "danger" | "info";
 } {
   if (item.kind === "message") {
     return {
       label: item.role === "agent" ? "Agent response" : item.role,
       body: contentToText(item.content) || "No message content returned.",
-      meta: formatTime(item.createdAt),
+      time: formatTime(item.createdAt),
+      tone: item.role === "agent" ? "success" : "neutral",
     };
   }
 
   if (item.kind === "tool_call") {
     return {
       label: "Tool call",
-      body: item.toolName,
+      title: item.toolName,
+      body: formatJson(item.arguments),
       meta: item.status,
+      time: formatTime(item.createdAt),
+      format: "code",
+      tone:
+        item.status === "succeeded"
+          ? "success"
+          : item.status === "failed"
+            ? "danger"
+            : "info",
     };
   }
 
@@ -459,8 +574,10 @@ function runItemDisplay(item: RunItem): {
     return {
       label: item.isError ? "Tool error" : "Tool result",
       body: contentToText(item.content) || "Tool completed.",
-      meta: item.toolCallId,
+      meta: item.isError ? "failed" : "received",
+      time: formatTime(item.createdAt),
       format: hasJsonContent(item.content) ? "code" : "text",
+      tone: item.isError ? "danger" : "success",
     };
   }
 
@@ -473,6 +590,8 @@ function runItemDisplay(item: RunItem): {
         label: "Authorization required",
         body: `Authorize ${item.data.providerDisplayName ?? item.data.providerName}.`,
         meta: item.status,
+        time: formatTime(item.createdAt),
+        tone: "warning",
       };
     }
 
@@ -480,6 +599,8 @@ function runItemDisplay(item: RunItem): {
       label: "Action required",
       body: contentToText(item.content) || item.actionType,
       meta: item.status,
+      time: formatTime(item.createdAt),
+      tone: "warning",
     };
   }
 
@@ -487,7 +608,9 @@ function runItemDisplay(item: RunItem): {
     return {
       label: "Action resolved",
       body: contentToText(item.content ?? []) || `Action ${item.outcome}.`,
-      meta: item.requiredActionId,
+      meta: item.outcome,
+      time: formatTime(item.createdAt),
+      tone: item.outcome === "resolved" ? "success" : "warning",
     };
   }
 
@@ -496,6 +619,8 @@ function runItemDisplay(item: RunItem): {
       label: "Agent run",
       body: item.agentKind,
       meta: item.status,
+      time: formatTime(item.createdAt),
+      tone: isRunActive(item.status) ? "info" : "success",
     };
   }
 
@@ -503,6 +628,8 @@ function runItemDisplay(item: RunItem): {
     label: "Run note",
     body: cleanText(item.message),
     meta: item.noteType,
+    time: formatTime(item.createdAt),
+    tone: "neutral",
   };
 }
 
@@ -517,11 +644,95 @@ function cleanText(value: string): string {
     .trim();
 }
 
+function formatJson(value: unknown): string {
+  try {
+    return JSON.stringify(value, null, 2) ?? String(value);
+  } catch {
+    return String(value);
+  }
+}
+
 function formatTime(value: string): string {
   return new Date(value).toLocaleTimeString([], {
     hour: "numeric",
     minute: "2-digit",
   });
+}
+
+function isRunActive(status: AgentRun["status"]): boolean {
+  return (
+    status === "queued" ||
+    status === "running" ||
+    status === "auth_required" ||
+    status === "waiting_for_action"
+  );
+}
+
+function runStageText(run: AgentRun, items: RunItem[]): string {
+  if (run.status === "queued") {
+    return "Queued for the runtime.";
+  }
+  if (run.status === "auth_required") {
+    return "Paused until authorization is completed.";
+  }
+  if (run.status === "waiting_for_action") {
+    return "Waiting for a required action.";
+  }
+  if (run.status === "completed") {
+    return `Completed with ${items.length} recorded ${
+      items.length === 1 ? "item" : "items"
+    }.`;
+  }
+  if (run.status === "failed") {
+    return "The run failed before completing.";
+  }
+  if (run.status === "cancelled") {
+    return "The run was cancelled.";
+  }
+
+  const latestItem = items.at(-1);
+  if (!latestItem) {
+    return "Starting the run and waiting for the first item.";
+  }
+  return `Latest item: ${runItemDisplay(latestItem).label.toLowerCase()}.`;
+}
+
+function timelineDotClass(
+  tone: ReturnType<typeof runItemDisplay>["tone"] = "neutral"
+): string {
+  const base = "absolute left-[-5px] top-1.5 h-2.5 w-2.5 rounded-full border";
+  if (tone === "success") {
+    return `${base} border-emerald-300/60 bg-emerald-300/30`;
+  }
+  if (tone === "warning") {
+    return `${base} border-amber-300/60 bg-amber-300/30`;
+  }
+  if (tone === "danger") {
+    return `${base} border-rose-300/60 bg-rose-300/30`;
+  }
+  if (tone === "info") {
+    return `${base} border-sky-300/60 bg-sky-300/30`;
+  }
+  return `${base} border-slate-500 bg-slate-950`;
+}
+
+function metaBadgeClass(
+  tone: ReturnType<typeof runItemDisplay>["tone"] = "neutral"
+): string {
+  const base = "border px-2 py-0.5 text-xs";
+  if (tone === "success") {
+    return `${base} border-emerald-300/20 text-emerald-200`;
+  }
+  if (tone === "warning") {
+    return `${base} border-amber-300/20 text-amber-200`;
+  }
+  if (tone === "danger") {
+    return `${base} border-rose-300/20 text-rose-200`;
+  }
+  if (tone === "info") {
+    return `${base} border-sky-300/20 text-sky-200`;
+  }
+  return `${base} border-white/10 text-slate-500`;
 }
 
 function statusBadgeClass(status: AgentRun["status"]): string {

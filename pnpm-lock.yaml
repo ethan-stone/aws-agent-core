@@ -55,11 +55,11 @@ importers:
         specifier: ^5.3.14
         version: 5.3.14
       '@strands-agents/sdk':
-        specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(express@5.2.1)(zod@4.3.6)
+        specifier: 1.3.0
+        version: 1.3.0(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(@smithy/types@4.14.1)(express@5.2.1)(zod@4.3.6)
       bedrock-agentcore:
         specifier: ^0.2.2
-        version: 0.2.2(@strands-agents/sdk@1.0.0-rc.4(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(express@5.2.1)(zod@4.3.6))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
+        version: 0.2.2(@strands-agents/sdk@1.3.0(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(@smithy/types@4.14.1)(express@5.2.1)(zod@4.3.6))(react-dom@19.2.5(react@19.2.5))(react@19.2.5)
       dotenv:
         specifier: ^17.4.2
         version: 17.4.2
@@ -244,8 +244,8 @@ importers:
   shared/pulseforge-tools:
     dependencies:
       '@strands-agents/sdk':
-        specifier: 1.0.0-rc.4
-        version: 1.0.0-rc.4(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(express@5.2.1)(zod@4.3.6)
+        specifier: 1.3.0
+        version: 1.3.0(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(@smithy/types@4.14.1)(express@5.2.1)(zod@4.3.6)
       zod:
         specifier: ^4.3.6
         version: 4.3.6
@@ -2427,23 +2427,25 @@ packages:
   '@standard-schema/spec@1.1.0':
     resolution: {integrity: sha512-l2aFy5jALhniG5HgqrD6jXLi/rUWrKvqN/qJx6yoJsgKhblVd+iqqU4RCXavm/jPityDo5TCvKMnpjKnOriy0w==}
 
-  '@strands-agents/sdk@1.0.0-rc.4':
-    resolution: {integrity: sha512-kMTDlLdimrn2INrkHd3Ugb/IUzXGFbSYQJnsaDplZJgBdfuuOnwK2blRkeu6ruoub3iqubVYMVKwqxaCc0qcOQ==}
+  '@strands-agents/sdk@1.3.0':
+    resolution: {integrity: sha512-eSrS9zVTKDTcQSsrAPJMMg8opxbppBoM52x/TRogd/gBKV1yI93AnAYBojihiIW539BkanFiNCPBZH3iS5AQLg==}
     engines: {node: '>=20.0.0'}
     peerDependencies:
       '@a2a-js/sdk': ^0.3.10
       '@ai-sdk/provider': ^3.0.0
-      '@anthropic-ai/sdk': ^0.71.2
+      '@anthropic-ai/sdk': ^0.92.0
       '@aws-sdk/client-s3': ^3.943.0
+      '@aws/bedrock-token-generator': ^1.1.0
       '@google/genai': ^1.40.0
       '@modelcontextprotocol/sdk': ^1.25.2
       '@opentelemetry/api': ^1.9.0
-      '@opentelemetry/exporter-metrics-otlp-http': ^0.57.2
-      '@opentelemetry/exporter-trace-otlp-http': ^0.57.2
-      '@opentelemetry/resources': ^1.30.1
-      '@opentelemetry/sdk-metrics': ^1.30.1
-      '@opentelemetry/sdk-trace-base': ^1.30.1
-      '@opentelemetry/sdk-trace-node': ^1.30.1
+      '@opentelemetry/exporter-metrics-otlp-http': ^0.214.0
+      '@opentelemetry/exporter-trace-otlp-http': ^0.214.0
+      '@opentelemetry/resources': ^2.6.1
+      '@opentelemetry/sdk-metrics': ^2.6.1
+      '@opentelemetry/sdk-trace-base': ^2.6.1
+      '@opentelemetry/sdk-trace-node': ^2.6.1
+      '@smithy/types': ^4.0.0
       express: ^5.1.0
       openai: ^6.7.0
       zod: ^4.1.12
@@ -2455,6 +2457,8 @@ packages:
       '@anthropic-ai/sdk':
         optional: true
       '@aws-sdk/client-s3':
+        optional: true
+      '@aws/bedrock-token-generator':
         optional: true
       '@google/genai':
         optional: true
@@ -2469,6 +2473,8 @@ packages:
       '@opentelemetry/sdk-trace-base':
         optional: true
       '@opentelemetry/sdk-trace-node':
+        optional: true
+      '@smithy/types':
         optional: true
       express:
         optional: true
@@ -3903,6 +3909,10 @@ packages:
     resolution: {integrity: sha512-XQegIaBTVUjSHliKqcnFqYypAd4S+WCYt5NIeRs6w/UAry7z8Y9j5ZwRRL4kzq9U3sD6v+85er9FvkEaBpji2w==}
     hasBin: true
 
+  uuid@14.0.0:
+    resolution: {integrity: sha512-Qo+uWgilfSmAhXCMav1uYFynlQO7fMFiMVZsQqZRMIXp0O7rR7qjkj+cPvBHLgBqi960QCoo/PH2/6ZtVqKvrg==}
+    hasBin: true
+
   uuid@9.0.1:
     resolution: {integrity: sha512-b+1eJOlsR9K8HJpow9Ok3fiWOWSIcIzXodvv0rQjVoOVNpWMpxf1wZNpt4y9h10odCNrqnYp1OBzRktckBe3sA==}
     deprecated: uuid@10 and below is no longer supported.  For ESM codebases, update to uuid@latest.  For CommonJS codebases, use uuid@11 (but be aware this version will likely be deprecated in 2028).
@@ -4288,21 +4298,21 @@ snapshots:
     dependencies:
       '@aws-crypto/sha256-browser': 5.2.0
       '@aws-crypto/sha256-js': 5.2.0
-      '@aws-sdk/core': 3.974.6
-      '@aws-sdk/credential-provider-node': 3.972.37
+      '@aws-sdk/core': 3.974.8
+      '@aws-sdk/credential-provider-node': 3.972.39
       '@aws-sdk/eventstream-handler-node': 3.972.14
       '@aws-sdk/middleware-eventstream': 3.972.10
       '@aws-sdk/middleware-host-header': 3.972.10
       '@aws-sdk/middleware-logger': 3.972.10
       '@aws-sdk/middleware-recursion-detection': 3.972.11
-      '@aws-sdk/middleware-user-agent': 3.972.36
+      '@aws-sdk/middleware-user-agent': 3.972.38
       '@aws-sdk/middleware-websocket': 3.972.16
       '@aws-sdk/region-config-resolver': 3.972.13
       '@aws-sdk/token-providers': 3.1038.0
       '@aws-sdk/types': 3.973.8
       '@aws-sdk/util-endpoints': 3.996.8
       '@aws-sdk/util-user-agent-browser': 3.972.10
-      '@aws-sdk/util-user-agent-node': 3.973.22
+      '@aws-sdk/util-user-agent-node': 3.973.24
       '@smithy/config-resolver': 4.4.17
       '@smithy/core': 3.23.17
       '@smithy/eventstream-serde-browser': 4.2.14
@@ -7779,16 +7789,17 @@ snapshots:
 
   '@standard-schema/spec@1.1.0': {}
 
-  '@strands-agents/sdk@1.0.0-rc.4(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(express@5.2.1)(zod@4.3.6)':
+  '@strands-agents/sdk@1.3.0(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(@smithy/types@4.14.1)(express@5.2.1)(zod@4.3.6)':
     dependencies:
       '@aws-sdk/client-bedrock-runtime': 3.1038.0
       '@modelcontextprotocol/sdk': 1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6)
       '@opentelemetry/api': 1.9.0
       '@types/json-schema': 7.0.15
-      uuid: 13.0.0
+      uuid: 14.0.0
       yaml: 2.8.3
       zod: 4.3.6
     optionalDependencies:
+      '@smithy/types': 4.14.1
       express: 5.2.1
     transitivePeerDependencies:
       - aws-crt
@@ -8080,7 +8091,7 @@ snapshots:
 
   baseline-browser-mapping@2.10.0: {}
 
-  bedrock-agentcore@0.2.2(@strands-agents/sdk@1.0.0-rc.4(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(express@5.2.1)(zod@4.3.6))(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
+  bedrock-agentcore@0.2.2(@strands-agents/sdk@1.3.0(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(@smithy/types@4.14.1)(express@5.2.1)(zod@4.3.6))(react-dom@19.2.5(react@19.2.5))(react@19.2.5):
     dependencies:
       '@aws-crypto/sha256-js': 5.2.0
       '@aws-sdk/client-bedrock-agentcore': 3.1038.0
@@ -8098,7 +8109,7 @@ snapshots:
       ws: 8.20.0
       zod: 4.3.6
     optionalDependencies:
-      '@strands-agents/sdk': 1.0.0-rc.4(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(express@5.2.1)(zod@4.3.6)
+      '@strands-agents/sdk': 1.3.0(@modelcontextprotocol/sdk@1.27.0(@cfworker/json-schema@4.1.1)(zod@4.3.6))(@opentelemetry/api@1.9.0)(@smithy/types@4.14.1)(express@5.2.1)(zod@4.3.6)
       react: 19.2.5
       react-dom: 19.2.5(react@19.2.5)
     transitivePeerDependencies:
@@ -9199,6 +9210,8 @@ snapshots:
   uuid@10.0.0: {}
 
   uuid@13.0.0: {}
+
+  uuid@14.0.0: {}
 
   uuid@9.0.1: {}
 
