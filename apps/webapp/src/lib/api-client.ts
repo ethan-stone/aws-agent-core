@@ -318,6 +318,23 @@ export async function createConversationRun(
   );
 }
 
+export async function resolveRequiredAction(
+  runId: string,
+  requiredActionId: string,
+  request: {
+    outcome: "resolved" | "declined";
+    comment?: string;
+  }
+): Promise<ConversationDetail> {
+  return requestJson(
+    `/api/agent-runs/${runId}/required-actions/${requiredActionId}/resolve`,
+    {
+      method: "POST",
+      body: JSON.stringify(request),
+    }
+  );
+}
+
 export async function fetchConversation(
   conversationId: string
 ): Promise<ConversationDetail> {

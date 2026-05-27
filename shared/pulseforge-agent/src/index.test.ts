@@ -11,12 +11,12 @@ describe("PulseForge agent tool authorization", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.provider.key).toBe("pulseforge-backend");
     expect(groups[0]?.scopes).toEqual([
-      "read:incidents",
       "read:devices",
       "read:telemetry",
       "write:incident_events",
       "write:tickets",
       "write:remediation_actions",
+      "write:device_commands",
     ]);
   });
 
@@ -26,5 +26,18 @@ describe("PulseForge agent tool authorization", () => {
     );
 
     expect(deviceTool?.requiredScopes).toEqual(["read:devices"]);
+  });
+
+  it("requires operator approval for device reset tool calls", () => {
+    const resetTool = getPulseForgeAgentToolDefinitions("ops-copilot").find(
+      (definition) => definition.name === "reset_device"
+    );
+
+    expect(resetTool?.requiredScopes).toEqual(["write:device_commands"]);
+    expect(resetTool?.approval).toMatchObject({
+      required: true,
+      actionType: "tool_approval",
+      risk: "high",
+    });
   });
 });

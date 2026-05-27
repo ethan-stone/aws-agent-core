@@ -207,6 +207,16 @@ export interface AgentRun {
   errorMessage?: string;
 }
 
+export interface AgentRunSnapshot {
+  id: string;
+  runId: string;
+  requiredActionId: string;
+  provider: "strands";
+  kind: "interrupt_resume";
+  snapshot: unknown;
+  createdAt: string;
+}
+
 export interface AgentRunInvestigationSummary {
   title: string;
   summary: string;
@@ -368,8 +378,9 @@ export interface IncidentInvestigationContext {
 
 /**
  * Agent-facing input projection. The backend builds this from Conversation,
- * AgentRun, RuntimeSession, user input, and optional domain context before
- * invoking the provider runtime.
+ * AgentRun, RuntimeSession, user input, and minimal domain identifiers before
+ * invoking the provider runtime. Agents retrieve operational context through
+ * tools instead of receiving prehydrated investigation data.
  */
 export interface AgentRuntimeInvocation {
   agentRunId: string;
@@ -378,7 +389,18 @@ export interface AgentRuntimeInvocation {
   incidentId?: string;
   deviceId?: string;
   actorId?: string;
-  investigationContext?: IncidentInvestigationContext;
+  resume?: AgentRuntimeInterruptResume;
+}
+
+export interface AgentRuntimeInterruptResume {
+  requiredActionId: string;
+  interruptId: string;
+  snapshot: unknown;
+  response: {
+    approved: boolean;
+    comment?: string;
+    resolvedByUserId?: string;
+  };
 }
 
 /**

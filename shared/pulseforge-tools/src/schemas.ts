@@ -27,6 +27,15 @@ export const getDeviceTelemetryInputSchema = z.object({
   deviceId: z.string().min(1).describe("PulseForge IoT device id."),
 });
 
+export const resetDeviceInputSchema = z.object({
+  deviceId: z.string().min(1).describe("PulseForge IoT device id to reset."),
+  reason: z
+    .string()
+    .min(1)
+    .max(1200)
+    .describe("Operator-readable reason for resetting the device."),
+});
+
 export const createIncidentEventInputSchema = z.object({
   incidentId: z.string().min(1).describe("Incident id to append an event to."),
   kind: z

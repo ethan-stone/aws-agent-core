@@ -1,5 +1,6 @@
 import type {
   AgentRun,
+  AgentRunSnapshot,
   AuditActor,
   AuditLogEntry,
   Conversation,
@@ -80,6 +81,12 @@ export interface PulseForgeRepository {
       startedAt?: string;
     }
   ): Promise<AgentRun>;
+  createAgentRunSnapshot(
+    snapshot: Omit<AgentRunSnapshot, "createdAt"> & {
+      createdAt?: string;
+    }
+  ): Promise<AgentRunSnapshot>;
+  getAgentRunSnapshot(snapshotId: string): Promise<AgentRunSnapshot | null>;
   updateAgentRunStatus(
     runId: string,
     update: {

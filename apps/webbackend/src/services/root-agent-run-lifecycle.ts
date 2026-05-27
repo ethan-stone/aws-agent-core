@@ -1,13 +1,14 @@
 import { randomUUID } from "node:crypto";
 import type {
   AgentRun,
+  AgentRuntimeInterruptResume,
   Conversation,
   ConversationDetail,
   CreateConversationRequest,
   CreateConversationRunRequest,
-  IncidentInvestigationContext,
   RuntimeSession,
   AuthenticatedAppUser,
+  RunItem,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import { agentConversationStorage } from "./agent-conversation-storage.js";
 import * as agentRuntime from "./agent-runtime-client.js";
@@ -32,17 +33,22 @@ export class ActiveRootRunError extends Error {
   }
 }
 
+export class RequiredActionResolutionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "RequiredActionResolutionError";
+  }
+}
+
 export async function createConversationAndRun(
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null,
   diagnostics?: WebBackendDiagnosticContext
 ): Promise<ConversationDetail> {
   return collectFinalDetail(
     await createConversationAndRunStream(
       request,
       user,
-      investigationContext,
       diagnostics
     )
   );
@@ -51,7 +57,6 @@ export async function createConversationAndRun(
 export async function createConversationAndRunStream(
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null,
   diagnostics?: WebBackendDiagnosticContext
 ): Promise<AsyncGenerator<ConversationDetail>> {
   const conversation = await agentConversationStorage.conversations.create({
@@ -63,7 +68,6 @@ export async function createConversationAndRunStream(
     conversation,
     request,
     user,
-    investigationContext,
     diagnostics
   );
 }
@@ -72,14 +76,12 @@ export async function runConversation(
   conversationId: string,
   request: CreateConversationRunRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null,
   diagnostics?: WebBackendDiagnosticContext
 ): Promise<ConversationDetail | null> {
   const stream = await runConversationStream(
     conversationId,
     request,
     user,
-    investigationContext,
     diagnostics
   );
   return stream ? collectFinalDetail(stream) : null;
@@ -89,7 +91,6 @@ export async function runConversationStream(
   conversationId: string,
   request: CreateConversationRunRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null,
   diagnostics?: WebBackendDiagnosticContext
 ): Promise<AsyncGenerator<ConversationDetail> | null> {
   const conversation =
@@ -109,16 +110,162 @@ export async function runConversationStream(
       agentKind: conversation.rootAgentKind,
     },
     user,
-    investigationContext,
     diagnostics
   );
+}
+
+export async function resolveRunRequiredAction(
+  runId: string,
+  requiredActionId: string,
+  request: {
+    outcome: "resolved" | "declined";
+    comment?: string;
+  },
+  user?: AuthenticatedAppUser | null,
+  diagnostics?: WebBackendDiagnosticContext
+): Promise<ConversationDetail | null> {
+  const run = await agentConversationStorage.agentRuns.get(runId);
+  if (!run) {
+    return null;
+  }
+
+  const items = await agentConversationStorage.runItems.list(run.id);
+  const requiredAction = items.find(
+    (item): item is Extract<RunItem, { kind: "required_action" }> =>
+      item.kind === "required_action" &&
+      item.requiredActionId === requiredActionId
+  );
+  if (!requiredAction) {
+    throw new RequiredActionResolutionError("Required action not found.");
+  }
+  if (requiredAction.status !== "pending") {
+    throw new RequiredActionResolutionError("Required action is not pending.");
+  }
+
+  const resumeState = await getInterruptResumeState(requiredAction);
+  if (!resumeState) {
+    throw new RequiredActionResolutionError(
+      "Required action is not resumable by interrupt."
+    );
+  }
+
+  const runtimeSession = await getOrCreateRuntimeSession(
+    run.conversationId,
+    diagnostics
+  );
+  const claimed = await agentConversationStorage.conversations.claimActiveRootRun(
+    run.conversationId,
+    run.id
+  );
+  if (!claimed) {
+    const conversation =
+      await agentConversationStorage.conversations.get(run.conversationId);
+    throw new ActiveRootRunError(
+      run.conversationId,
+      conversation?.activeRootRunId ?? "unknown"
+    );
+  }
+
+  const runDiagnostics = extendDiagnostics(diagnostics, {
+    conversationId: run.conversationId,
+    runId: run.id,
+    agentKind: run.agentKind,
+    incidentId: run.incidentId,
+    deviceId: run.deviceId,
+    userId: user?.sub,
+    runtimeSessionId: runtimeSession.id,
+    providerSessionId: runtimeSession.providerSessionId,
+  });
+  const runtimeEvents: AgentRuntimeSseEvent[] = [];
+  const liveRequiredActionIds = new Set<string>();
+  const liveActionResolutionIds = new Set<string>();
+  const response: AgentRuntimeInterruptResume["response"] = {
+    approved: request.outcome === "resolved",
+    ...(request.comment ? { comment: request.comment } : {}),
+    ...(user?.sub ? { resolvedByUserId: user.sub } : {}),
+  };
+
+  try {
+    await agentConversationStorage.agentRuns.updateStatus(run.id, {
+      status: "running",
+      authRequired: undefined,
+    });
+    await agentConversationStorage.runtimeSessions.updateUsage(
+      runtimeSession.id,
+      "active"
+    );
+    for await (const event of agentRuntime.streamRootAgentRuntimeResume(
+      run,
+      runtimeSession,
+      user?.sub ?? run.requestedByUserId ?? "pulseforge-webbackend",
+      {
+        requiredActionId,
+        interruptId: resumeState.interruptId,
+        snapshot: resumeState.snapshot,
+        response,
+      },
+      runDiagnostics
+    )) {
+      runtimeEvents.push(event);
+      await recordLiveRequiredAction(
+        run,
+        event,
+        liveRequiredActionIds,
+        runDiagnostics
+      );
+      await recordLiveActionResolution(
+        run,
+        event,
+        liveActionResolutionIds,
+        runDiagnostics
+      );
+    }
+
+    const result = parseAgentRuntimeResponse(runtimeEvents, run);
+    await recordCompletedRootAgentRun(
+      run,
+      withoutLiveRequiredActionUpdates(
+        result,
+        liveRequiredActionIds,
+        liveActionResolutionIds
+      ),
+      runDiagnostics
+    );
+    await agentConversationStorage.runtimeSessions.updateUsage(
+      runtimeSession.id,
+      "idle"
+    );
+  } catch (error) {
+    await recordFailedRootAgentRun(
+      run,
+      {
+        agentKind: run.agentKind,
+        prompt: "",
+        incidentId: run.incidentId,
+        deviceId: run.deviceId,
+      },
+      runtimeSession,
+      error,
+      runDiagnostics
+    );
+    await agentConversationStorage.runtimeSessions.updateUsage(
+      runtimeSession.id,
+      "idle"
+    );
+  } finally {
+    await agentConversationStorage.conversations.setActiveRootRun(
+      run.conversationId,
+      null
+    );
+  }
+
+  return getRequiredConversationDetail(run.conversationId);
 }
 
 async function* runRootAgentWithProgress(
   conversation: Conversation,
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
-  investigationContext?: IncidentInvestigationContext | null,
   diagnostics?: WebBackendDiagnosticContext
 ): AsyncGenerator<ConversationDetail> {
   const conversationDiagnostics = extendDiagnostics(diagnostics, {
@@ -160,7 +307,6 @@ async function* runRootAgentWithProgress(
       run,
       runtimeSession,
       user?.sub ?? "pulseforge-webbackend",
-      investigationContext,
       runDiagnostics
     )) {
       runtimeEvents.push(event);
@@ -338,7 +484,10 @@ async function recordCompletedRootAgentRun(
   diagnostics?: WebBackendDiagnosticContext
 ) {
   if (result.items.length > 0) {
-    await agentConversationStorage.runItems.append(run.id, result.items);
+    await agentConversationStorage.runItems.append(
+      run.id,
+      await externalizeRunItemSnapshots(run, result.items)
+    );
   }
 
   if (result.authRequired && !result.hasCompletedOutput) {
@@ -355,6 +504,26 @@ async function recordCompletedRootAgentRun(
       }),
       {
         status: "auth_required",
+        itemCount: result.items.length,
+        summary: result.summary,
+      }
+    );
+    return;
+  }
+
+  if (result.hasPendingRequiredAction && !result.hasCompletedOutput) {
+    await agentConversationStorage.agentRuns.updateStatus(run.id, {
+      status: "waiting_for_action",
+      summary: result.summary,
+    });
+    webBackendDiagnostics.agentRunCompleted(
+      extendDiagnostics(diagnostics, {
+        runId: run.id,
+        conversationId: run.conversationId,
+        agentKind: run.agentKind,
+      }),
+      {
+        status: "waiting_for_action",
         itemCount: result.items.length,
         summary: result.summary,
       }
@@ -403,7 +572,10 @@ async function recordLiveRequiredAction(
     return false;
   }
 
-  await agentConversationStorage.runItems.append(run.id, requiredActions);
+  await agentConversationStorage.runItems.append(
+    run.id,
+    await externalizeRunItemSnapshots(run, requiredActions)
+  );
   for (const item of requiredActions) {
     liveRequiredActionIds.add(item.requiredActionId);
     webBackendDiagnostics.agentRequiredActionObserved(
@@ -508,6 +680,97 @@ function withoutLiveRequiredActionUpdates(
         )
     ),
   };
+}
+
+async function getInterruptResumeState(
+  item: Extract<RunItem, { kind: "required_action" }>
+): Promise<Pick<AgentRuntimeInterruptResume, "interruptId" | "snapshot"> | null> {
+  if (item.actionType !== "tool_approval") {
+    return null;
+  }
+  if (typeof item.data !== "object" || item.data === null) {
+    return null;
+  }
+  if (!("resume" in item.data)) {
+    return null;
+  }
+
+  const resume = item.data.resume;
+  if (
+    typeof resume !== "object" ||
+    resume === null ||
+    !("interruptId" in resume) ||
+    typeof resume.interruptId !== "string" ||
+    !("snapshotId" in resume) ||
+    typeof resume.snapshotId !== "string"
+  ) {
+    return null;
+  }
+
+  const snapshot = await agentConversationStorage.agentRunSnapshots.get(
+    resume.snapshotId
+  );
+  if (!snapshot) {
+    return null;
+  }
+
+  return {
+    interruptId: resume.interruptId,
+    snapshot: snapshot.snapshot,
+  };
+}
+
+async function externalizeRunItemSnapshots(
+  run: AgentRun,
+  items: AppendRunItemInput[]
+): Promise<AppendRunItemInput[]> {
+  const externalized: AppendRunItemInput[] = [];
+
+  for (const item of items) {
+    if (item.kind !== "required_action") {
+      externalized.push(item);
+      continue;
+    }
+
+    const data = item.data;
+    if (
+      typeof data !== "object" ||
+      data === null ||
+      !("resume" in data) ||
+      typeof data.resume !== "object" ||
+      data.resume === null ||
+      !("interruptId" in data.resume) ||
+      typeof data.resume.interruptId !== "string" ||
+      !("snapshot" in data.resume)
+    ) {
+      externalized.push(item);
+      continue;
+    }
+
+    const snapshotId = randomUUID();
+    await agentConversationStorage.agentRunSnapshots.create({
+      id: snapshotId,
+      runId: run.id,
+      requiredActionId: item.requiredActionId,
+      provider: "strands",
+      kind: "interrupt_resume",
+      snapshot: data.resume.snapshot,
+    });
+
+    const { snapshot: _snapshot, ...resumeReference } = data.resume;
+    externalized.push({
+      ...item,
+      data: {
+        ...data,
+        resume: {
+          ...resumeReference,
+          snapshotId,
+        },
+      },
+    });
+  }
+
+  return externalized;
 }
 
 async function collectFinalDetail(

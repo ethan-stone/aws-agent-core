@@ -24,7 +24,10 @@ export async function executePulseForgeTool(
     throw new Error(`No runtime credential provider configured for ${provider.key}.`);
   }
   const oauthScopes = toOauthScopes(
-    [...(context.getAuthorizationScopes?.(provider) ?? definition.requiredScopes)],
+    [
+      ...(context.getAuthorizationScopes?.(provider, definition) ??
+        definition.requiredScopes),
+    ],
     runtimeProvider.resourceServerIdentifier
   );
   const requiredActionId = `${toolCallId}:auth:${provider.key}`;

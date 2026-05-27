@@ -8,6 +8,7 @@ import type {
 import {
   createConversation,
   createConversationRun,
+  resolveRequiredAction,
 } from "../lib/api-client.js";
 
 const starterPrompts = [
@@ -188,14 +189,22 @@ export function CopilotPage() {
             </p>
           ) : null}
 
-          {conversation ? <ConversationResultView detail={conversation} /> : null}
+          {conversation ? (
+            <ConversationResultView
+              detail={conversation}
+              onDetailChange={setConversation}
+            />
+          ) : null}
         </article>
       </div>
     </section>
   );
 }
 
-function ConversationResultView(props: { detail: ConversationDetail }) {
+function ConversationResultView(props: {
+  detail: ConversationDetail;
+  onDetailChange: (detail: ConversationDetail) => void;
+}) {
   const run = latestRun(props.detail);
   const items = [...(run ? props.detail.itemsByRunId[run.id] ?? [] : [])].sort(
     (left, right) => left.sequence - right.sequence
@@ -203,6 +212,13 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
   const isActive = run ? isRunActive(run.status) : false;
   const authAction = findPendingAuthAction(items);
+  const approval = findPendingToolApproval(props.detail);
+  const approvalAction = approval?.action ?? null;
+  const approvalRun = approval?.run ?? null;
+  const [approvalLoading, setApprovalLoading] = useState<
+    "resolved" | "declined" | null
+  >(null);
+  const [approvalError, setApprovalError] = useState<string | null>(null);
   const investigation = run?.investigation
     ? {
         title: cleanText(run.investigation.title),
@@ -225,6 +241,29 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
 
   if (!run) {
     return null;
+  }
+
+  async function handleApproval(outcome: "resolved" | "declined") {
+    if (!approvalRun || !approvalAction) {
+      return;
+    }
+
+    setApprovalLoading(outcome);
+    setApprovalError(null);
+    try {
+      const detail = await resolveRequiredAction(
+        approvalRun.id,
+        approvalAction.requiredActionId,
+        { outcome }
+      );
+      props.onDetailChange(detail);
+    } catch (error) {
+      setApprovalError(
+        error instanceof Error ? error.message : "Failed to resolve action."
+      );
+    } finally {
+      setApprovalLoading(null);
+    }
   }
 
   return (
@@ -326,6 +365,51 @@ function ConversationResultView(props: { detail: ConversationDetail }) {
           >
             Open authorization URL
           </a>
+        </div>
+      ) : null}
+
+      {approval && approvalAction ? (
+        <div className="grid gap-3 border border-sky-300/30 bg-sky-300/8 px-3 py-3 text-sm text-sky-100">
+          <div>
+            <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-sky-200/70">
+              Approval required
+            </div>
+            <p className="m-0 text-sky-100">{approvalAction.data.description}</p>
+          </div>
+          <div className="grid gap-1 text-xs text-sky-100/75">
+            <span>Tool: {approvalAction.data.toolName ?? "requested action"}</span>
+            {approvalAction.data.risk ? (
+              <span>Risk: {approvalAction.data.risk}</span>
+            ) : null}
+            {approval.run.id !== run.id ? (
+              <span>Run: {approval.run.id}</span>
+            ) : null}
+          </div>
+          {approvalError ? (
+            <div className="border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-xs text-rose-100">
+              {approvalError}
+            </div>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <button
+              type="button"
+              disabled={Boolean(approvalLoading)}
+              onClick={() => handleApproval("resolved")}
+              className="border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
+            >
+              {approvalLoading === "resolved"
+                ? "Approving..."
+                : approvalAction.data.actionLabel}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(approvalLoading)}
+              onClick={() => handleApproval("declined")}
+              className="border border-sky-200/30 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-sky-50 transition-colors hover:border-sky-100 hover:bg-sky-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {approvalLoading === "declined" ? "Declining..." : "Decline"}
+            </button>
+          </div>
         </div>
       ) : null}
 
@@ -506,6 +590,24 @@ type AuthRequiredActionItem = Extract<
   };
 };
 
+type ToolApprovalActionItem = Extract<
+  RunItem,
+  { kind: "required_action" }
+> & {
+  actionType: "tool_approval";
+  data: {
+    type: "tool_approval";
+    title: string;
+    description: string;
+    actionLabel: string;
+    risk?: string;
+    toolName?: string;
+    toolUseId?: string;
+    input?: unknown;
+    agentRunId: string;
+  };
+};
+
 function findPendingAuthAction(items: RunItem[]): AuthRequiredActionItem | null {
   return (
     items.find(
@@ -516,6 +618,35 @@ function findPendingAuthAction(items: RunItem[]): AuthRequiredActionItem | null 
         isAuthRequiredActionData(item.data)
     ) ?? null
   );
+}
+
+function findPendingToolApprovalAction(
+  items: RunItem[]
+): ToolApprovalActionItem | null {
+  return (
+    items.find(
+      (item): item is ToolApprovalActionItem =>
+        item.kind === "required_action" &&
+        item.actionType === "tool_approval" &&
+        item.status === "pending" &&
+        isToolApprovalActionData(item.data)
+    ) ?? null
+  );
+}
+
+function findPendingToolApproval(
+  detail: ConversationDetail
+): { run: AgentRun; action: ToolApprovalActionItem } | null {
+  for (const run of [...detail.runs].reverse()) {
+    const action = findPendingToolApprovalAction(
+      detail.itemsByRunId[run.id] ?? []
+    );
+    if (action) {
+      return { run, action };
+    }
+  }
+
+  return null;
 }
 
 function isAuthRequiredActionData(
@@ -532,6 +663,25 @@ function isAuthRequiredActionData(
     typeof value.authUrl === "string" &&
     "scopes" in value &&
     Array.isArray(value.scopes)
+  );
+}
+
+function isToolApprovalActionData(
+  value: unknown
+): value is ToolApprovalActionItem["data"] {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "type" in value &&
+    value.type === "tool_approval" &&
+    "title" in value &&
+    typeof value.title === "string" &&
+    "description" in value &&
+    typeof value.description === "string" &&
+    "actionLabel" in value &&
+    typeof value.actionLabel === "string" &&
+    "agentRunId" in value &&
+    typeof value.agentRunId === "string"
   );
 }
 
@@ -582,6 +732,20 @@ function runItemDisplay(item: RunItem): {
   }
 
   if (item.kind === "required_action") {
+    if (
+      item.actionType === "tool_approval" &&
+      isToolApprovalActionData(item.data)
+    ) {
+      return {
+        label: "Approval required",
+        body: item.data.description,
+        title: item.data.title,
+        meta: item.status,
+        time: formatTime(item.createdAt),
+        tone: "warning",
+      };
+    }
+
     if (
       item.actionType === "auth_required" &&
       isAuthRequiredActionData(item.data)

@@ -75,6 +75,7 @@ export class AgentCoreStack extends Stack {
       ["write:incident_events", "Create PulseForge incident timeline events"],
       ["write:tickets", "Create PulseForge tickets"],
       ["write:remediation_actions", "Create PulseForge remediation proposals"],
+      ["write:device_commands", "Execute approved PulseForge device commands"],
     ] as const;
     const pulseForgeBackendScopes = pulseForgeBackendScopeDefinitions.map(
       ([scopeName, scopeDescription]) =>

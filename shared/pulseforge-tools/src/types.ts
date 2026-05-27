@@ -6,7 +6,8 @@ export type PulseForgeToolScope =
   | "read:telemetry"
   | "write:incident_events"
   | "write:tickets"
-  | "write:remediation_actions";
+  | "write:remediation_actions"
+  | "write:device_commands";
 
 export type PulseForgeToolName =
   | "get_incident_context"
@@ -14,7 +15,8 @@ export type PulseForgeToolName =
   | "get_device_telemetry"
   | "create_incident_event"
   | "create_ticket"
-  | "propose_remediation_action";
+  | "propose_remediation_action"
+  | "reset_device";
 
 export type PulseForgeCredentialProviderKey = "pulseforge-backend";
 
@@ -46,6 +48,14 @@ export interface PulseForgeToolDefinition<
   outputSchema: TOutputSchema;
   credentialProvider: PulseForgeCredentialProviderDescriptor;
   requiredScopes: PulseForgeToolScope[];
+  approval?: {
+    required: true;
+    actionType: "tool_approval";
+    title: string;
+    description: string;
+    actionLabel: string;
+    risk: "low" | "medium" | "high";
+  };
   http: {
     method: HttpMethod;
     path: (input: z.infer<TInputSchema>) => string;
@@ -73,7 +83,8 @@ export interface PulseForgeToolExecutionContext {
   agentRunId: string;
   providers: Record<PulseForgeCredentialProviderKey, PulseForgeRuntimeCredentialProvider>;
   getAuthorizationScopes?: (
-    provider: PulseForgeCredentialProviderDescriptor
+    provider: PulseForgeCredentialProviderDescriptor,
+    definition: PulseForgeToolDefinition
   ) => readonly PulseForgeToolScope[];
   onToolCallStarted?: (details: {
     toolCallId: string;
