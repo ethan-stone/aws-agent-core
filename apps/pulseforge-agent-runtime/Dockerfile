@@ -7,6 +7,7 @@ WORKDIR /app
 COPY pnpm-workspace.yaml package.json pnpm-lock.yaml ./
 COPY apps/pulseforge-agent-runtime/package.json apps/pulseforge-agent-runtime/
 COPY shared/pulseforge-domain/package.json shared/pulseforge-domain/
+COPY shared/pulseforge-backend/package.json shared/pulseforge-backend/
 COPY shared/pulseforge-agent/package.json shared/pulseforge-agent/
 COPY shared/pulseforge-tools/package.json shared/pulseforge-tools/
 RUN pnpm install --frozen-lockfile
@@ -25,6 +26,7 @@ FROM deps AS shared-build
 COPY shared/ shared/
 COPY tsconfig.base.json ./
 RUN pnpm --filter @agent-core/pulseforge-domain build
+RUN pnpm --filter @agent-core/pulseforge-backend build
 RUN pnpm --filter @agent-core/pulseforge-tools build
 RUN pnpm --filter @agent-core/pulseforge-agent build
 

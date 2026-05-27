@@ -46,7 +46,10 @@ The backend invokes the runtime with `AgentRuntimeInvocation`.
 
 That invocation is built from:
 
+- `Conversation.id` as `conversationId`
 - `AgentRun.id` as `agentRunId`
+- `RuntimeSession.id` as `runtimeSessionId`
+- `RuntimeSession.providerSessionId` as `providerSessionId`
 - `Conversation.rootAgentKind` as `agentKind`
 - the current user input as `prompt`
 - optional incident/device ids
@@ -60,11 +63,13 @@ The backend also passes `RuntimeSession.providerSessionId` to AWS AgentCore as
 the provider `runtimeSessionId`. That is how multiple root runs in one
 conversation share the same provider-side short-term memory session.
 
-## Agent Output Projection
+## Agent Lifecycle Projection
 
-The runtime emits `AgentRuntimeStreamEvent` SSE events.
+The runtime owns canonical lifecycle writes for the `AgentRun` it is executing.
+The model does not own persistence; the runtime scaffolding around the model
+and tools does.
 
-The backend does not store those events directly. It maps them into:
+Runtime lifecycle scaffolding records:
 
 - `message` -> `MessageRunItem`
 - `tool_call` -> `ToolCallRunItem`
@@ -77,13 +82,17 @@ The backend does not store those events directly. It maps them into:
 - `summary` -> denormalized `AgentRun.summary` / `AgentRun.investigation`
 
 Human approval interrupts are represented as `required_action` items with
-`actionType: "tool_approval"`. The backend externalizes the Strands interrupt
-snapshot into an `AgentRunSnapshot` record and stores only the snapshot
-reference plus interrupt id on the required action. The client-facing
+`actionType: "tool_approval"`. Runtime lifecycle scaffolding externalizes the
+Strands interrupt snapshot into an `AgentRunSnapshot` record and stores only the
+snapshot reference plus interrupt id on the required action. The client-facing
 `ConversationDetail` redacts that internal resume reference. When an operator
-approves or declines, the web backend loads the snapshot by reference, invokes
-the runtime with an interrupt response, and maps the resumed runtime stream back
-into the same `AgentRun`.
+approves or declines, the web backend loads the snapshot by reference and
+invokes the runtime with an interrupt response for the same `AgentRun`.
+
+The runtime also emits `AgentRuntimeStreamEvent` SSE events as a streaming UI
+projection. Webbackend does not reconstruct canonical product history from SSE;
+it refreshes and streams `ConversationDetail` snapshots from domain storage as
+runtime progress events arrive.
 
 ## AgentCore Memory
 

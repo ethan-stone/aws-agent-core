@@ -6,9 +6,9 @@ import { BedrockAgentCoreClient } from "@aws-sdk/client-bedrock-agentcore";
 import { AgentMemoryProjection } from "./agent-memory-projection.js";
 import {
   agentRuntimeRequestSchema,
-  runInvalidAgentInvocation,
   runPulseForgeAgentInvocation,
 } from "./agent-invocation.js";
+import { runInvalidAgentInvocation } from "./invalid-agent-invocation.js";
 import { loadRuntimeConfig } from "./runtime-config.js";
 
 const runtimeConfig = loadRuntimeConfig();
@@ -59,11 +59,11 @@ const memoryProjection = new AgentMemoryProjection({
 const app = new BedrockAgentCoreApp({
   invocationHandler: {
     process: async function* (rawRequest, context) {
-      const parsedRequest = agentRuntimeRequestSchema.safeParse(
-        normalizeInvocationPayload(rawRequest)
-      );
+      const normalizedRequest = normalizeInvocationPayload(rawRequest);
+      const parsedRequest =
+        agentRuntimeRequestSchema.safeParse(normalizedRequest);
       if (!parsedRequest.success) {
-        yield* runInvalidAgentInvocation(parsedRequest.error);
+        yield* runInvalidAgentInvocation(parsedRequest.error, normalizedRequest);
         return;
       }
 

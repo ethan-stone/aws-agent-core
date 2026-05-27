@@ -94,7 +94,7 @@ export async function* streamRootAgentRuntime(
   diagnostics?: WebBackendDiagnosticContext
 ): AsyncGenerator<AgentRuntimeSseEvent> {
   yield* streamAgentRuntimeInvocation(
-    buildInvocationPayload(request, run.id, runtimeUserId),
+    buildInvocationPayload(request, run, runtimeSession, runtimeUserId),
     run,
     runtimeSession,
     runtimeUserId,
@@ -111,7 +111,10 @@ export async function* streamRootAgentRuntimeResume(
 ): AsyncGenerator<AgentRuntimeSseEvent> {
   yield* streamAgentRuntimeInvocation(
     {
+      conversationId: run.conversationId,
       agentRunId: run.id,
+      runtimeSessionId: runtimeSession.id,
+      providerSessionId: runtimeSession.providerSessionId,
       agentKind: run.agentKind,
       prompt: "",
       actorId: runtimeUserId,
@@ -203,11 +206,15 @@ export function getRuntimeIdentity() {
 
 function buildInvocationPayload(
   request: CreateConversationRequest,
-  runId: string,
+  run: AgentRun,
+  runtimeSession: RuntimeSession,
   runtimeUserId: string
 ): AgentRuntimeInvocation {
   return {
-    agentRunId: runId,
+    conversationId: run.conversationId,
+    agentRunId: run.id,
+    runtimeSessionId: runtimeSession.id,
+    providerSessionId: runtimeSession.providerSessionId,
     agentKind: request.agentKind,
     prompt: request.prompt,
     actorId: runtimeUserId,

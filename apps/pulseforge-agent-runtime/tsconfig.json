@@ -10,6 +10,7 @@
   "include": [
     "src",
     "../../shared/pulseforge-domain/src",
+    "../../shared/pulseforge-backend/src",
     "../../shared/pulseforge-agent/src",
     "../../shared/pulseforge-tools/src"
   ]

@@ -597,6 +597,30 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     return item ? mapPersistedRunItem(stripMongoId<PersistedRunItem>(item)) : null;
   }
 
+  async updateToolCallStatus(
+    runId: string,
+    toolCallId: string,
+    status: Parameters<PulseForgeRepository["updateToolCallStatus"]>[2]
+  ): Promise<RunItem | null> {
+    await this.collections().runItems.updateOne(
+      {
+        runId,
+        kind: "tool_call",
+        toolCallId,
+      },
+      {
+        $set: { status },
+      }
+    );
+
+    const item = await this.collections().runItems.findOne({
+      runId,
+      kind: "tool_call",
+      toolCallId,
+    });
+    return item ? mapPersistedRunItem(stripMongoId<PersistedRunItem>(item)) : null;
+  }
+
   async listRunItems(runId: string): Promise<RunItem[]> {
     const items = await this.collections().runItems
       .find({ runId })

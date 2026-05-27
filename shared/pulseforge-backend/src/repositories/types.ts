@@ -108,6 +108,11 @@ export interface PulseForgeRepository {
       resolvedBy?: RunItemSource;
     }
   ): Promise<RunItem | null>;
+  updateToolCallStatus(
+    runId: string,
+    toolCallId: string,
+    status: Extract<RunItem, { kind: "tool_call" }>["status"]
+  ): Promise<RunItem | null>;
   listRunItems(runId: string): Promise<RunItem[]>;
   listPendingInputs(conversationId: string): Promise<PendingInput[]>;
   createIncidentEvent(event: Omit<IncidentEvent, "id" | "timestamp"> & {

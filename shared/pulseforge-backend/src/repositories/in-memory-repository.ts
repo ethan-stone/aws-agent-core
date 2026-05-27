@@ -360,6 +360,30 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     return updated;
   }
 
+  async updateToolCallStatus(
+    runId: string,
+    toolCallId: string,
+    status: Parameters<PulseForgeRepository["updateToolCallStatus"]>[2]
+  ): Promise<RunItem | null> {
+    const existing = [...this.runItems.values()].find(
+      (item) =>
+        item.runId === runId &&
+        item.kind === "tool_call" &&
+        item.toolCallId === toolCallId
+    );
+
+    if (!existing || existing.kind !== "tool_call") {
+      return null;
+    }
+
+    const updated: RunItem = {
+      ...existing,
+      status,
+    };
+    this.runItems.set(existing.id, updated);
+    return updated;
+  }
+
   async listRunItems(runId: string): Promise<RunItem[]> {
     return [...this.runItems.values()]
       .filter((item) => item.runId === runId)
