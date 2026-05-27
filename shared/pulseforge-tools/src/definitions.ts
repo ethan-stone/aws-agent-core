@@ -7,6 +7,7 @@ import {
   getDeviceTelemetryInputSchema,
   getIncidentContextInputSchema,
   proposeRemediationActionInputSchema,
+  resetDeviceInputSchema,
 } from "./schemas.js";
 import type {
   PulseForgeCredentialProviderDescriptor,
@@ -22,6 +23,7 @@ export const pulseForgeToolScopes = {
   writeIncidentEvents: "write:incident_events",
   writeTickets: "write:tickets",
   writeRemediationActions: "write:remediation_actions",
+  writeDeviceCommands: "write:device_commands",
 } as const;
 
 export const pulseForgeBackendCredentialProvider = {
@@ -122,7 +124,7 @@ export const pulseForgeToolDefinitions = [
   defineTool({
     name: "propose_remediation_action",
     description:
-      "Propose a remediation action for an incident. This records a proposal only; it does not execute device mutations.",
+      "Propose a remediation action for an incident only when the operator asks for a plan, recommendation, or record of a proposal. This records a proposal only; it does not execute device mutations. Do not use this as a substitute when the operator asks you to reset, reboot, remediate, resolve, or fix a device; call reset_device if the reset is warranted.",
     inputSchema: proposeRemediationActionInputSchema,
     outputSchema: genericToolOutputSchema,
     credentialProvider: pulseForgeBackendCredentialProvider,
@@ -135,6 +137,31 @@ export const pulseForgeToolDefinitions = [
         type: input.type,
         risk: input.risk,
         summary: input.summary,
+      }),
+    },
+  }),
+  defineTool({
+    name: "reset_device",
+    description:
+      "Request approval to reset a PulseForge IoT device, then execute the reset only after the platform approval interrupt is approved. Use this instead of asking for reset approval in chat. This demo endpoint returns a successful reset record but does not mutate real device infrastructure.",
+    inputSchema: resetDeviceInputSchema,
+    outputSchema: genericToolOutputSchema,
+    credentialProvider: pulseForgeBackendCredentialProvider,
+    requiredScopes: [pulseForgeToolScopes.writeDeviceCommands],
+    approval: {
+      required: true,
+      actionType: "tool_approval",
+      title: "Reset device",
+      description:
+        "The agent wants to reset a PulseForge IoT device as a remediation action.",
+      actionLabel: "Reset device",
+      risk: "high",
+    },
+    http: {
+      method: "POST",
+      path: (input) => `/devices/${encodeURIComponent(input.deviceId)}/reset`,
+      body: (input) => ({
+        reason: input.reason,
       }),
     },
   }),

@@ -8,7 +8,6 @@ import type {
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
   appPermissions,
-  buildIncidentInvestigationContext,
   getAgentRun,
   getApiAuthConfig,
   getConversationDetail,
@@ -25,9 +24,11 @@ import {
 } from "../../../shared/pulseforge-backend/src/index.js";
 import {
   ActiveRootRunError,
+  RequiredActionResolutionError,
   completeAgentResourceTokenAuth,
   createConversationAndRun,
   createConversationAndRunStream,
+  resolveRunRequiredAction,
   runConversation,
   runConversationStream,
 } from "./services/agent-service.js";
@@ -329,15 +330,10 @@ app.post(
       return c.json({ error: "agentKind and prompt are required" }, 400);
     }
 
-    const incidentId = asOptionalString(body.incidentId);
-    const investigationContext = incidentId
-      ? await buildIncidentInvestigationContext(incidentId)
-      : null;
-
     const request = {
       agentKind: body.agentKind,
       prompt,
-      incidentId,
+      incidentId: asOptionalString(body.incidentId),
       deviceId: asOptionalString(body.deviceId),
     };
 
@@ -347,7 +343,6 @@ app.post(
         await createConversationAndRunStream(
           request,
           user,
-          investigationContext,
           c.get("requestContext")
         ),
         {
@@ -360,7 +355,6 @@ app.post(
     const detail = await createConversationAndRun(
       request,
       user,
-      investigationContext,
       c.get("requestContext")
     );
 
@@ -380,15 +374,10 @@ app.post(
       return c.json({ error: "prompt is required" }, 400);
     }
 
-    const incidentId = asOptionalString(body.incidentId);
-    const investigationContext = incidentId
-      ? await buildIncidentInvestigationContext(incidentId)
-      : null;
-
     try {
       const request = {
         prompt,
-        incidentId,
+        incidentId: asOptionalString(body.incidentId),
         deviceId: asOptionalString(body.deviceId),
       };
       const detail = wantsConversationEventStream(c.req.header("accept"))
@@ -396,14 +385,12 @@ app.post(
             c.req.param("conversationId"),
             request,
             user,
-            investigationContext,
             c.get("requestContext")
           )
         : await runConversation(
             c.req.param("conversationId"),
             request,
             user,
-            investigationContext,
             c.get("requestContext")
           );
 
@@ -451,6 +438,52 @@ app.get(
     }
 
     return c.json(run);
+  }
+);
+
+app.post(
+  "/api/agent-runs/:runId/required-actions/:requiredActionId/resolve",
+  requireUserPermission(appPermissions.writeAgentRuns),
+  async (c) => {
+    const body = (await c.req.json()) as {
+      outcome?: string;
+      comment?: string;
+    };
+    const user = c.get("user");
+
+    if (body.outcome !== "resolved" && body.outcome !== "declined") {
+      return c.json({ error: "outcome must be resolved or declined" }, 400);
+    }
+
+    try {
+      const detail = await resolveRunRequiredAction(
+        c.req.param("runId"),
+        c.req.param("requiredActionId"),
+        {
+          outcome: body.outcome,
+          ...(asOptionalString(body.comment)
+            ? { comment: asOptionalString(body.comment) }
+            : {}),
+        },
+        user,
+        c.get("requestContext")
+      );
+
+      if (!detail) {
+        return c.json({ error: "Agent run not found" }, 404);
+      }
+
+      return c.json(detail, conversationRunStatus(detail, 200));
+    } catch (error) {
+      if (error instanceof ActiveRootRunError) {
+        return c.json({ error: error.message }, 409);
+      }
+      if (error instanceof RequiredActionResolutionError) {
+        return c.json({ error: error.message }, 400);
+      }
+
+      throw error;
+    }
   }
 );
 

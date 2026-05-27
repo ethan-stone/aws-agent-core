@@ -6,8 +6,12 @@ describe("PulseForge tools API", () => {
     const response = await toolsApi.request("/openapi.json");
 
     expect(response.status).toBe(200);
-    const body = (await response.json()) as { openapi: string };
+    const body = (await response.json()) as {
+      openapi: string;
+      paths: Record<string, unknown>;
+    };
     expect(body.openapi).toBe("3.0.0");
+    expect(body.paths).toHaveProperty("/devices/{deviceId}/reset");
   });
 
   it("does not expose stale compatibility or ping routes", async () => {

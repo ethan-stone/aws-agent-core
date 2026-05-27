@@ -7,9 +7,9 @@ import { fromIni } from "@aws-sdk/credential-providers";
 import type {
   AgentRun,
   AgentRuntimeInvocation,
+  AgentRuntimeInterruptResume,
   AuthenticatedAppUser,
   CreateConversationRequest,
-  IncidentInvestigationContext,
   RuntimeSession,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import {
@@ -70,7 +70,6 @@ export async function invokeRootAgentRuntime(
   run: AgentRun,
   runtimeSession: RuntimeSession,
   runtimeUserId: string,
-  investigationContext?: IncidentInvestigationContext | null,
   diagnostics?: WebBackendDiagnosticContext
 ): Promise<ParsedRuntimeResponse> {
   const events: AgentRuntimeSseEvent[] = [];
@@ -79,7 +78,6 @@ export async function invokeRootAgentRuntime(
     run,
     runtimeSession,
     runtimeUserId,
-    investigationContext,
     diagnostics
   )) {
     events.push(event);
@@ -93,7 +91,45 @@ export async function* streamRootAgentRuntime(
   run: AgentRun,
   runtimeSession: RuntimeSession,
   runtimeUserId: string,
-  investigationContext?: IncidentInvestigationContext | null,
+  diagnostics?: WebBackendDiagnosticContext
+): AsyncGenerator<AgentRuntimeSseEvent> {
+  yield* streamAgentRuntimeInvocation(
+    buildInvocationPayload(request, run.id, runtimeUserId),
+    run,
+    runtimeSession,
+    runtimeUserId,
+    diagnostics
+  );
+}
+
+export async function* streamRootAgentRuntimeResume(
+  run: AgentRun,
+  runtimeSession: RuntimeSession,
+  runtimeUserId: string,
+  resume: AgentRuntimeInterruptResume,
+  diagnostics?: WebBackendDiagnosticContext
+): AsyncGenerator<AgentRuntimeSseEvent> {
+  yield* streamAgentRuntimeInvocation(
+    {
+      agentRunId: run.id,
+      agentKind: run.agentKind,
+      prompt: "",
+      actorId: runtimeUserId,
+      resume,
+      ...optionalDomainIds(run),
+    },
+    run,
+    runtimeSession,
+    runtimeUserId,
+    diagnostics
+  );
+}
+
+async function* streamAgentRuntimeInvocation(
+  invocation: AgentRuntimeInvocation,
+  run: AgentRun,
+  runtimeSession: RuntimeSession,
+  runtimeUserId: string,
   diagnostics?: WebBackendDiagnosticContext
 ): AsyncGenerator<AgentRuntimeSseEvent> {
   const runtimeArn = process.env.AGENT_RUNTIME_ARN;
@@ -105,22 +141,16 @@ export async function* streamRootAgentRuntime(
     throw new Error("AGENT_RUNTIME_QUALIFIER is not configured for the API.");
   }
 
-  const invocation = buildInvocationPayload(
-    request,
-    run.id,
-    runtimeUserId,
-    investigationContext
-  );
   if (isDebugLoggingEnabled) {
     webBackendDiagnostics.runtimeInvocationStarted(
       extendDiagnostics(diagnostics, {
         runId: run.id,
         conversationId: run.conversationId,
-        agentKind: request.agentKind,
+        agentKind: run.agentKind,
         runtimeSessionId: runtimeSession.id,
         providerSessionId: runtimeSession.providerSessionId,
-        incidentId: request.incidentId,
-        deviceId: request.deviceId,
+        incidentId: run.incidentId,
+        deviceId: run.deviceId,
       }),
       {
         runtimeArn,
@@ -149,7 +179,7 @@ export async function* streamRootAgentRuntime(
       extendDiagnostics(diagnostics, {
         runId: run.id,
         conversationId: run.conversationId,
-        agentKind: request.agentKind,
+        agentKind: run.agentKind,
         runtimeSessionId: runtimeSession.id,
         providerSessionId: runtimeSession.providerSessionId,
       }),
@@ -174,17 +204,28 @@ export function getRuntimeIdentity() {
 function buildInvocationPayload(
   request: CreateConversationRequest,
   runId: string,
-  runtimeUserId: string,
-  investigationContext?: IncidentInvestigationContext | null
+  runtimeUserId: string
 ): AgentRuntimeInvocation {
   return {
     agentRunId: runId,
     agentKind: request.agentKind,
     prompt: request.prompt,
-    incidentId: request.incidentId,
-    deviceId: request.deviceId,
     actorId: runtimeUserId,
-    investigationContext: investigationContext ?? undefined,
+    ...optionalDomainIds(request),
+  };
+}
+
+function optionalDomainIds(source: {
+  incidentId?: string | null;
+  deviceId?: string | null;
+}): Pick<AgentRuntimeInvocation, "incidentId" | "deviceId"> {
+  return {
+    ...(typeof source.incidentId === "string"
+      ? { incidentId: source.incidentId }
+      : {}),
+    ...(typeof source.deviceId === "string"
+      ? { deviceId: source.deviceId }
+      : {}),
   };
 }
 

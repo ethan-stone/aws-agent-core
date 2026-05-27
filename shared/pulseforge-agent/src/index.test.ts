@@ -17,6 +17,7 @@ describe("PulseForge agent tool authorization", () => {
       "write:incident_events",
       "write:tickets",
       "write:remediation_actions",
+      "write:device_commands",
     ]);
   });
 
@@ -26,5 +27,26 @@ describe("PulseForge agent tool authorization", () => {
     );
 
     expect(deviceTool?.requiredScopes).toEqual(["read:devices"]);
+  });
+
+  it("includes curated incident context in the ops-copilot tool bundle", () => {
+    const toolNames = getPulseForgeAgentToolDefinitions("ops-copilot").map(
+      (definition) => definition.name
+    );
+
+    expect(toolNames).toContain("get_incident_context");
+  });
+
+  it("requires operator approval for device reset tool calls", () => {
+    const resetTool = getPulseForgeAgentToolDefinitions("ops-copilot").find(
+      (definition) => definition.name === "reset_device"
+    );
+
+    expect(resetTool?.requiredScopes).toEqual(["write:device_commands"]);
+    expect(resetTool?.approval).toMatchObject({
+      required: true,
+      actionType: "tool_approval",
+      risk: "high",
+    });
   });
 });

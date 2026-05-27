@@ -21,6 +21,7 @@ import {
   demoSites,
   demoTickets,
   type AgentRun,
+  type AgentRunSnapshot,
   type AuditLogEntry,
   type Conversation,
   type DashboardSummary,
@@ -68,6 +69,9 @@ type PersistedAgentRun = Omit<AgentRun, "startedAt" | "completedAt"> & {
   startedAt?: Date;
   completedAt?: Date;
 };
+type PersistedAgentRunSnapshot = Omit<AgentRunSnapshot, "createdAt"> & {
+  createdAt: Date;
+};
 type PersistedRunItem = Omit<RunItem, "createdAt"> & { createdAt: Date };
 type PersistedPendingInput = Omit<
   PendingInput,
@@ -91,6 +95,7 @@ interface Collections {
   conversations: Collection<PersistedConversation>;
   runtimeSessions: Collection<PersistedRuntimeSession>;
   agentRuns: Collection<PersistedAgentRun>;
+  agentRunSnapshots: Collection<PersistedAgentRunSnapshot>;
   runItems: Collection<PersistedRunItem>;
   pendingInputs: Collection<PersistedPendingInput>;
   auditLogs: Collection<PersistedAuditLogEntry>;
@@ -121,6 +126,8 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       runtimeSessions:
         this.db.collection<PersistedRuntimeSession>("runtime_sessions"),
       agentRuns: this.db.collection<PersistedAgentRun>("agent_runs"),
+      agentRunSnapshots:
+        this.db.collection<PersistedAgentRunSnapshot>("agent_run_snapshots"),
       runItems: this.db.collection<PersistedRunItem>("agent_run_items"),
       pendingInputs: this.db.collection<PersistedPendingInput>("pending_inputs"),
       auditLogs: this.db.collection<PersistedAuditLogEntry>("audit_logs"),
@@ -480,6 +487,29 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     return mapPersistedAgentRun(created);
   }
 
+  async createAgentRunSnapshot(
+    snapshot: Parameters<PulseForgeRepository["createAgentRunSnapshot"]>[0]
+  ): Promise<AgentRunSnapshot> {
+    const created: PersistedAgentRunSnapshot = {
+      ...snapshot,
+      createdAt: new Date(snapshot.createdAt ?? Date.now()),
+    };
+
+    await this.collections().agentRunSnapshots.insertOne(created);
+    return mapPersistedAgentRunSnapshot(created);
+  }
+
+  async getAgentRunSnapshot(snapshotId: string): Promise<AgentRunSnapshot | null> {
+    const item = await this.collections().agentRunSnapshots.findOne({
+      id: snapshotId,
+    });
+    return item
+      ? mapPersistedAgentRunSnapshot(
+          stripMongoId<PersistedAgentRunSnapshot>(item)
+        )
+      : null;
+  }
+
   async updateAgentRunStatus(
     runId: string,
     update: Parameters<PulseForgeRepository["updateAgentRunStatus"]>[1]
@@ -673,6 +703,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.conversations.deleteMany({}),
       collections.runtimeSessions.deleteMany({}),
       collections.agentRuns.deleteMany({}),
+      collections.agentRunSnapshots.deleteMany({}),
       collections.runItems.deleteMany({}),
       collections.pendingInputs.deleteMany({}),
       collections.auditLogs.deleteMany({}),
@@ -728,6 +759,11 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.agentRuns.createIndex({ id: 1 }, { unique: true }),
       collections.agentRuns.createIndex({ incidentId: 1 }),
       collections.agentRuns.createIndex({ conversationId: 1, startedAt: 1 }),
+      collections.agentRunSnapshots.createIndex({ id: 1 }, { unique: true }),
+      collections.agentRunSnapshots.createIndex({
+        runId: 1,
+        requiredActionId: 1,
+      }),
       collections.runItems.createIndex({ id: 1 }, { unique: true }),
       collections.runItems.createIndex({ runId: 1, sequence: 1 }),
       collections.pendingInputs.createIndex({ conversationId: 1, acceptedAt: 1 }),
@@ -875,6 +911,15 @@ function mapPersistedAgentRun(run: PersistedAgentRun): AgentRun {
     ...run,
     startedAt: run.startedAt?.toISOString(),
     completedAt: run.completedAt?.toISOString(),
+  };
+}
+
+function mapPersistedAgentRunSnapshot(
+  snapshot: PersistedAgentRunSnapshot
+): AgentRunSnapshot {
+  return {
+    ...snapshot,
+    createdAt: snapshot.createdAt.toISOString(),
   };
 }
 

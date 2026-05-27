@@ -1,5 +1,6 @@
 import {
   type AgentRun,
+  type AgentRunSnapshot,
   type AuditLogEntry,
   type Conversation,
   demoAuditLogs,
@@ -46,6 +47,7 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
   private readonly agentRuns = new Map<string, AgentRun>(
     demoAgentRuns.map((run) => [run.id, run])
   );
+  private readonly agentRunSnapshots = new Map<string, AgentRunSnapshot>();
   private readonly runItems = new Map<string, RunItem>(
     demoRunItems.map((item) => [item.id, item])
   );
@@ -270,6 +272,21 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     return created;
   }
 
+  async createAgentRunSnapshot(
+    snapshot: Parameters<PulseForgeRepository["createAgentRunSnapshot"]>[0]
+  ): Promise<AgentRunSnapshot> {
+    const created: AgentRunSnapshot = {
+      ...snapshot,
+      createdAt: snapshot.createdAt ?? new Date().toISOString(),
+    };
+    this.agentRunSnapshots.set(created.id, created);
+    return created;
+  }
+
+  async getAgentRunSnapshot(snapshotId: string): Promise<AgentRunSnapshot | null> {
+    return this.agentRunSnapshots.get(snapshotId) ?? null;
+  }
+
   async updateAgentRunStatus(
     runId: string,
     update: Parameters<PulseForgeRepository["updateAgentRunStatus"]>[1]
@@ -448,6 +465,7 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     this.remediationActions.clear();
     this.tickets.clear();
     this.agentRuns.clear();
+    this.agentRunSnapshots.clear();
     this.conversations.clear();
     this.runtimeSessions.clear();
     this.runItems.clear();

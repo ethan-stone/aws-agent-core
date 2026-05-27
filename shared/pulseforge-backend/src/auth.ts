@@ -17,6 +17,7 @@ export const toolScopes = {
   writeIncidentEvents: "write:incident_events",
   writeTickets: "write:tickets",
   writeRemediationActions: "write:remediation_actions",
+  writeDeviceCommands: "write:device_commands",
 } as const;
 
 export type ToolScope = (typeof toolScopes)[keyof typeof toolScopes];

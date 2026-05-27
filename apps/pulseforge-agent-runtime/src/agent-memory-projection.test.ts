@@ -1,52 +1,16 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { Message } from "@strands-agents/sdk";
 import {
   AgentMemoryProjection,
   getLongTermRetrievalConfig,
 } from "./agent-memory-projection.js";
+import { InMemorySnapshotStorage } from "./agentcore-snapshot-storage.js";
 import type { RuntimeConfig } from "./runtime-config.js";
-import type { ShortTermMemoryStore } from "./short-term-memory-store.js";
 
-test("AgentMemoryProjection loads and persists local short-term memory", async () => {
-  const store = new MockShortTermMemoryStore([
-    Message.fromMessageData({
-      role: "user",
-      content: [{ text: "previous question" }],
-    }),
-  ]);
+test("AgentMemoryProjection creates a session manager plugin for short-term memory", async () => {
   const projection = new AgentMemoryProjection({
     runtimeConfig: createRuntimeConfig({ memoryId: undefined }),
-    localShortTermMemoryStore: store,
-  });
-
-  const prepared = await projection.prepare({
-    actorId: "user-123",
-    sessionId: "session-123",
-  });
-
-  assert.equal(store.loadedSessionIds[0], "session-123");
-  assert.equal(prepared.initialMessages.length, 1);
-  assert.equal(prepared.plugins.length, 0);
-
-  const nextMessages = [
-    ...prepared.initialMessages,
-    Message.fromMessageData({
-      role: "assistant",
-      content: [{ text: "fresh answer" }],
-    }),
-  ];
-  await prepared.persistMessages(nextMessages);
-
-  assert.equal(store.savedMessages.length, 2);
-  assert.equal(store.savedSessionIds[0], "session-123");
-});
-
-test("AgentMemoryProjection creates long-term memory plugins when AgentCore memory is configured", async () => {
-  const projection = new AgentMemoryProjection({
-    runtimeConfig: createRuntimeConfig({ memoryId: "memory-123" }),
-    memoryClient: { send: async () => ({}) } as never,
-    localShortTermMemoryStore: new MockShortTermMemoryStore([]),
+    localSnapshotStorage: new InMemorySnapshotStorage(),
   });
 
   const prepared = await projection.prepare({
@@ -55,16 +19,14 @@ test("AgentMemoryProjection creates long-term memory plugins when AgentCore memo
   });
 
   assert.equal(prepared.plugins.length, 1);
+  assert.equal(prepared.plugins[0]?.name, "strands:session-manager");
 });
 
-test("AgentMemoryProjection skips long-term memory plugins when disabled", async () => {
+test("AgentMemoryProjection adds long-term memory plugin when AgentCore memory is configured", async () => {
   const projection = new AgentMemoryProjection({
-    runtimeConfig: createRuntimeConfig({
-      memoryId: "memory-123",
-      longTermMemoryEnabled: false,
-    }),
+    runtimeConfig: createRuntimeConfig({ memoryId: "memory-123" }),
     memoryClient: { send: async () => ({}) } as never,
-    localShortTermMemoryStore: new MockShortTermMemoryStore([]),
+    localSnapshotStorage: new InMemorySnapshotStorage(),
   });
 
   const prepared = await projection.prepare({
@@ -72,7 +34,31 @@ test("AgentMemoryProjection skips long-term memory plugins when disabled", async
     sessionId: "session-123",
   });
 
-  assert.equal(prepared.plugins.length, 0);
+  assert.deepEqual(
+    prepared.plugins.map((plugin) => plugin.name),
+    ["strands:session-manager", "pulseforge:agentcore-long-term-memory"]
+  );
+});
+
+test("AgentMemoryProjection skips long-term memory plugin when disabled", async () => {
+  const projection = new AgentMemoryProjection({
+    runtimeConfig: createRuntimeConfig({
+      memoryId: "memory-123",
+      longTermMemoryEnabled: false,
+    }),
+    memoryClient: { send: async () => ({}) } as never,
+    localSnapshotStorage: new InMemorySnapshotStorage(),
+  });
+
+  const prepared = await projection.prepare({
+    actorId: "user-123",
+    sessionId: "session-123",
+  });
+
+  assert.deepEqual(
+    prepared.plugins.map((plugin) => plugin.name),
+    ["strands:session-manager"]
+  );
 });
 
 test("getLongTermRetrievalConfig follows runtime config", () => {
@@ -82,27 +68,13 @@ test("getLongTermRetrievalConfig follows runtime config", () => {
   );
   assert.deepEqual(
     Object.keys(getLongTermRetrievalConfig({ longTermMemoryEnabled: true })),
-    ["/preferences/{actorId}/", "/facts/{actorId}/", "/summaries/{actorId}/{sessionId}/"]
+    [
+      "/preferences/{actorId}/",
+      "/facts/{actorId}/",
+      "/summaries/{actorId}/{sessionId}/",
+    ]
   );
 });
-
-class MockShortTermMemoryStore implements ShortTermMemoryStore {
-  readonly loadedSessionIds: string[] = [];
-  readonly savedSessionIds: string[] = [];
-  savedMessages: Message[] = [];
-
-  constructor(private readonly messages: Message[]) {}
-
-  async loadMessages(sessionId: string): Promise<Message[]> {
-    this.loadedSessionIds.push(sessionId);
-    return this.messages;
-  }
-
-  async saveMessages(sessionId: string, messages: Message[]): Promise<void> {
-    this.savedSessionIds.push(sessionId);
-    this.savedMessages = messages;
-  }
-}
 
 function createRuntimeConfig(options: {
   memoryId?: string;

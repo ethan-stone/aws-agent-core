@@ -2,11 +2,15 @@ import {
   appendRunItems,
   claimConversationActiveRun,
   createAgentRun,
+  createAgentRunSnapshot,
   createConversation,
   createRuntimeSession,
+  getAgentRun,
+  getAgentRunSnapshot,
   getConversation,
   getConversationDetail,
   getRuntimeSessionByProvider,
+  listRunItems,
   touchRuntimeSession,
   updateAgentRunStatus,
   updateConversationActiveRun,
@@ -28,10 +32,16 @@ export const agentConversationStorage = {
   },
   agentRuns: {
     create: createAgentRun,
+    get: getAgentRun,
     updateStatus: updateAgentRunStatus,
+  },
+  agentRunSnapshots: {
+    create: createAgentRunSnapshot,
+    get: getAgentRunSnapshot,
   },
   runItems: {
     append: appendRunItems,
+    list: listRunItems,
     updateRequiredActionStatus,
   },
 } as const;

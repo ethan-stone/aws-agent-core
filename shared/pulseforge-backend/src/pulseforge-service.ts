@@ -10,6 +10,7 @@ import type {
   IncidentEvent,
   RemediationAction,
   RuntimeSession,
+  RunItem,
   Ticket,
 } from "@agent-core/pulseforge-domain";
 import { demoRunbooks } from "@agent-core/pulseforge-domain";
@@ -130,7 +131,12 @@ export async function getConversationDetail(
     conversation,
     runs,
     runtimeSessions,
-    itemsByRunId: Object.fromEntries(itemEntries),
+    itemsByRunId: Object.fromEntries(
+      itemEntries.map(([runId, items]) => [
+        runId,
+        items.map(redactInternalRunItemData),
+      ])
+    ),
   };
 }
 
@@ -191,6 +197,16 @@ export async function createAgentRun(
   return (await getRepository()).createAgentRun(run);
 }
 
+export async function createAgentRunSnapshot(
+  snapshot: Parameters<PulseForgeRepository["createAgentRunSnapshot"]>[0]
+) {
+  return (await getRepository()).createAgentRunSnapshot(snapshot);
+}
+
+export async function getAgentRunSnapshot(snapshotId: string) {
+  return (await getRepository()).getAgentRunSnapshot(snapshotId);
+}
+
 export async function updateAgentRunStatus(
   runId: string,
   update: Parameters<PulseForgeRepository["updateAgentRunStatus"]>[1]
@@ -205,6 +221,10 @@ export async function appendRunItems(
   return (await getRepository()).appendRunItems(runId, items);
 }
 
+export async function listRunItems(runId: string) {
+  return (await getRepository()).listRunItems(runId);
+}
+
 export async function updateRequiredActionStatus(
   runId: string,
   requiredActionId: string,
@@ -215,6 +235,26 @@ export async function updateRequiredActionStatus(
     requiredActionId,
     update
   );
+}
+
+function redactInternalRunItemData(item: RunItem): RunItem {
+  if (
+    item.kind !== "required_action" ||
+    typeof item.data !== "object" ||
+    item.data === null ||
+    !("resume" in item.data)
+  ) {
+    return item;
+  }
+
+  const { resume: _resume, ...publicData } = item.data as Record<
+    string,
+    unknown
+  >;
+  return {
+    ...item,
+    data: publicData,
+  };
 }
 
 export async function createIncidentEvent(

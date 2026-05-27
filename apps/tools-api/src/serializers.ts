@@ -44,6 +44,19 @@ export function serializeDeviceTelemetry(
   };
 }
 
+export function serializeDeviceReset(deviceId: string, reason: string) {
+  return {
+    ok: true as const,
+    deviceReset: {
+      deviceId,
+      status: "succeeded",
+      reason,
+      resetAt: new Date().toISOString(),
+      message: `Device ${deviceId} reset successfully.`,
+    },
+  };
+}
+
 export function serializeIncidentContext(context: IncidentInvestigationContext) {
   return {
     ok: true as const,

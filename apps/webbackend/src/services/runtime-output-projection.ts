@@ -17,6 +17,7 @@ export interface ParsedRuntimeResponse {
   authRequired?: AgentRunAuthRequired;
   items: AppendRunItemInput[];
   hasCompletedOutput: boolean;
+  hasPendingRequiredAction: boolean;
 }
 
 export function parseAgentRuntimeResponse(
@@ -131,6 +132,7 @@ export function parseAgentRuntimeResponse(
         data: data.data ?? { type: data.actionType },
         source: { type: "system" },
       });
+      summary = "Agent run is waiting for operator action.";
     }
 
     if (event.event === "action_resolution" && isActionResolutionData(data)) {
@@ -175,6 +177,9 @@ export function parseAgentRuntimeResponse(
   const hasCompletedOutput = events.some(
     (event) => event.event === "message" || event.event === "summary"
   );
+  const hasPendingRequiredAction = items.some(
+    (item) => item.kind === "required_action" && item.status === "pending"
+  );
 
   if (items.length === 0 && !authRequired) {
     items.push(agentMessageItem(run, textContent(summary)));
@@ -186,6 +191,7 @@ export function parseAgentRuntimeResponse(
     authRequired,
     items,
     hasCompletedOutput,
+    hasPendingRequiredAction,
   };
 }
 

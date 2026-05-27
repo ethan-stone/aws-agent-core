@@ -6,6 +6,7 @@ import {
   getDeviceTelemetryInputSchema,
   getIncidentContextInputSchema,
   proposeRemediationActionInputSchema,
+  resetDeviceInputSchema,
 } from "../../../shared/pulseforge-tools/src/index.js";
 
 export const errorResponseSchema = z.object({
@@ -17,6 +18,11 @@ export const errorResponseSchema = z.object({
 export const deviceParamsSchema = getDeviceInputSchema.openapi("DeviceParams");
 export const telemetryParamsSchema =
   getDeviceTelemetryInputSchema.openapi("TelemetryParams");
+export const resetDeviceParamsSchema =
+  getDeviceInputSchema.openapi("ResetDeviceParams");
+export const resetDeviceBodySchema = resetDeviceInputSchema
+  .omit({ deviceId: true })
+  .openapi("ResetDeviceBody");
 export const incidentContextParamsSchema =
   getIncidentContextInputSchema.openapi("IncidentContextParams");
 

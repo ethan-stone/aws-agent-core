@@ -50,8 +50,11 @@ That invocation is built from:
 - `Conversation.rootAgentKind` as `agentKind`
 - the current user input as `prompt`
 - optional incident/device ids
-- optional domain context such as `IncidentInvestigationContext`
 - the authenticated user id as `actorId`
+
+The backend does not prehydrate investigation context into the runtime payload.
+When the invocation includes incident or device ids, the agent should retrieve
+the needed operational context through its tools.
 
 The backend also passes `RuntimeSession.providerSessionId` to AWS AgentCore as
 the provider `runtimeSessionId`. That is how multiple root runs in one
@@ -67,23 +70,41 @@ The backend does not store those events directly. It maps them into:
 - `tool_call` -> `ToolCallRunItem`
 - `tool_result` -> `ToolResultRunItem`
 - `auth_required` -> `RequiredActionRunItem` plus `AgentRun.authRequired`
+- `required_action` -> `RequiredActionRunItem`
 - `action_resolution` -> `ActionResolutionRunItem`
 - `run_agent` -> `RunAgentRunItem`
 - `run_note` -> `RunNoteRunItem`
 - `summary` -> denormalized `AgentRun.summary` / `AgentRun.investigation`
+
+Human approval interrupts are represented as `required_action` items with
+`actionType: "tool_approval"`. The backend externalizes the Strands interrupt
+snapshot into an `AgentRunSnapshot` record and stores only the snapshot
+reference plus interrupt id on the required action. The client-facing
+`ConversationDetail` redacts that internal resume reference. When an operator
+approves or declines, the web backend loads the snapshot by reference, invokes
+the runtime with an interrupt response, and maps the resumed runtime stream back
+into the same `AgentRun`.
 
 ## AgentCore Memory
 
 AgentCore short-term memory is the agent-facing projection/cache, not the
 product timeline.
 
-The runtime loads AgentCore memory events into Strands `Message[]` before an
-agent invocation and saves final `agent.messages` back after the invocation.
-Those messages are what the agent uses for conversational continuity. They are
-keyed by:
+The runtime installs Strands `SessionManager` for conversational continuity. In
+deployed runtimes, the session manager uses PulseForge's AgentCore-backed
+`SnapshotStorage`; locally, it falls back to an in-process snapshot store. The
+storage saves the latest Strands session snapshot after each invocation as a
+replacement current-state projection, then restores that snapshot when the same
+runtime session is invoked again. Snapshot events are keyed by:
 
 - `actorId`
 - `RuntimeSession.providerSessionId` as the AgentCore session id
+- Strands snapshot `scope` and `scopeId` metadata
+
+The event payload is the Strands snapshot, not a PulseForge-specific message
+blob, and stale "latest" snapshot events are removed after replacement. Durable
+human-approval resume snapshots are separate `AgentRunSnapshot` product records;
+they are not the rolling short-term session snapshot.
 
 AgentCore long-term memory is retrieved context. It is keyed by `actorId` and,
 for session summaries, the same provider session id. It is not a transcript and

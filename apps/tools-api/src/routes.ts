@@ -21,11 +21,14 @@ import {
   incidentContextParamsSchema,
   proposeRemediationActionBodySchema,
   proposeRemediationActionParamsSchema,
+  resetDeviceBodySchema,
+  resetDeviceParamsSchema,
   telemetryParamsSchema,
 } from "./schemas.js";
 import {
   serializeCreatedIncidentEvent,
   serializeDevice,
+  serializeDeviceReset,
   serializeDeviceTelemetry,
   serializeIncidentContext,
   serializeRemediationAction,
@@ -85,6 +88,38 @@ toolsApp.openapi(
     }
 
     return c.json(serializeDevice(device));
+  }) as never
+);
+
+toolsApp.openapi(
+  createRoute({
+    method: "post",
+    path: "/devices/{deviceId}/reset",
+    request: {
+      params: resetDeviceParamsSchema,
+      body: {
+        content: { "application/json": { schema: resetDeviceBodySchema } },
+      },
+    },
+    middleware: [
+      requireToolAccess({
+        operation: "device.reset",
+        scopes: [toolScopes.writeDeviceCommands],
+        resourceType: "device",
+        getResourceId: (c) => c.req.param("deviceId") ?? "",
+      }),
+    ] as const,
+    responses: toolResponses,
+  }),
+  (async (c: any) => {
+    const { deviceId } = c.req.valid("param");
+    const device = await getDevice(deviceId);
+    if (!device) {
+      return c.json(serializeToolError("device_not_found", "Device not found"), 404);
+    }
+
+    const body = c.req.valid("json");
+    return c.json(serializeDeviceReset(deviceId, body.reason));
   }) as never
 );
 
