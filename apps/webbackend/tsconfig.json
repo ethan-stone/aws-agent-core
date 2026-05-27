@@ -10,5 +10,5 @@
     "../../shared/pulseforge-domain/src",
     "../../shared/pulseforge-backend/src"
   ],
-  "exclude": ["src/test", "vitest.config.ts"]
+  "exclude": ["src/test", "src/**/*.test.ts", "vitest.config.ts"]
 }

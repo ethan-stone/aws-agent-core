@@ -11,6 +11,7 @@ describe("PulseForge agent tool authorization", () => {
     expect(groups).toHaveLength(1);
     expect(groups[0]?.provider.key).toBe("pulseforge-backend");
     expect(groups[0]?.scopes).toEqual([
+      "read:incidents",
       "read:devices",
       "read:telemetry",
       "write:incident_events",
@@ -26,6 +27,14 @@ describe("PulseForge agent tool authorization", () => {
     );
 
     expect(deviceTool?.requiredScopes).toEqual(["read:devices"]);
+  });
+
+  it("includes curated incident context in the ops-copilot tool bundle", () => {
+    const toolNames = getPulseForgeAgentToolDefinitions("ops-copilot").map(
+      (definition) => definition.name
+    );
+
+    expect(toolNames).toContain("get_incident_context");
   });
 
   it("requires operator approval for device reset tool calls", () => {

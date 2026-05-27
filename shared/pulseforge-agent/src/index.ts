@@ -38,6 +38,7 @@ const pulseForgeAgentConfigs = {
       "When you create records, make the audit trail understandable: explain what you changed, why, and what remains uncertain.",
     ].join("\n"),
     toolNames: [
+      "get_incident_context",
       "get_device",
       "get_device_telemetry",
       "create_incident_event",
