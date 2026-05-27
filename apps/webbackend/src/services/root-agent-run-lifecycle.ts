@@ -13,14 +13,6 @@ import type {
 import { agentConversationStorage } from "./agent-conversation-storage.js";
 import * as agentRuntime from "./agent-runtime-client.js";
 import {
-  parseAgentRuntimeResponse,
-  type AgentRuntimeSseEvent,
-  type ParsedRuntimeResponse,
-} from "./runtime-output-projection.js";
-import type {
-  AppendRunItemInput,
-} from "../../../../shared/pulseforge-backend/src/index.js";
-import {
   type WebBackendDiagnosticContext,
   extendDiagnostics,
   webBackendDiagnostics,
@@ -176,9 +168,6 @@ export async function resolveRunRequiredAction(
     runtimeSessionId: runtimeSession.id,
     providerSessionId: runtimeSession.providerSessionId,
   });
-  const runtimeEvents: AgentRuntimeSseEvent[] = [];
-  const liveRequiredActionIds = new Set<string>();
-  const liveActionResolutionIds = new Set<string>();
   const response: AgentRuntimeInterruptResume["response"] = {
     approved: request.outcome === "resolved",
     ...(request.comment ? { comment: request.comment } : {}),
@@ -206,31 +195,10 @@ export async function resolveRunRequiredAction(
       },
       runDiagnostics
     )) {
-      runtimeEvents.push(event);
-      await recordLiveRequiredAction(
-        run,
-        event,
-        liveRequiredActionIds,
-        runDiagnostics
-      );
-      await recordLiveActionResolution(
-        run,
-        event,
-        liveActionResolutionIds,
-        runDiagnostics
-      );
+      // Runtime lifecycle persistence owns the resumed run activity. The
+      // webbackend consumes the stream so the runtime can finish, then returns
+      // a fresh read model from storage.
     }
-
-    const result = parseAgentRuntimeResponse(runtimeEvents, run);
-    await recordCompletedRootAgentRun(
-      run,
-      withoutLiveRequiredActionUpdates(
-        result,
-        liveRequiredActionIds,
-        liveActionResolutionIds
-      ),
-      runDiagnostics
-    );
     await agentConversationStorage.runtimeSessions.updateUsage(
       runtimeSession.id,
       "idle"
@@ -238,12 +206,6 @@ export async function resolveRunRequiredAction(
   } catch (error) {
     await recordFailedRootAgentRun(
       run,
-      {
-        agentKind: run.agentKind,
-        prompt: "",
-        incidentId: run.incidentId,
-        deviceId: run.deviceId,
-      },
       runtimeSession,
       error,
       runDiagnostics
@@ -291,9 +253,6 @@ async function* runRootAgentWithProgress(
     runtimeSessionId: runtimeSession.id,
     providerSessionId: runtimeSession.providerSessionId,
   });
-  const runtimeEvents: AgentRuntimeSseEvent[] = [];
-  const liveRequiredActionIds = new Set<string>();
-  const liveActionResolutionIds = new Set<string>();
 
   yield await getRequiredConversationDetail(conversation.id);
 
@@ -309,39 +268,11 @@ async function* runRootAgentWithProgress(
       user?.sub ?? "pulseforge-webbackend",
       runDiagnostics
     )) {
-      runtimeEvents.push(event);
-      if (
-        await recordLiveRequiredAction(
-          run,
-          event,
-          liveRequiredActionIds,
-          runDiagnostics
-        )
-      ) {
-        yield await getRequiredConversationDetail(conversation.id);
-      }
-      if (
-        await recordLiveActionResolution(
-          run,
-          event,
-          liveActionResolutionIds,
-          runDiagnostics
-        )
-      ) {
+      if (isRuntimeProgressEvent(event.event)) {
         yield await getRequiredConversationDetail(conversation.id);
       }
     }
 
-    const result = parseAgentRuntimeResponse(runtimeEvents, run);
-    await recordCompletedRootAgentRun(
-      run,
-      withoutLiveRequiredActionUpdates(
-        result,
-        liveRequiredActionIds,
-        liveActionResolutionIds
-      ),
-      runDiagnostics
-    );
     await agentConversationStorage.runtimeSessions.updateUsage(
       runtimeSession.id,
       "idle"
@@ -349,7 +280,6 @@ async function* runRootAgentWithProgress(
   } catch (error) {
     await recordFailedRootAgentRun(
       run,
-      request,
       runtimeSession,
       error,
       runDiagnostics
@@ -478,210 +408,6 @@ async function startRootAgentRun(
   }
 }
 
-async function recordCompletedRootAgentRun(
-  run: AgentRun,
-  result: ParsedRuntimeResponse,
-  diagnostics?: WebBackendDiagnosticContext
-) {
-  if (result.items.length > 0) {
-    await agentConversationStorage.runItems.append(
-      run.id,
-      await externalizeRunItemSnapshots(run, result.items)
-    );
-  }
-
-  if (result.authRequired && !result.hasCompletedOutput) {
-    await agentConversationStorage.agentRuns.updateStatus(run.id, {
-      status: "auth_required",
-      summary: result.summary,
-      authRequired: result.authRequired,
-    });
-    webBackendDiagnostics.agentRunCompleted(
-      extendDiagnostics(diagnostics, {
-        runId: run.id,
-        conversationId: run.conversationId,
-        agentKind: run.agentKind,
-      }),
-      {
-        status: "auth_required",
-        itemCount: result.items.length,
-        summary: result.summary,
-      }
-    );
-    return;
-  }
-
-  if (result.hasPendingRequiredAction && !result.hasCompletedOutput) {
-    await agentConversationStorage.agentRuns.updateStatus(run.id, {
-      status: "waiting_for_action",
-      summary: result.summary,
-    });
-    webBackendDiagnostics.agentRunCompleted(
-      extendDiagnostics(diagnostics, {
-        runId: run.id,
-        conversationId: run.conversationId,
-        agentKind: run.agentKind,
-      }),
-      {
-        status: "waiting_for_action",
-        itemCount: result.items.length,
-        summary: result.summary,
-      }
-    );
-    return;
-  }
-
-  await agentConversationStorage.agentRuns.updateStatus(run.id, {
-    status: "completed",
-    summary: result.summary,
-    investigation: result.investigation,
-  });
-  webBackendDiagnostics.agentRunCompleted(
-    extendDiagnostics(diagnostics, {
-      runId: run.id,
-      conversationId: run.conversationId,
-      agentKind: run.agentKind,
-    }),
-    {
-      status: "completed",
-      itemCount: result.items.length,
-      summary: result.summary,
-    }
-  );
-}
-
-async function recordLiveRequiredAction(
-  run: AgentRun,
-  event: AgentRuntimeSseEvent,
-  liveRequiredActionIds: Set<string>,
-  diagnostics?: WebBackendDiagnosticContext
-): Promise<boolean> {
-  if (event.event !== "auth_required" && event.event !== "required_action") {
-    return false;
-  }
-
-  const result = parseAgentRuntimeResponse([event], run);
-  const requiredActions = result.items.filter(
-    (
-      item
-    ): item is Extract<AppendRunItemInput, { kind: "required_action" }> =>
-      item.kind === "required_action" &&
-      !liveRequiredActionIds.has(item.requiredActionId)
-  );
-  if (requiredActions.length === 0) {
-    return false;
-  }
-
-  await agentConversationStorage.runItems.append(
-    run.id,
-    await externalizeRunItemSnapshots(run, requiredActions)
-  );
-  for (const item of requiredActions) {
-    liveRequiredActionIds.add(item.requiredActionId);
-    webBackendDiagnostics.agentRequiredActionObserved(
-      extendDiagnostics(diagnostics, {
-        runId: run.id,
-        conversationId: run.conversationId,
-        agentKind: run.agentKind,
-      }),
-      {
-        actionType: item.actionType,
-        requiredActionId: item.requiredActionId,
-        status: item.status,
-      }
-    );
-  }
-
-  await agentConversationStorage.agentRuns.updateStatus(run.id, {
-    status: result.authRequired ? "auth_required" : "waiting_for_action",
-    summary: result.summary,
-    authRequired: result.authRequired,
-  });
-
-  return true;
-}
-
-async function recordLiveActionResolution(
-  run: AgentRun,
-  event: AgentRuntimeSseEvent,
-  liveActionResolutionIds: Set<string>,
-  diagnostics?: WebBackendDiagnosticContext
-): Promise<boolean> {
-  if (event.event !== "action_resolution") {
-    return false;
-  }
-
-  const result = parseAgentRuntimeResponse([event], run);
-  const resolutions = result.items.filter(
-    (
-      item
-    ): item is Extract<AppendRunItemInput, { kind: "action_resolution" }> =>
-      item.kind === "action_resolution" &&
-      !liveActionResolutionIds.has(item.requiredActionId)
-  );
-  if (resolutions.length === 0) {
-    return false;
-  }
-
-  await agentConversationStorage.runItems.append(run.id, resolutions);
-  for (const item of resolutions) {
-    liveActionResolutionIds.add(item.requiredActionId);
-    await agentConversationStorage.runItems.updateRequiredActionStatus(
-      run.id,
-      item.requiredActionId,
-      {
-        status: item.outcome,
-        resolvedBy: { type: "system" },
-      }
-    );
-    webBackendDiagnostics.agentRequiredActionObserved(
-      extendDiagnostics(diagnostics, {
-        runId: run.id,
-        conversationId: run.conversationId,
-        agentKind: run.agentKind,
-      }),
-      {
-        actionType: "action_resolution",
-        requiredActionId: item.requiredActionId,
-        status: item.outcome,
-      }
-    );
-  }
-
-  await agentConversationStorage.agentRuns.updateStatus(run.id, {
-    status: "running",
-    authRequired: undefined,
-  });
-
-  return true;
-}
-
-function withoutLiveRequiredActionUpdates(
-  result: ParsedRuntimeResponse,
-  liveRequiredActionIds: Set<string>,
-  liveActionResolutionIds: Set<string>
-): ParsedRuntimeResponse {
-  if (
-    liveRequiredActionIds.size === 0 &&
-    liveActionResolutionIds.size === 0
-  ) {
-    return result;
-  }
-
-  return {
-    ...result,
-    items: result.items.filter(
-      (item) =>
-        !(
-          (item.kind === "required_action" &&
-            liveRequiredActionIds.has(item.requiredActionId)) ||
-          (item.kind === "action_resolution" &&
-            liveActionResolutionIds.has(item.requiredActionId))
-        )
-    ),
-  };
-}
-
 async function getInterruptResumeState(
   item: Extract<RunItem, { kind: "required_action" }>
 ): Promise<Pick<AgentRuntimeInterruptResume, "interruptId" | "snapshot"> | null> {
@@ -719,60 +445,6 @@ async function getInterruptResumeState(
     snapshot: snapshot.snapshot,
   };
 }
-
-async function externalizeRunItemSnapshots(
-  run: AgentRun,
-  items: AppendRunItemInput[]
-): Promise<AppendRunItemInput[]> {
-  const externalized: AppendRunItemInput[] = [];
-
-  for (const item of items) {
-    if (item.kind !== "required_action") {
-      externalized.push(item);
-      continue;
-    }
-
-    const data = item.data;
-    if (
-      typeof data !== "object" ||
-      data === null ||
-      !("resume" in data) ||
-      typeof data.resume !== "object" ||
-      data.resume === null ||
-      !("interruptId" in data.resume) ||
-      typeof data.resume.interruptId !== "string" ||
-      !("snapshot" in data.resume)
-    ) {
-      externalized.push(item);
-      continue;
-    }
-
-    const snapshotId = randomUUID();
-    await agentConversationStorage.agentRunSnapshots.create({
-      id: snapshotId,
-      runId: run.id,
-      requiredActionId: item.requiredActionId,
-      provider: "strands",
-      kind: "interrupt_resume",
-      snapshot: data.resume.snapshot,
-    });
-
-    const { snapshot: _snapshot, ...resumeReference } = data.resume;
-    externalized.push({
-      ...item,
-      data: {
-        ...data,
-        resume: {
-          ...resumeReference,
-          snapshotId,
-        },
-      },
-    });
-  }
-
-  return externalized;
-}
-
 async function collectFinalDetail(
   stream: AsyncGenerator<ConversationDetail>
 ): Promise<ConversationDetail> {
@@ -799,7 +471,6 @@ async function getRequiredConversationDetail(
 
 async function recordFailedRootAgentRun(
   run: AgentRun,
-  request: CreateConversationRequest,
   runtimeSession: RuntimeSession,
   error: unknown,
   diagnostics?: WebBackendDiagnosticContext
@@ -811,22 +482,13 @@ async function recordFailedRootAgentRun(
       conversationId: run.conversationId,
       runtimeSessionId: runtimeSession.id,
       providerSessionId: runtimeSession.providerSessionId,
-      agentKind: request.agentKind,
-      incidentId: request.incidentId,
-      deviceId: request.deviceId,
+      agentKind: run.agentKind,
+      incidentId: run.incidentId,
+      deviceId: run.deviceId,
     }),
     error
   );
 
-  await agentConversationStorage.runItems.append(run.id, [
-    {
-      runId: run.id,
-      kind: "run_note",
-      noteType: "agent_invocation_failed",
-      message,
-      source: { type: "system" },
-    },
-  ]);
   await agentConversationStorage.agentRuns.updateStatus(run.id, {
     status: "failed",
     summary: "Agent run failed.",
@@ -860,4 +522,18 @@ function formatAgentInvocationError(error: unknown) {
   }
 
   return "Unknown error";
+}
+
+function isRuntimeProgressEvent(event: string): boolean {
+  return (
+    event === "message" ||
+    event === "summary" ||
+    event === "auth_required" ||
+    event === "required_action" ||
+    event === "action_resolution" ||
+    event === "tool_call" ||
+    event === "tool_result" ||
+    event === "run_agent" ||
+    event === "run_note"
+  );
 }

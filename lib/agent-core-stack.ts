@@ -305,6 +305,8 @@ export class AgentCoreStack extends Stack {
     const pulseForgeRuntimeEnvironment: Record<string, string> = {
       PULSEFORGE_RUNTIME_ENV: "aws",
       MEMORY_ID: memory.memoryId,
+      MONGODB_DB_NAME: commonBackendEnvironment.MONGODB_DB_NAME,
+      PULSEFORGE_SECRETS_ARN: pulseForgeSecrets.secretArn,
       ENABLE_AGENTCORE_LONG_TERM_MEMORY: "false",
       PULSEFORGE_REQUIRE_TOOLS: "true",
       PULSEFORGE_TOOLS_API_URL: pulseForgeToolsApiUrl,
@@ -332,6 +334,8 @@ export class AgentCoreStack extends Stack {
         tracingEnabled: true,
       }
     );
+
+    pulseForgeSecrets.grantRead(pulseForgeRuntime.role);
 
     pulseForgeRuntime.addToRolePolicy(
       new iam.PolicyStatement({

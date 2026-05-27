@@ -383,7 +383,10 @@ export interface IncidentInvestigationContext {
  * tools instead of receiving prehydrated investigation data.
  */
 export interface AgentRuntimeInvocation {
+  conversationId: string;
   agentRunId: string;
+  runtimeSessionId?: string;
+  providerSessionId?: string;
   agentKind: AgentKind;
   prompt: string;
   incidentId?: string;
@@ -404,9 +407,9 @@ export interface AgentRuntimeInterruptResume {
 }
 
 /**
- * Agent-facing output projection. Runtime SSE events are not stored directly;
- * the backend maps them into canonical RunItems and denormalized AgentRun
- * result fields.
+ * Agent-facing streaming projection. Runtime lifecycle scaffolding owns
+ * canonical RunItem and AgentRun writes; SSE events let callers refresh UI
+ * read models as progress is persisted.
  */
 export type AgentRuntimeStreamEvent =
   | {

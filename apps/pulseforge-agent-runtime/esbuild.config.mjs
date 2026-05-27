@@ -6,6 +6,7 @@ const dirname = path.dirname(fileURLToPath(import.meta.url));
 const repoRoot = path.resolve(dirname, "../..");
 const workspacePackages = {
   "@agent-core/pulseforge-agent": "shared/pulseforge-agent/src",
+  "@agent-core/pulseforge-backend": "shared/pulseforge-backend/src",
   "@agent-core/pulseforge-domain": "shared/pulseforge-domain/src",
   "@agent-core/pulseforge-tools": "shared/pulseforge-tools/src",
 };
@@ -14,10 +15,10 @@ const workspacePackagePlugin = {
   name: "pulseforge-workspace-packages",
   setup(buildContext) {
     buildContext.onResolve(
-      { filter: /^@agent-core\/pulseforge-(agent|domain|tools)(\/.*)?$/ },
+      { filter: /^@agent-core\/pulseforge-(agent|backend|domain|tools)(\/.*)?$/ },
       (args) => {
         const match = args.path.match(
-          /^(@agent-core\/pulseforge-(?:agent|domain|tools))(?:\/(.*))?$/
+          /^(@agent-core\/pulseforge-(?:agent|backend|domain|tools))(?:\/(.*))?$/
         );
         if (!match) {
           return undefined;

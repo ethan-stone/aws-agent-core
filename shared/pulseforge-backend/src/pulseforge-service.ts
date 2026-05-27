@@ -237,6 +237,18 @@ export async function updateRequiredActionStatus(
   );
 }
 
+export async function updateToolCallStatus(
+  runId: string,
+  toolCallId: string,
+  status: Parameters<PulseForgeRepository["updateToolCallStatus"]>[2]
+) {
+  return (await getRepository()).updateToolCallStatus(
+    runId,
+    toolCallId,
+    status
+  );
+}
+
 function redactInternalRunItemData(item: RunItem): RunItem {
   if (
     item.kind !== "required_action" ||

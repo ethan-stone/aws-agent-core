@@ -19,18 +19,26 @@ if (!options.userId) {
 }
 
 const userId = options.userId;
+const conversationId = `local-conversation-${randomUUID()}`;
 const agentRunId = `local-agent-run-${randomUUID()}`;
 const sessionId = `local-session-${randomUUID()}`;
 
-await invokeLocalAgent({ ...options, userId }, agentRunId, sessionId);
+await invokeLocalAgent(
+  { ...options, userId },
+  conversationId,
+  agentRunId,
+  sessionId
+);
 
 async function invokeLocalAgent(
   options: CliOptions & { userId: string },
+  conversationId: string,
   agentRunId: string,
   sessionId: string
 ) {
   console.log("[agent:invoke:local] invoking local runtime", {
     baseUrl: options.baseUrl,
+    conversationId,
     agentRunId,
     sessionId,
     userId: options.userId,
@@ -48,7 +56,9 @@ async function invokeLocalAgent(
       "x-amzn-bedrock-agentcore-runtime-custom-user-id": options.userId,
     },
     body: JSON.stringify({
+      conversationId,
       agentRunId,
+      providerSessionId: sessionId,
       agentKind: options.agentKind,
       prompt: options.prompt,
       incidentId: options.incidentId,
