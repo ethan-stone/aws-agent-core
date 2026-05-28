@@ -17,6 +17,7 @@ import type {
   RunItem,
   RunItemSource,
   Ticket,
+  ToolApprovalGrant,
 } from "@agent-core/pulseforge-domain";
 
 export interface IncidentAggregate {
@@ -32,6 +33,14 @@ export type AppendRunItemInput = RunItem extends infer Item
       }
     : never
   : never;
+
+export type UpsertToolApprovalGrantInput = Omit<
+  ToolApprovalGrant,
+  "id" | "grantedAt"
+> & {
+  id?: string;
+  grantedAt?: string;
+};
 
 export interface PulseForgeRepository {
   getSnapshot(): Promise<PulseForgeSnapshot>;
@@ -57,6 +66,10 @@ export interface PulseForgeRepository {
     conversationId: string,
     activeRootRunId: string
   ): Promise<Conversation | null>;
+  upsertConversationToolApprovalGrant(
+    conversationId: string,
+    grant: UpsertToolApprovalGrantInput
+  ): Promise<ToolApprovalGrant | null>;
   listRuntimeSessions(conversationId: string): Promise<RuntimeSession[]>;
   getRuntimeSessionByProvider(
     conversationId: string,

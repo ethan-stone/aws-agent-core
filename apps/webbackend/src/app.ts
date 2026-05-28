@@ -447,12 +447,39 @@ app.post(
   async (c) => {
     const body = (await c.req.json()) as {
       outcome?: string;
+      decision?: string;
       comment?: string;
     };
     const user = c.get("user");
 
     if (body.outcome !== "resolved" && body.outcome !== "declined") {
       return c.json({ error: "outcome must be resolved or declined" }, 400);
+    }
+    if (
+      body.decision &&
+      body.decision !== "allow_once" &&
+      body.decision !== "allow_always" &&
+      body.decision !== "decline"
+    ) {
+      return c.json(
+        { error: "decision must be allow_once, allow_always, or decline" },
+        400
+      );
+    }
+    if (
+      body.outcome === "declined" &&
+      (body.decision === "allow_once" || body.decision === "allow_always")
+    ) {
+      return c.json(
+        { error: "declined outcome cannot use allow decision" },
+        400
+      );
+    }
+    if (body.outcome === "resolved" && body.decision === "decline") {
+      return c.json(
+        { error: "resolved outcome cannot use decline decision" },
+        400
+      );
     }
 
     try {
@@ -461,6 +488,14 @@ app.post(
         c.req.param("requiredActionId"),
         {
           outcome: body.outcome,
+          ...(body.decision
+            ? {
+                decision: body.decision as
+                  | "allow_once"
+                  | "allow_always"
+                  | "decline",
+              }
+            : {}),
           ...(asOptionalString(body.comment)
             ? { comment: asOptionalString(body.comment) }
             : {}),

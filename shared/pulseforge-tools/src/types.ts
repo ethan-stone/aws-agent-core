@@ -55,6 +55,11 @@ export interface PulseForgeToolDefinition<
     description: string;
     actionLabel: string;
     risk: "low" | "medium" | "high";
+    buildApproval: (input: z.infer<TInputSchema>) => {
+      approvalKey: string;
+      approvalLabel: string;
+      allowAlwaysLabel: string;
+    };
   };
   http: {
     method: HttpMethod;

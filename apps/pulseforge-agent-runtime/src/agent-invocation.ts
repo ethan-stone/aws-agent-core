@@ -23,6 +23,9 @@ import {
 import type {
   AgentRuntimeInvocation,
   AgentRuntimeStreamEvent,
+  RequiredActionRunItem,
+  ToolApprovalDecision,
+  ToolApprovalGrant,
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
   createPulseForgeStrandsTools,
@@ -60,6 +63,9 @@ export const agentRuntimeRequestSchema = z.object({
       snapshot: z.unknown(),
       response: z.object({
         approved: z.boolean(),
+        decision: z
+          .enum(["allow_once", "allow_always", "decline"])
+          .optional(),
         comment: z.string().optional(),
         resolvedByUserId: z.string().optional(),
       }),
@@ -263,28 +269,40 @@ function installToolApprovalHook(
   runtimeEvents: AsyncEventQueue<AgentRuntimeStreamEvent>,
   lifecycle: AgentRunLifecycle
 ) {
-  const approvalByToolName = new Map<
-    string,
-    NonNullable<PulseForgeToolDefinition["approval"]>
-  >();
+  const approvalToolByName = new Map<string, PulseForgeToolDefinition>();
   for (const definition of toolDefinitions) {
     if (definition.approval?.required) {
-      approvalByToolName.set(definition.name, definition.approval);
+      approvalToolByName.set(definition.name, definition);
     }
   }
 
-  if (approvalByToolName.size === 0) {
+  if (approvalToolByName.size === 0) {
     return;
   }
 
   agent.addHook(BeforeToolCallEvent, async (event) => {
-    const approval = approvalByToolName.get(event.toolUse.name);
-    if (!approval) {
+    const definition = approvalToolByName.get(event.toolUse.name);
+    const approval = definition?.approval;
+    if (!definition || !approval) {
+      return;
+    }
+
+    const parsedInput = definition.inputSchema.parse(event.toolUse.input);
+    const approvalDescriptor = approval.buildApproval(parsedInput);
+    const existingGrant = await findMatchingToolApprovalGrant(
+      lifecycle,
+      request,
+      event.toolUse.name,
+      approvalDescriptor.approvalKey
+    );
+    if (existingGrant) {
+      await lifecycle.recordToolApprovalGrantUsed(existingGrant);
       return;
     }
 
     const response = event.interrupt<{
       approved?: boolean;
+      decision?: ToolApprovalDecision;
       comment?: string;
       resolvedByUserId?: string;
     }>({
@@ -298,11 +316,29 @@ function installToolApprovalHook(
         description: approval.description,
         actionLabel: approval.actionLabel,
         risk: approval.risk,
+        approvalKey: approvalDescriptor.approvalKey,
+        approvalLabel: approvalDescriptor.approvalLabel,
+        allowAlwaysLabel: approvalDescriptor.allowAlwaysLabel,
         agentRunId: request.agentRunId,
       },
     });
 
-    const approved = response?.approved === true;
+    const decision = resolveToolApprovalDecision(response);
+    const approved = decision !== "decline";
+    const grant =
+      approved && decision === "allow_always"
+        ? await createToolApprovalGrantFromRequiredAction(
+            lifecycle,
+            request,
+            {
+              toolName: event.toolUse.name,
+              toolUseId: event.toolUse.toolUseId,
+              approvalKey: approvalDescriptor.approvalKey,
+              approvalLabel: approvalDescriptor.approvalLabel,
+            },
+            response
+          )
+        : null;
     const resolutionEvent: AgentRuntimeStreamEvent = {
       event: "action_resolution",
       data: {
@@ -323,6 +359,10 @@ function installToolApprovalHook(
           toolName: event.toolUse.name,
           toolUseId: event.toolUse.toolUseId,
           approved,
+          decision,
+          approvalKey: approvalDescriptor.approvalKey,
+          approvalLabel: approvalDescriptor.approvalLabel,
+          ...(grant ? { toolApprovalGrantId: grant.id } : {}),
           comment: response?.comment,
           resolvedByUserId: response?.resolvedByUserId,
         },
@@ -335,6 +375,138 @@ function installToolApprovalHook(
       event.cancel = `Operator declined approval for ${event.toolUse.name}.`;
     }
   });
+}
+
+function resolveToolApprovalDecision(response?: {
+  approved?: boolean;
+  decision?: ToolApprovalDecision;
+}): ToolApprovalDecision {
+  if (response?.approved !== true) {
+    return "decline";
+  }
+  if (
+    response.decision === "allow_once" ||
+    response.decision === "allow_always"
+  ) {
+    return response.decision;
+  }
+  return "allow_once";
+}
+
+async function findMatchingToolApprovalGrant(
+  lifecycle: AgentRunLifecycle,
+  request: AgentRuntimeInvocation,
+  toolName: string,
+  approvalKey: string
+): Promise<ToolApprovalGrant | null> {
+  const actorId = request.actorId;
+  if (!actorId) {
+    return null;
+  }
+
+  const conversation = await lifecycle.getConversation();
+  if (!conversation || conversation.status !== "open") {
+    return null;
+  }
+
+  return (
+    conversation.toolApprovalGrants?.find(
+      (grant) =>
+        grant.grantedByUserId === actorId &&
+        grant.toolName === toolName &&
+        grant.approvalKey === approvalKey
+    ) ?? null
+  );
+}
+
+async function createToolApprovalGrantFromRequiredAction(
+  lifecycle: AgentRunLifecycle,
+  request: AgentRuntimeInvocation,
+  current: {
+    toolName: string;
+    toolUseId?: string;
+    approvalKey: string;
+    approvalLabel: string;
+  },
+  response?: { resolvedByUserId?: string }
+): Promise<ToolApprovalGrant> {
+  const requiredActionId = request.resume?.requiredActionId;
+  if (!requiredActionId) {
+    throw new Error("Cannot create tool approval grant without required action.");
+  }
+
+  const requiredAction = await lifecycle.getRequiredAction(requiredActionId);
+  if (!requiredAction) {
+    throw new Error("Cannot create tool approval grant without stored action.");
+  }
+
+  const displayed = getToolApprovalActionData(requiredAction);
+  if (!displayed) {
+    throw new Error("Stored required action is missing tool approval data.");
+  }
+
+  if (
+    displayed.toolName !== current.toolName ||
+    displayed.approvalKey !== current.approvalKey ||
+    displayed.approvalLabel !== current.approvalLabel ||
+    (displayed.toolUseId && displayed.toolUseId !== current.toolUseId)
+  ) {
+    throw new Error(
+      "Stored approval does not match the resumed tool approval request."
+    );
+  }
+
+  const grantedByUserId = response?.resolvedByUserId ?? request.actorId;
+  if (!grantedByUserId) {
+    throw new Error("Cannot create tool approval grant without operator user.");
+  }
+
+  const grant = await lifecycle.upsertToolApprovalGrant({
+    toolName: displayed.toolName,
+    approvalKey: displayed.approvalKey,
+    approvalLabel: displayed.approvalLabel,
+    grantedByUserId,
+  });
+  if (!grant) {
+    throw new Error("Could not save tool approval grant.");
+  }
+
+  return grant;
+}
+
+function getToolApprovalActionData(
+  item: RequiredActionRunItem
+):
+  | {
+      toolName: string;
+      toolUseId?: string;
+      approvalKey: string;
+      approvalLabel: string;
+    }
+  | null {
+  const data = item.data;
+  if (typeof data !== "object" || data === null || Array.isArray(data)) {
+    return null;
+  }
+
+  const record = data as Record<string, unknown>;
+  if (
+    record.type !== "tool_approval" ||
+    typeof record.toolName !== "string" ||
+    typeof record.approvalKey !== "string" ||
+    typeof record.approvalLabel !== "string"
+  ) {
+    return null;
+  }
+
+  return {
+    toolName: record.toolName,
+    approvalKey: record.approvalKey,
+    approvalLabel: record.approvalLabel,
+    ...(typeof record.toolUseId === "string"
+      ? { toolUseId: record.toolUseId }
+      : {}),
+  };
 }
 
 async function resumeInterruptedAgent(
@@ -371,6 +543,9 @@ function buildInterruptRequiredAction(
   const risk = stringFromRecord(reason, "risk");
   const toolName = stringFromRecord(reason, "toolName");
   const toolUseId = stringFromRecord(reason, "toolUseId");
+  const approvalKey = stringFromRecord(reason, "approvalKey");
+  const approvalLabel = stringFromRecord(reason, "approvalLabel");
+  const allowAlwaysLabel = stringFromRecord(reason, "allowAlwaysLabel");
   const requiredActionId = `interrupt:${request.agentRunId}:${interrupt.id}`;
 
   return {
@@ -393,6 +568,9 @@ function buildInterruptRequiredAction(
         toolName,
         toolUseId,
         input: reason?.input,
+        approvalKey,
+        approvalLabel,
+        allowAlwaysLabel,
         agentRunId: request.agentRunId,
         resume: {
           interruptId: interrupt.id,

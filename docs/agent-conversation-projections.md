@@ -14,6 +14,8 @@ The canonical records are:
 - `AgentRun`: one call to run an agent.
 - `RunItem`: ordered, append-only activity owned by an `AgentRun`.
 - `PendingInput`: accepted root-conversation input that has not been consumed.
+- `ToolApprovalGrant`: conversation-scoped saved approval for future matching
+  approval-required tool calls by the same operator.
 
 Do not treat client messages, Strands messages, runtime SSE events, or
 AgentCore memory events as canonical product history. Those are projections or
@@ -88,6 +90,14 @@ snapshot reference plus interrupt id on the required action. The client-facing
 `ConversationDetail` redacts that internal resume reference. When an operator
 approves or declines, the web backend loads the snapshot by reference and
 invokes the runtime with an interrupt response for the same `AgentRun`.
+
+Tool approval resolutions carry `decision: "allow_once" | "allow_always" |
+"decline"` in action-specific resolution data. `allow_once` resolves only the
+interrupted tool call. `allow_always` creates or reuses a `ToolApprovalGrant`
+embedded on the open `Conversation`, keyed by the granting operator,
+`toolName`, and the tool-owned `approvalKey`. Future matching tool calls skip
+the required action and record `run_note` activity with
+`noteType: "tool_approval_grant_used"`.
 
 The runtime also emits `AgentRuntimeStreamEvent` SSE events as a streaming UI
 projection. Webbackend does not reconstruct canonical product history from SSE;

@@ -166,6 +166,16 @@ export async function claimConversationActiveRun(
   );
 }
 
+export async function upsertConversationToolApprovalGrant(
+  conversationId: string,
+  grant: Parameters<PulseForgeRepository["upsertConversationToolApprovalGrant"]>[1]
+) {
+  return (await getRepository()).upsertConversationToolApprovalGrant(
+    conversationId,
+    grant
+  );
+}
+
 export async function getRuntimeSessionByProvider(
   conversationId: string,
   provider: string,

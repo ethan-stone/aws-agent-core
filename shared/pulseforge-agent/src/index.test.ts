@@ -48,5 +48,15 @@ describe("PulseForge agent tool authorization", () => {
       actionType: "tool_approval",
       risk: "high",
     });
+    expect(
+      resetTool?.approval?.buildApproval({
+        deviceId: "dev-freezer-014",
+        reason: "operator requested reset",
+      })
+    ).toEqual({
+      approvalKey: "reset_device:device:dev-freezer-014",
+      approvalLabel: "Reset device dev-freezer-014",
+      allowAlwaysLabel: "Always allow reset for dev-freezer-014",
+    });
   });
 });

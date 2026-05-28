@@ -36,6 +36,7 @@ import {
   type RunItem,
   type Site,
   type Ticket,
+  type ToolApprovalGrant,
 } from "@agent-core/pulseforge-domain";
 import { randomUUID } from "node:crypto";
 import type {
@@ -57,9 +58,16 @@ type PersistedIncidentEvent = Omit<IncidentEvent, "timestamp"> & {
   timestamp: Date;
 };
 type PersistedTicket = Omit<Ticket, "createdAt"> & { createdAt: Date };
-type PersistedConversation = Omit<Conversation, "createdAt" | "updatedAt"> & {
+type PersistedToolApprovalGrant = Omit<ToolApprovalGrant, "grantedAt"> & {
+  grantedAt: Date;
+};
+type PersistedConversation = Omit<
+  Conversation,
+  "createdAt" | "updatedAt" | "toolApprovalGrants"
+> & {
   createdAt: Date;
   updatedAt: Date;
+  toolApprovalGrants?: PersistedToolApprovalGrant[];
 };
 type PersistedRuntimeSession = Omit<RuntimeSession, "createdAt" | "lastUsedAt"> & {
   createdAt: Date;
@@ -384,6 +392,70 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     return item
       ? mapPersistedConversation(stripMongoId<PersistedConversation>(item))
       : null;
+  }
+
+  async upsertConversationToolApprovalGrant(
+    conversationId: string,
+    grant: Parameters<PulseForgeRepository["upsertConversationToolApprovalGrant"]>[1]
+  ): Promise<ToolApprovalGrant | null> {
+    const existing = await this.getConversation(conversationId);
+    if (!existing || existing.status !== "open") {
+      return null;
+    }
+
+    const matchingGrant = existing.toolApprovalGrants?.find(
+      (item) =>
+        item.grantedByUserId === grant.grantedByUserId &&
+        item.toolName === grant.toolName &&
+        item.approvalKey === grant.approvalKey
+    );
+    if (matchingGrant) {
+      return matchingGrant;
+    }
+
+    const created: ToolApprovalGrant = {
+      id: grant.id ?? randomUUID(),
+      toolName: grant.toolName,
+      approvalKey: grant.approvalKey,
+      approvalLabel: grant.approvalLabel,
+      grantedByUserId: grant.grantedByUserId,
+      grantedAt: grant.grantedAt ?? new Date().toISOString(),
+    };
+    const result = await this.collections().conversations.updateOne(
+      {
+        id: conversationId,
+        status: "open",
+        toolApprovalGrants: {
+          $not: {
+            $elemMatch: {
+              grantedByUserId: created.grantedByUserId,
+              toolName: created.toolName,
+              approvalKey: created.approvalKey,
+            },
+          },
+        },
+      },
+      {
+        $push: {
+          toolApprovalGrants: toPersistedToolApprovalGrant(created),
+        },
+        $set: { updatedAt: new Date() },
+      }
+    );
+
+    if (result.modifiedCount > 0) {
+      return created;
+    }
+
+    const updated = await this.getConversation(conversationId);
+    return (
+      updated?.toolApprovalGrants?.find(
+        (item) =>
+          item.grantedByUserId === grant.grantedByUserId &&
+          item.toolName === grant.toolName &&
+          item.approvalKey === grant.approvalKey
+      ) ?? null
+    );
   }
 
   async listRuntimeSessions(conversationId: string): Promise<RuntimeSession[]> {
@@ -887,6 +959,9 @@ function mapPersistedTicket(ticket: PersistedTicket): Ticket {
 function toPersistedConversation(conversation: Conversation): PersistedConversation {
   return {
     ...conversation,
+    toolApprovalGrants: conversation.toolApprovalGrants?.map(
+      toPersistedToolApprovalGrant
+    ),
     createdAt: new Date(conversation.createdAt),
     updatedAt: new Date(conversation.updatedAt),
   };
@@ -897,8 +972,29 @@ function mapPersistedConversation(
 ): Conversation {
   return {
     ...conversation,
+    toolApprovalGrants: conversation.toolApprovalGrants?.map(
+      mapPersistedToolApprovalGrant
+    ),
     createdAt: conversation.createdAt.toISOString(),
     updatedAt: conversation.updatedAt.toISOString(),
+  };
+}
+
+function toPersistedToolApprovalGrant(
+  grant: ToolApprovalGrant
+): PersistedToolApprovalGrant {
+  return {
+    ...grant,
+    grantedAt: new Date(grant.grantedAt),
+  };
+}
+
+function mapPersistedToolApprovalGrant(
+  grant: PersistedToolApprovalGrant
+): ToolApprovalGrant {
+  return {
+    ...grant,
+    grantedAt: grant.grantedAt.toISOString(),
   };
 }
 

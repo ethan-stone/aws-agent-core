@@ -323,6 +323,7 @@ export async function resolveRequiredAction(
   requiredActionId: string,
   request: {
     outcome: "resolved" | "declined";
+    decision?: "allow_once" | "allow_always" | "decline";
     comment?: string;
   }
 ): Promise<ConversationDetail> {

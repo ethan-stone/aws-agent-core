@@ -29,6 +29,7 @@ import {
   type PulseForgeSnapshot,
   type RemediationAction,
   type Ticket,
+  type ToolApprovalGrant,
 } from "@agent-core/pulseforge-domain";
 import { randomUUID } from "node:crypto";
 import type {
@@ -173,6 +174,42 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     };
     this.conversations.set(conversationId, updated);
     return updated;
+  }
+
+  async upsertConversationToolApprovalGrant(
+    conversationId: string,
+    grant: Parameters<PulseForgeRepository["upsertConversationToolApprovalGrant"]>[1]
+  ): Promise<ToolApprovalGrant | null> {
+    const existing = this.conversations.get(conversationId);
+    if (!existing || existing.status !== "open") {
+      return null;
+    }
+
+    const grants = existing.toolApprovalGrants ?? [];
+    const matchingGrant = grants.find(
+      (item) =>
+        item.grantedByUserId === grant.grantedByUserId &&
+        item.toolName === grant.toolName &&
+        item.approvalKey === grant.approvalKey
+    );
+    if (matchingGrant) {
+      return matchingGrant;
+    }
+
+    const created: ToolApprovalGrant = {
+      id: grant.id ?? randomUUID(),
+      toolName: grant.toolName,
+      approvalKey: grant.approvalKey,
+      approvalLabel: grant.approvalLabel,
+      grantedByUserId: grant.grantedByUserId,
+      grantedAt: grant.grantedAt ?? new Date().toISOString(),
+    };
+    this.conversations.set(conversationId, {
+      ...existing,
+      toolApprovalGrants: [...grants, created],
+      updatedAt: new Date().toISOString(),
+    });
+    return created;
   }
 
   async listRuntimeSessions(conversationId: string): Promise<RuntimeSession[]> {
