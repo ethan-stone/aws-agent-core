@@ -156,6 +156,11 @@ export const pulseForgeToolDefinitions = [
         "The agent wants to reset a PulseForge IoT device as a remediation action.",
       actionLabel: "Reset device",
       risk: "high",
+      buildApproval: (input) => ({
+        approvalKey: `reset_device:device:${input.deviceId}`,
+        approvalLabel: `Reset device ${input.deviceId}`,
+        allowAlwaysLabel: `Always allow reset for ${input.deviceId}`,
+      }),
     },
     http: {
       method: "POST",

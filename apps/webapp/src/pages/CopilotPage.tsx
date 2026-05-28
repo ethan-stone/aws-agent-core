@@ -216,7 +216,7 @@ function ConversationResultView(props: {
   const approvalAction = approval?.action ?? null;
   const approvalRun = approval?.run ?? null;
   const [approvalLoading, setApprovalLoading] = useState<
-    "resolved" | "declined" | null
+    "allow_once" | "allow_always" | "decline" | null
   >(null);
   const [approvalError, setApprovalError] = useState<string | null>(null);
   const investigation = run?.investigation
@@ -243,18 +243,23 @@ function ConversationResultView(props: {
     return null;
   }
 
-  async function handleApproval(outcome: "resolved" | "declined") {
+  async function handleApproval(
+    decision: "allow_once" | "allow_always" | "decline"
+  ) {
     if (!approvalRun || !approvalAction) {
       return;
     }
 
-    setApprovalLoading(outcome);
+    setApprovalLoading(decision);
     setApprovalError(null);
     try {
       const detail = await resolveRequiredAction(
         approvalRun.id,
         approvalAction.requiredActionId,
-        { outcome }
+        {
+          outcome: decision === "decline" ? "declined" : "resolved",
+          decision,
+        }
       );
       props.onDetailChange(detail);
     } catch (error) {
@@ -374,7 +379,10 @@ function ConversationResultView(props: {
             <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-sky-200/70">
               Approval required
             </div>
-            <p className="m-0 text-sky-100">{approvalAction.data.description}</p>
+            <p className="m-0 text-sky-100">
+              {approvalAction.data.approvalLabel ??
+                approvalAction.data.description}
+            </p>
           </div>
           <div className="grid gap-1 text-xs text-sky-100/75">
             <span>Tool: {approvalAction.data.toolName ?? "requested action"}</span>
@@ -394,20 +402,28 @@ function ConversationResultView(props: {
             <button
               type="button"
               disabled={Boolean(approvalLoading)}
-              onClick={() => handleApproval("resolved")}
-              className="border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
+              onClick={() => handleApproval("allow_once")}
+              className="max-w-full whitespace-normal border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
             >
-              {approvalLoading === "resolved"
-                ? "Approving..."
-                : approvalAction.data.actionLabel}
+              {approvalLoading === "allow_once" ? "Approving..." : "Allow once"}
             </button>
             <button
               type="button"
               disabled={Boolean(approvalLoading)}
-              onClick={() => handleApproval("declined")}
-              className="border border-sky-200/30 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-sky-50 transition-colors hover:border-sky-100 hover:bg-sky-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              onClick={() => handleApproval("allow_always")}
+              className="max-w-full whitespace-normal border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
             >
-              {approvalLoading === "declined" ? "Declining..." : "Decline"}
+              {approvalLoading === "allow_always"
+                ? "Approving..."
+                : approvalAction.data.allowAlwaysLabel ?? "Always allow"}
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(approvalLoading)}
+              onClick={() => handleApproval("decline")}
+              className="max-w-full whitespace-normal border border-sky-200/30 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-sky-50 transition-colors hover:border-sky-100 hover:bg-sky-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {approvalLoading === "decline" ? "Declining..." : "Decline"}
             </button>
           </div>
         </div>
@@ -604,6 +620,9 @@ type ToolApprovalActionItem = Extract<
     toolName?: string;
     toolUseId?: string;
     input?: unknown;
+    approvalKey: string;
+    approvalLabel: string;
+    allowAlwaysLabel: string;
     agentRunId: string;
   };
 };
@@ -680,6 +699,12 @@ function isToolApprovalActionData(
     typeof value.description === "string" &&
     "actionLabel" in value &&
     typeof value.actionLabel === "string" &&
+    "approvalKey" in value &&
+    typeof value.approvalKey === "string" &&
+    "approvalLabel" in value &&
+    typeof value.approvalLabel === "string" &&
+    "allowAlwaysLabel" in value &&
+    typeof value.allowAlwaysLabel === "string" &&
     "agentRunId" in value &&
     typeof value.agentRunId === "string"
   );

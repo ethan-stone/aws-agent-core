@@ -5,15 +5,20 @@ import type {
   AgentRuntimeStreamEvent,
   AgentRuntimeInvocation,
   ContentBlock,
+  Conversation,
   RequiredActionStatus,
   RunItem,
+  ToolApprovalGrant,
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
   appendRunItems,
   createAgentRunSnapshot,
+  getConversation,
+  listRunItems,
   updateAgentRunStatus,
   updateRequiredActionStatus,
   updateToolCallStatus,
+  upsertConversationToolApprovalGrant,
   type AppendRunItemInput,
 } from "../../../shared/pulseforge-backend/src/index.js";
 
@@ -23,17 +28,23 @@ export interface AgentRunLifecycleStorage {
     items: AppendRunItemInput[]
   ): Promise<RunItem[]>;
   createAgentRunSnapshot: typeof createAgentRunSnapshot;
+  getConversation: typeof getConversation;
+  listRunItems: typeof listRunItems;
   updateAgentRunStatus: typeof updateAgentRunStatus;
   updateRequiredActionStatus: typeof updateRequiredActionStatus;
   updateToolCallStatus: typeof updateToolCallStatus;
+  upsertConversationToolApprovalGrant: typeof upsertConversationToolApprovalGrant;
 }
 
 const defaultStorage: AgentRunLifecycleStorage = {
   appendRunItems,
   createAgentRunSnapshot,
+  getConversation,
+  listRunItems,
   updateAgentRunStatus,
   updateRequiredActionStatus,
   updateToolCallStatus,
+  upsertConversationToolApprovalGrant,
 };
 
 export class AgentRunLifecycle {
@@ -215,6 +226,49 @@ export class AgentRunLifecycle {
       data,
       source: { type: "system" },
     });
+  }
+
+  async getConversation(): Promise<Conversation | null> {
+    return this.storage.getConversation(this.request.conversationId);
+  }
+
+  async getRequiredAction(
+    requiredActionId: string
+  ): Promise<Extract<RunItem, { kind: "required_action" }> | null> {
+    const items = await this.storage.listRunItems(this.request.agentRunId);
+    return (
+      items.find(
+        (item): item is Extract<RunItem, { kind: "required_action" }> =>
+          item.kind === "required_action" &&
+          item.requiredActionId === requiredActionId
+      ) ?? null
+    );
+  }
+
+  async upsertToolApprovalGrant(
+    grant: Omit<ToolApprovalGrant, "id" | "grantedAt"> & {
+      id?: string;
+      grantedAt?: string;
+    }
+  ): Promise<ToolApprovalGrant | null> {
+    return this.storage.upsertConversationToolApprovalGrant(
+      this.request.conversationId,
+      grant
+    );
+  }
+
+  async recordToolApprovalGrantUsed(grant: ToolApprovalGrant): Promise<void> {
+    await this.recordRunNote(
+      "tool_approval_grant_used",
+      `Used saved approval: ${grant.approvalLabel}.`,
+      {
+        toolApprovalGrantId: grant.id,
+        toolName: grant.toolName,
+        approvalKey: grant.approvalKey,
+        approvalLabel: grant.approvalLabel,
+        grantedByUserId: grant.grantedByUserId,
+      }
+    );
   }
 
   async completeRun(

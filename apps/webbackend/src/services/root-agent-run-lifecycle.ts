@@ -111,6 +111,7 @@ export async function resolveRunRequiredAction(
   requiredActionId: string,
   request: {
     outcome: "resolved" | "declined";
+    decision?: AgentRuntimeInterruptResume["response"]["decision"];
     comment?: string;
   },
   user?: AuthenticatedAppUser | null,
@@ -170,6 +171,9 @@ export async function resolveRunRequiredAction(
   });
   const response: AgentRuntimeInterruptResume["response"] = {
     approved: request.outcome === "resolved",
+    decision:
+      request.decision ??
+      (request.outcome === "resolved" ? "allow_once" : "decline"),
     ...(request.comment ? { comment: request.comment } : {}),
     ...(user?.sub ? { resolvedByUserId: user.sub } : {}),
   };

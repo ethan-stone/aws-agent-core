@@ -41,6 +41,10 @@ export type RequiredActionStatus =
   | "declined"
   | "expired"
   | "cancelled";
+export type ToolApprovalDecision =
+  | "allow_once"
+  | "allow_always"
+  | "decline";
 export type ToolCallStatus = "pending" | "succeeded" | "failed";
 export type AuditActorType = "agent" | "user";
 export type AuditOutcome = "succeeded" | "failed";
@@ -172,8 +176,18 @@ export interface Conversation {
   rootAgentKind: AgentKind;
   status: ConversationStatus;
   activeRootRunId?: string;
+  toolApprovalGrants?: ToolApprovalGrant[];
   createdAt: string;
   updatedAt: string;
+}
+
+export interface ToolApprovalGrant {
+  id: string;
+  toolName: string;
+  approvalKey: string;
+  approvalLabel: string;
+  grantedByUserId: string;
+  grantedAt: string;
 }
 
 export interface RuntimeSession {
@@ -401,6 +415,7 @@ export interface AgentRuntimeInterruptResume {
   snapshot: unknown;
   response: {
     approved: boolean;
+    decision?: ToolApprovalDecision;
     comment?: string;
     resolvedByUserId?: string;
   };

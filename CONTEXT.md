@@ -44,6 +44,14 @@ _Avoid_: Message, queued AgentRun, draft
 A **RunItem** that records external input needed before an **AgentRun** can continue or finish. A **RequiredAction** can be resolved inside the same active **AgentRun**, is pending until it is resolved, declined, expired, or cancelled, and distinguishes specific needs, such as authorization or human approval, by action type.
 _Avoid_: Message, prompt, interruption
 
+**ToolApprovalGrant**:
+A durable operator decision created from an "allow always" **ActionResolution**, allowing future matching approval-required **ToolCalls** by that operator in the same open **Conversation** to proceed without creating a new **RequiredAction**. A **ToolApprovalGrant** belongs to the operator who granted it, matches a tool-defined **ApprovalKey**, stores only the approval label needed to explain the future-action approval, does not expire independently of its **Conversation**, and does not grant general app, runtime, or delegated-user authorization.
+_Avoid_: Permission, OAuth grant, blanket approval, policy
+
+**ApprovalKey**:
+A deterministic scope key produced by an approval-required tool to identify exactly which future **ToolCalls** can reuse a **ToolApprovalGrant**. An **ApprovalKey** is opaque to the **Conversation** model; the tool owns its shape and must keep it narrow enough for the operator's approval to remain meaningful.
+_Avoid_: Resource id, permission string, model-provided key
+
 **ActionResolution**:
 A **RunItem** that records the outcome of a **RequiredAction** at the point it becomes known to an **AgentRun**. Resolving an action updates the **RequiredAction** state and appends an **ActionResolution** so the timeline remains auditable.
 _Avoid_: RequiredAction, status update
@@ -61,7 +69,7 @@ A **RunItem** that records the result returned from a **ToolCall**. For agent-as
 _Avoid_: Message, RunAgent
 
 **RunNote**:
-A **RunItem** that records operational activity in an **AgentRun** without treating it as semantic message content. **RunNote** is for traceability and diagnostics, while system messages are for semantic content the run should remember or expose.
+A **RunItem** that records operational activity in an **AgentRun** without treating it as semantic message content. **RunNote** is for traceability and diagnostics, including saved **ToolApprovalGrant** use, while system messages are for semantic content the run should remember or expose.
 _Avoid_: Message, system prompt
 
 ## Example Dialogue
