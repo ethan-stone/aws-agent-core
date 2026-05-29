@@ -3,7 +3,7 @@ import type {
   AgentRunAuthRequired,
   AgentRunInvestigationSummary,
   AgentRuntimeStreamEvent,
-  AgentRuntimeInvocation,
+  AgentKind,
   ContentBlock,
   Conversation,
   RequiredActionStatus,
@@ -15,6 +15,7 @@ import {
   createAgentRunSnapshot,
   getConversation,
   listRunItems,
+  updateRequiredActionData,
   updateAgentRunStatus,
   updateRequiredActionStatus,
   updateToolCallStatus,
@@ -30,10 +31,18 @@ export interface AgentRunLifecycleStorage {
   createAgentRunSnapshot: typeof createAgentRunSnapshot;
   getConversation: typeof getConversation;
   listRunItems: typeof listRunItems;
+  updateRequiredActionData: typeof updateRequiredActionData;
   updateAgentRunStatus: typeof updateAgentRunStatus;
   updateRequiredActionStatus: typeof updateRequiredActionStatus;
   updateToolCallStatus: typeof updateToolCallStatus;
   upsertConversationToolApprovalGrant: typeof upsertConversationToolApprovalGrant;
+}
+
+export interface AgentRunLifecycleContext {
+  conversationId: string;
+  agentRunId: string;
+  agentKind: AgentKind;
+  actorId?: string;
 }
 
 const defaultStorage: AgentRunLifecycleStorage = {
@@ -41,6 +50,7 @@ const defaultStorage: AgentRunLifecycleStorage = {
   createAgentRunSnapshot,
   getConversation,
   listRunItems,
+  updateRequiredActionData,
   updateAgentRunStatus,
   updateRequiredActionStatus,
   updateToolCallStatus,
@@ -49,7 +59,7 @@ const defaultStorage: AgentRunLifecycleStorage = {
 
 export class AgentRunLifecycle {
   constructor(
-    private readonly request: AgentRuntimeInvocation,
+    private readonly request: AgentRunLifecycleContext,
     private readonly storage: AgentRunLifecycleStorage = defaultStorage
   ) {}
 
@@ -164,6 +174,43 @@ export class AgentRunLifecycle {
   async recordRequiredAction(
     details: Extract<AgentRuntimeStreamEvent, { event: "required_action" }>["data"]
   ): Promise<void> {
+    const existing = await this.getRequiredAction(details.requiredActionId);
+    if (existing) {
+      if (existing.status === "pending") {
+        await this.storage.updateRequiredActionData(
+          this.request.agentRunId,
+          details.requiredActionId,
+          {
+            content: details.content,
+            data: await this.externalizeRequiredActionData(
+              details.requiredActionId,
+              details.data
+            ),
+          }
+        );
+        await this.recordRunNote(
+          "duplicate_required_action_refreshed",
+          `Refreshed pending required action ${details.requiredActionId}.`,
+          {
+            requiredActionId: details.requiredActionId,
+            actionType: details.actionType,
+          }
+        );
+        return;
+      }
+
+      await this.recordRunNote(
+        "duplicate_required_action_ignored",
+        `Ignored duplicate required action ${details.requiredActionId}.`,
+        {
+          requiredActionId: details.requiredActionId,
+          existingStatus: existing.status,
+          actionType: details.actionType,
+        }
+      );
+      return;
+    }
+
     await this.append({
       runId: this.request.agentRunId,
       kind: "required_action",
@@ -236,12 +283,15 @@ export class AgentRunLifecycle {
     requiredActionId: string
   ): Promise<Extract<RunItem, { kind: "required_action" }> | null> {
     const items = await this.storage.listRunItems(this.request.agentRunId);
-    return (
-      items.find(
-        (item): item is Extract<RunItem, { kind: "required_action" }> =>
+    const matching = items.filter(
+      (item): item is Extract<RunItem, { kind: "required_action" }> =>
           item.kind === "required_action" &&
           item.requiredActionId === requiredActionId
-      ) ?? null
+    );
+    return (
+      matching.find((item) => item.status === "pending") ??
+      matching.at(-1) ??
+      null
     );
   }
 

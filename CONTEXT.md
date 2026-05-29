@@ -72,6 +72,18 @@ _Avoid_: Message, RunAgent
 A **RunItem** that records operational activity in an **AgentRun** without treating it as semantic message content. **RunNote** is for traceability and diagnostics, including saved **ToolApprovalGrant** use, while system messages are for semantic content the run should remember or expose.
 _Avoid_: Message, system prompt
 
+**IncidentActivity**:
+An append-only entry in an **Incident** timeline that records human discussion, agent activity, operational events, or approval requests related to that incident. **IncidentActivity** is shared incident history; it is not an agent **Conversation**.
+_Avoid_: Conversation, chat, transcript
+
+**IncidentComment**:
+A human-authored **IncidentActivity** entry used for operator discussion on an **Incident**. An **IncidentComment** may mention an agent, but the resulting agent work belongs to a separate **Conversation**.
+_Avoid_: AgentRun, Conversation, RunItem
+
+**IncidentApprovalRequest**:
+An **IncidentActivity** entry that asks an authorized operator to approve or decline a specific operational action requested by an **AgentRun**. An **IncidentApprovalRequest** resolves one **RequiredAction** and records who decided it; it is not a reusable **ToolApprovalGrant**.
+_Avoid_: ToolApprovalGrant, permission, blanket approval
+
 ## Example Dialogue
 
 Dev: "The operator asked the copilot to investigate the freezer incident, then approved a follow-up remediation."
@@ -89,3 +101,11 @@ Domain Expert: "The coordinating AgentRun gets a RunAgent item. The resulting Ag
 Dev: "The operator typed another instruction while the agent was waiting on a tool. Is that already a message?"
 
 Domain Expert: "Only after the backend accepts and the agent loop consumes it. Until consumption, accepted input is PendingInput."
+
+Dev: "Operators are discussing an incident and Ethan mentions the ops agent. Is that discussion itself a Conversation?"
+
+Domain Expert: "No. The shared incident timeline is IncidentActivity, and the human discussion entries are IncidentComments. Mentioning the agent can create a separate Conversation for the agent work."
+
+Dev: "A background agent wants to reset a device during an incident, but the action needs approval. Is that Ethan's private tool approval?"
+
+Domain Expert: "No. That should appear as an IncidentApprovalRequest so any authorized operator can approve or decline that specific action with an audit trail."

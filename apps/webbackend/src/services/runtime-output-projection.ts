@@ -405,12 +405,7 @@ function isRunAgentData(data: unknown): data is Extract<
 }
 
 function isAgentKind(value: unknown): value is AgentRun["agentKind"] {
-  return (
-    value === "ops-copilot" ||
-    value === "anomaly-investigation" ||
-    value === "remediation-planner" ||
-    value === "autonomous-remediation"
-  );
+  return value === "ops-copilot" || value === "incident-responder";
 }
 
 function isAgentRunStatus(value: unknown): value is AgentRun["status"] {

@@ -44,7 +44,7 @@ describe("parseAgentRuntimeResponse", () => {
           event: "run_agent",
           data: {
             relationship: "agent_as_tool",
-            agentKind: "anomaly-investigation",
+            agentKind: "incident-responder",
             childRunId: "child-run-1",
             toolCallId: "tool-2",
             status: "completed",
