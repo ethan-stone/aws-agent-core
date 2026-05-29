@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type {
+  AgentKind,
   AgentRun,
   AgentRuntimeInterruptResume,
   Conversation,
@@ -32,6 +33,13 @@ export class RequiredActionResolutionError extends Error {
   }
 }
 
+export class UnsupportedAgentTriggerError extends Error {
+  constructor(agentKind: AgentKind, triggerType: "operator_prompt") {
+    super(`Agent kind ${agentKind} does not support ${triggerType} triggers.`);
+    this.name = "UnsupportedAgentTriggerError";
+  }
+}
+
 export async function createConversationAndRun(
   request: CreateConversationRequest,
   user?: AuthenticatedAppUser | null,
@@ -51,6 +59,8 @@ export async function createConversationAndRunStream(
   user?: AuthenticatedAppUser | null,
   diagnostics?: WebBackendDiagnosticContext
 ): Promise<AsyncGenerator<ConversationDetail>> {
+  assertSupportsOperatorPrompt(request.agentKind);
+
   const conversation = await agentConversationStorage.conversations.create({
     id: randomUUID(),
     rootAgentKind: request.agentKind,
@@ -91,6 +101,8 @@ export async function runConversationStream(
     return null;
   }
 
+  assertSupportsOperatorPrompt(conversation.rootAgentKind);
+
   if (conversation.activeRootRunId) {
     throw new ActiveRootRunError(conversation.id, conversation.activeRootRunId);
   }
@@ -104,6 +116,12 @@ export async function runConversationStream(
     user,
     diagnostics
   );
+}
+
+function assertSupportsOperatorPrompt(agentKind: AgentKind) {
+  if (agentKind !== "ops-copilot") {
+    throw new UnsupportedAgentTriggerError(agentKind, "operator_prompt");
+  }
 }
 
 export async function resolveRunRequiredAction(

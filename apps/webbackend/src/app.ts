@@ -25,6 +25,7 @@ import {
 import {
   ActiveRootRunError,
   RequiredActionResolutionError,
+  UnsupportedAgentTriggerError,
   completeAgentResourceTokenAuth,
   createConversationAndRun,
   createConversationAndRunStream,
@@ -332,28 +333,36 @@ app.post(
       deviceId: asOptionalString(body.deviceId),
     };
 
-    if (wantsConversationEventStream(c.req.header("accept"))) {
-      return conversationDetailEventStream(
-        c,
-        await createConversationAndRunStream(
-          request,
-          user,
-          c.get("requestContext")
-        ),
-        {
-          status: 201,
-          diagnostics: c.get("requestContext"),
-        }
+    try {
+      if (wantsConversationEventStream(c.req.header("accept"))) {
+        return conversationDetailEventStream(
+          c,
+          await createConversationAndRunStream(
+            request,
+            user,
+            c.get("requestContext")
+          ),
+          {
+            status: 201,
+            diagnostics: c.get("requestContext"),
+          }
+        );
+      }
+
+      const detail = await createConversationAndRun(
+        request,
+        user,
+        c.get("requestContext")
       );
+
+      return c.json(detail, conversationRunStatus(detail, 201));
+    } catch (error) {
+      if (error instanceof UnsupportedAgentTriggerError) {
+        return c.json({ error: error.message }, 400);
+      }
+
+      throw error;
     }
-
-    const detail = await createConversationAndRun(
-      request,
-      user,
-      c.get("requestContext")
-    );
-
-    return c.json(detail, conversationRunStatus(detail, 201));
   }
 );
 
@@ -403,6 +412,9 @@ app.post(
     } catch (error) {
       if (error instanceof ActiveRootRunError) {
         return c.json({ error: error.message }, 409);
+      }
+      if (error instanceof UnsupportedAgentTriggerError) {
+        return c.json({ error: error.message }, 400);
       }
 
       throw error;
