@@ -315,7 +315,7 @@ function ConversationResultView(props: {
       {run.summary ? (
         <div className="grid gap-3 border-t border-white/8 pt-4">
           <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-            Final response
+            {isActive ? "Current state" : "Final response"}
           </span>
           <p className="m-0 whitespace-pre-wrap text-sm leading-6 text-slate-100">
             {cleanText(run.summary)}
@@ -518,6 +518,7 @@ function OutputToggleButton(props: {
 }
 
 function RunProgressRow(props: { status: AgentRun["status"] }) {
+  const active = isRunActive(props.status);
   return (
     <div className="grid grid-cols-[18px_minmax(0,1fr)] gap-3 border-l border-white/10 py-3 first:pt-0 last:pb-0">
       <div className="relative">
@@ -526,15 +527,15 @@ function RunProgressRow(props: { status: AgentRun["status"] }) {
       <div className="min-w-0">
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
-            {isRunActive(props.status) ? "Waiting" : "No activity"}
+            {active ? runProgressLabel(props.status) : "No activity"}
           </span>
           <span className="border border-sky-300/20 px-2 py-0.5 text-xs text-sky-200">
             {props.status}
           </span>
         </div>
         <p className="m-0 text-sm leading-6 text-slate-300">
-          {isRunActive(props.status)
-            ? "Listening for the next streamed run item..."
+          {active
+            ? runProgressText(props.status)
             : "No run items were recorded for this run."}
         </p>
       </div>
@@ -884,6 +885,32 @@ function runStageText(run: AgentRun, items: RunItem[]): string {
     return "Starting the run and waiting for the first item.";
   }
   return `Latest item: ${runItemDisplay(latestItem).label.toLowerCase()}.`;
+}
+
+function runProgressLabel(status: AgentRun["status"]): string {
+  if (status === "auth_required") {
+    return "Authorization";
+  }
+  if (status === "waiting_for_action") {
+    return "Operator action";
+  }
+  if (status === "queued") {
+    return "Queued";
+  }
+  return "Running";
+}
+
+function runProgressText(status: AgentRun["status"]): string {
+  if (status === "auth_required") {
+    return "Waiting for delegated tool authorization.";
+  }
+  if (status === "waiting_for_action") {
+    return "Waiting for an operator to resolve the required action.";
+  }
+  if (status === "queued") {
+    return "Queued for the runtime.";
+  }
+  return "Listening for the next streamed run item...";
 }
 
 function timelineDotClass(

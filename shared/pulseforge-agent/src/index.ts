@@ -1,4 +1,8 @@
 import type { AgentKind } from "@agent-core/pulseforge-domain";
+import type {
+  AgentInvocationContextRequirement,
+  AgentInvocationTriggerType,
+} from "@agent-core/pulseforge-domain";
 import {
   pulseForgeToolDefinitionByName,
   type PulseForgeCredentialProviderDescriptor,
@@ -10,9 +14,7 @@ import { z } from "zod";
 
 export const pulseForgeAgentKinds = [
   "ops-copilot",
-  "anomaly-investigation",
-  "remediation-planner",
-  "autonomous-remediation",
+  "incident-responder",
 ] as const satisfies readonly AgentKind[];
 
 export const pulseForgeAgentKindSchema = z.enum(pulseForgeAgentKinds);
@@ -22,6 +24,9 @@ export interface PulseForgeAgentConfig {
   id: string;
   label: string;
   systemPrompt: string;
+  allowedTriggers: readonly AgentInvocationTriggerType[];
+  requiredContext: readonly AgentInvocationContextRequirement[];
+  projectsRequiredActionsToIncidentActivity: boolean;
   toolNames: readonly PulseForgeToolName[];
 }
 
@@ -30,6 +35,9 @@ const pulseForgeAgentConfigs = {
     kind: "ops-copilot",
     id: "pulseforge-ops-copilot",
     label: "Ops Copilot",
+    allowedTriggers: ["operator_prompt", "incident_agent_mention"],
+    requiredContext: ["prompt"],
+    projectsRequiredActionsToIncidentActivity: true,
     systemPrompt: [
       "You are PulseForge Ops Copilot, an IoT operations assistant for device monitoring and incident response.",
       "Investigate user requests using available operational tools as the source of truth, ground conclusions in retrieved data, and keep responses concise enough for an on-call operator.",
@@ -47,35 +55,28 @@ const pulseForgeAgentConfigs = {
       "reset_device",
     ],
   },
-  "anomaly-investigation": {
-    kind: "anomaly-investigation",
-    id: "pulseforge-anomaly-investigation",
-    label: "Anomaly Investigation",
+  "incident-responder": {
+    kind: "incident-responder",
+    id: "pulseforge-incident-responder",
+    label: "Incident Responder",
+    allowedTriggers: ["incident_created"],
+    requiredContext: ["incident_id"],
+    projectsRequiredActionsToIncidentActivity: true,
     systemPrompt: [
-      "You are PulseForge Anomaly Investigation Agent.",
-      "Analyze telemetry and incident patterns, identify likely contributing factors, and separate evidence from hypotheses.",
+      "You are PulseForge Incident Responder, a background IoT incident response agent.",
+      "When an incident is created, gather operational context, identify likely causes, and take safe, auditable steps toward mitigation.",
+      "Use tools as the source of truth. For high-risk operational actions such as device reset, call the approval-required tool and wait for operator approval rather than asking in prose.",
+      "Keep incident-facing progress concise and operator-ready.",
     ].join("\n"),
-    toolNames: [],
-  },
-  "remediation-planner": {
-    kind: "remediation-planner",
-    id: "pulseforge-remediation-planner",
-    label: "Remediation Planner",
-    systemPrompt: [
-      "You are PulseForge Remediation Planner.",
-      "Propose safe, reviewable remediation plans with risk notes and clear prerequisites before any operational change.",
-    ].join("\n"),
-    toolNames: [],
-  },
-  "autonomous-remediation": {
-    kind: "autonomous-remediation",
-    id: "pulseforge-autonomous-remediation",
-    label: "Autonomous Remediation",
-    systemPrompt: [
-      "You are PulseForge Autonomous Remediation Agent.",
-      "Prefer safe, reversible actions, document all action attempts, and stop when confidence or authorization is insufficient.",
-    ].join("\n"),
-    toolNames: [],
+    toolNames: [
+      "get_incident_context",
+      "get_device",
+      "get_device_telemetry",
+      "create_incident_event",
+      "create_ticket",
+      "propose_remediation_action",
+      "reset_device",
+    ],
   },
 } as const satisfies Record<AgentKind, PulseForgeAgentConfig>;
 
@@ -87,6 +88,13 @@ export interface PulseForgeToolAuthorizationGroup {
 
 export function getPulseForgeAgentConfig(kind: AgentKind): PulseForgeAgentConfig {
   return pulseForgeAgentConfigs[kind];
+}
+
+export function isPulseForgeAgentTriggerAllowed(
+  kind: AgentKind,
+  triggerType: AgentInvocationTriggerType
+): boolean {
+  return getPulseForgeAgentConfig(kind).allowedTriggers.includes(triggerType);
 }
 
 export function getPulseForgeAgentToolDefinitions(

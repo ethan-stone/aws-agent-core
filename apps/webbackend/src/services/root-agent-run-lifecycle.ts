@@ -123,11 +123,14 @@ export async function resolveRunRequiredAction(
   }
 
   const items = await agentConversationStorage.runItems.list(run.id);
-  const requiredAction = items.find(
+  const matchingRequiredActions = items.filter(
     (item): item is Extract<RunItem, { kind: "required_action" }> =>
       item.kind === "required_action" &&
       item.requiredActionId === requiredActionId
   );
+  const requiredAction =
+    matchingRequiredActions.find((item) => item.status === "pending") ??
+    matchingRequiredActions.at(-1);
   if (!requiredAction) {
     throw new RequiredActionResolutionError("Required action not found.");
   }

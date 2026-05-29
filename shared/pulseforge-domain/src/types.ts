@@ -14,9 +14,7 @@ export type RemediationActionStatus =
   | "blocked";
 export type AgentKind =
   | "ops-copilot"
-  | "anomaly-investigation"
-  | "remediation-planner"
-  | "autonomous-remediation";
+  | "incident-responder";
 export type ConversationStatus = "open" | "archived";
 export type RuntimeSessionStatus = "active" | "idle" | "expired" | "closed";
 export type AgentRunRelationship =
@@ -396,17 +394,71 @@ export interface IncidentInvestigationContext {
  * invoking the provider runtime. Agents retrieve operational context through
  * tools instead of receiving prehydrated investigation data.
  */
-export interface AgentRuntimeInvocation {
+export type AgentRuntimeInvocation =
+  | StartAgentRunInvocation
+  | ResumeRequiredActionInvocation;
+
+export type AgentRuntimeInvocationOperation =
+  | "start_agent_run"
+  | "resume_required_action";
+
+export type AgentInvocationTriggerType =
+  | "operator_prompt"
+  | "incident_created"
+  | "incident_agent_mention";
+
+export type AgentInvocationContextRequirement =
+  | "prompt"
+  | "incident_id"
+  | "device_id";
+
+export type AgentRuntimeInvocationActor =
+  | { type: "user"; userId: string }
+  | { type: "system"; systemId: string };
+
+export interface AgentRuntimeInvocationBase {
+  version: "2026-05-28";
   conversationId: string;
   agentRunId: string;
   runtimeSessionId?: string;
   providerSessionId?: string;
+  actor: AgentRuntimeInvocationActor;
+}
+
+export interface StartAgentRunInvocation extends AgentRuntimeInvocationBase {
+  operation: "start_agent_run";
   agentKind: AgentKind;
+  trigger: AgentRuntimeInvocationTrigger;
+}
+
+export interface ResumeRequiredActionInvocation
+  extends AgentRuntimeInvocationBase,
+    AgentRuntimeInterruptResume {
+  operation: "resume_required_action";
+}
+
+export type AgentRuntimeInvocationTrigger =
+  | OperatorPromptTrigger
+  | IncidentCreatedTrigger
+  | IncidentAgentMentionTrigger;
+
+export interface OperatorPromptTrigger {
+  type: "operator_prompt";
   prompt: string;
   incidentId?: string;
   deviceId?: string;
-  actorId?: string;
-  resume?: AgentRuntimeInterruptResume;
+}
+
+export interface IncidentCreatedTrigger {
+  type: "incident_created";
+  incidentId: string;
+}
+
+export interface IncidentAgentMentionTrigger {
+  type: "incident_agent_mention";
+  incidentId: string;
+  incidentActivityId: string;
+  prompt: string;
 }
 
 export interface AgentRuntimeInterruptResume {

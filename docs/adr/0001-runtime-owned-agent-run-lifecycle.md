@@ -50,7 +50,7 @@ activity:
 - `agentRunId`
 - `runtimeSessionId`
 - `providerSessionId`
-- actor/user identity as `actorId`
+- actor/user identity as a typed runtime `actor`
 
 The runtime lifecycle owner records:
 
@@ -89,8 +89,9 @@ active `AgentRun`.
 
 ## Implementation Notes
 
-- `AgentRuntimeInvocation` passes `conversationId`, `agentRunId`,
-  `runtimeSessionId`, and `providerSessionId`.
+- `AgentRuntimeInvocation` passes a versioned operation envelope with
+  `conversationId`, `agentRunId`, `runtimeSessionId`, `providerSessionId`, and a
+  typed runtime `actor`.
 - `AgentRunLifecycle` in the runtime persists messages, tool activity,
   required actions, action resolutions, run notes, failures, and completion.
 - Webbackend still creates the root `AgentRun` and the user-message

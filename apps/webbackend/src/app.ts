@@ -95,12 +95,7 @@ function requireUserPermission(
 }
 
 function isAgentKind(value: unknown): value is AgentKind {
-  return (
-    value === "ops-copilot" ||
-    value === "anomaly-investigation" ||
-    value === "remediation-planner" ||
-    value === "autonomous-remediation"
-  );
+  return value === "ops-copilot" || value === "incident-responder";
 }
 
 function asPrompt(value: unknown): string | null {

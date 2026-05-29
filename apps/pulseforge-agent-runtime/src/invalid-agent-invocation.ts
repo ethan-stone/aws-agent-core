@@ -103,7 +103,7 @@ function buildInvalidInvocationInvestigation(
       (issue) => `${issue.path || "<root>"}: ${issue.message}`
     ),
     recommendedActions: [
-      "Invoke with conversationId, agentRunId, prompt, agentKind, and optional incident/device ids.",
+      "Invoke with version, operation, conversationId, agentRunId, actor, and a valid operation-specific payload.",
     ],
   };
 }

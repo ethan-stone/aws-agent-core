@@ -188,6 +188,10 @@ export async function getRuntimeSessionByProvider(
   );
 }
 
+export async function listRuntimeSessions(conversationId: string) {
+  return (await getRepository()).listRuntimeSessions(conversationId);
+}
+
 export async function createRuntimeSession(
   session: Parameters<PulseForgeRepository["createRuntimeSession"]>[0]
 ) {
@@ -241,6 +245,18 @@ export async function updateRequiredActionStatus(
   update: Parameters<PulseForgeRepository["updateRequiredActionStatus"]>[2]
 ) {
   return (await getRepository()).updateRequiredActionStatus(
+    runId,
+    requiredActionId,
+    update
+  );
+}
+
+export async function updateRequiredActionData(
+  runId: string,
+  requiredActionId: string,
+  update: Parameters<PulseForgeRepository["updateRequiredActionData"]>[2]
+) {
+  return (await getRepository()).updateRequiredActionData(
     runId,
     requiredActionId,
     update

@@ -56,14 +56,19 @@ async function invokeLocalAgent(
       "x-amzn-bedrock-agentcore-runtime-custom-user-id": options.userId,
     },
     body: JSON.stringify({
+      version: "2026-05-28",
+      operation: "start_agent_run",
       conversationId,
       agentRunId,
       providerSessionId: sessionId,
       agentKind: options.agentKind,
-      prompt: options.prompt,
-      incidentId: options.incidentId,
-      deviceId: options.deviceId,
-      actorId: options.userId,
+      actor: { type: "user", userId: options.userId },
+      trigger: {
+        type: "operator_prompt",
+        prompt: options.prompt,
+        incidentId: options.incidentId,
+        deviceId: options.deviceId,
+      },
     }),
   });
 
@@ -186,7 +191,7 @@ function printHelp() {
   console.log(`Invoke the local PulseForge AgentCore runtime.
 
 Required:
-  --user-id <cognito-sub>        Cognito user id to pass as actorId and local AgentCore custom user header.
+  --user-id <cognito-sub>        Cognito user id to pass as the runtime actor and local AgentCore custom user header.
 
 Optional:
   --prompt <text>                Prompt to send. Defaults to "Investigate incident inc-1001".

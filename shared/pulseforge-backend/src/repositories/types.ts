@@ -121,6 +121,14 @@ export interface PulseForgeRepository {
       resolvedBy?: RunItemSource;
     }
   ): Promise<RunItem | null>;
+  updateRequiredActionData(
+    runId: string,
+    requiredActionId: string,
+    update: {
+      content?: Extract<RunItem, { kind: "required_action" }>["content"];
+      data?: Extract<RunItem, { kind: "required_action" }>["data"];
+    }
+  ): Promise<RunItem | null>;
   updateToolCallStatus(
     runId: string,
     toolCallId: string,

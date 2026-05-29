@@ -293,14 +293,14 @@ export const demoRunbooks: RunbookDocument[] = [
 export const demoConversations: Conversation[] = [
   {
     id: "conv-1",
-    rootAgentKind: "anomaly-investigation",
+    rootAgentKind: "ops-copilot",
     status: "open",
     createdAt: "2026-04-12T13:50:00.000Z",
     updatedAt: "2026-04-12T13:55:00.000Z",
   },
   {
     id: "conv-2",
-    rootAgentKind: "autonomous-remediation",
+    rootAgentKind: "incident-responder",
     status: "open",
     activeRootRunId: "run-2",
     createdAt: "2026-04-12T14:20:00.000Z",
@@ -337,7 +337,7 @@ export const demoAgentRuns: AgentRun[] = [
     conversationId: "conv-1",
     incidentId: "inc-1001",
     runtimeSessionId: "runtime-session-1",
-    agentKind: "anomaly-investigation",
+    agentKind: "ops-copilot",
     relationship: "root",
     status: "completed",
     startedAt: "2026-04-12T13:50:00.000Z",
@@ -350,7 +350,7 @@ export const demoAgentRuns: AgentRun[] = [
     conversationId: "conv-2",
     incidentId: "inc-1002",
     runtimeSessionId: "runtime-session-2",
-    agentKind: "autonomous-remediation",
+    agentKind: "incident-responder",
     relationship: "root",
     status: "queued",
     startedAt: "2026-04-12T14:20:00.000Z",
@@ -383,7 +383,7 @@ export const demoRunItems: RunItem[] = [
     source: {
       type: "agent",
       agentRunId: "run-1",
-      agentKind: "anomaly-investigation",
+      agentKind: "ops-copilot",
     },
     createdAt: "2026-04-12T13:55:00.000Z",
     content: [
