@@ -1,9 +1,17 @@
+import "../load-env.js";
 import { randomUUID } from "node:crypto";
+import type { AgentKind } from "../../../../shared/pulseforge-domain/src/index.js";
+import {
+  appendRunItems,
+  createAgentRun,
+  createConversation,
+  createRuntimeSession,
+} from "../../../../shared/pulseforge-backend/src/index.js";
 
 interface CliOptions {
   userId?: string;
   prompt: string;
-  agentKind: string;
+  agentKind: AgentKind;
   incidentId?: string;
   deviceId?: string;
   baseUrl: string;
@@ -21,26 +29,38 @@ if (!options.userId) {
 const userId = options.userId;
 const conversationId = `local-conversation-${randomUUID()}`;
 const agentRunId = `local-agent-run-${randomUUID()}`;
-const sessionId = `local-session-${randomUUID()}`;
+const runtimeSessionId = `local-runtime-session-${randomUUID()}`;
+const providerSessionId = `local-provider-session-${randomUUID()}`;
 
 await invokeLocalAgent(
   { ...options, userId },
   conversationId,
   agentRunId,
-  sessionId
+  runtimeSessionId,
+  providerSessionId
 );
 
 async function invokeLocalAgent(
   options: CliOptions & { userId: string },
   conversationId: string,
   agentRunId: string,
-  sessionId: string
+  runtimeSessionId: string,
+  providerSessionId: string
 ) {
+  await createLocalLifecycleRecords({
+    options,
+    conversationId,
+    agentRunId,
+    runtimeSessionId,
+    providerSessionId,
+  });
+
   console.log("[agent:invoke:local] invoking local runtime", {
     baseUrl: options.baseUrl,
     conversationId,
     agentRunId,
-    sessionId,
+    runtimeSessionId,
+    providerSessionId,
     userId: options.userId,
     agentKind: options.agentKind,
     incidentId: options.incidentId,
@@ -52,7 +72,7 @@ async function invokeLocalAgent(
     headers: {
       accept: "text/event-stream",
       "content-type": "application/json",
-      "x-amzn-bedrock-agentcore-runtime-session-id": sessionId,
+      "x-amzn-bedrock-agentcore-runtime-session-id": providerSessionId,
       "x-amzn-bedrock-agentcore-runtime-custom-user-id": options.userId,
     },
     body: JSON.stringify({
@@ -60,7 +80,8 @@ async function invokeLocalAgent(
       operation: "start_agent_run",
       conversationId,
       agentRunId,
-      providerSessionId: sessionId,
+      runtimeSessionId,
+      providerSessionId,
       agentKind: options.agentKind,
       actor: { type: "user", userId: options.userId },
       trigger: {
@@ -82,6 +103,58 @@ async function invokeLocalAgent(
   }
 
   await printSseStream(response.body);
+}
+
+async function createLocalLifecycleRecords(details: {
+  options: CliOptions & { userId: string };
+  conversationId: string;
+  agentRunId: string;
+  runtimeSessionId: string;
+  providerSessionId: string;
+}) {
+  if (!process.env.MONGODB_URI) {
+    throw new Error(
+      "Local direct runtime invocation requires MONGODB_URI so this script and the running runtime share lifecycle records. Start MongoDB and run with the same .env.local as the runtime, or invoke through the web backend instead."
+    );
+  }
+  if (details.options.agentKind !== "ops-copilot") {
+    throw new Error(
+      "agent:invoke:local sends an operator_prompt trigger and currently only supports --agent-kind ops-copilot."
+    );
+  }
+
+  await createConversation({
+    id: details.conversationId,
+    rootAgentKind: details.options.agentKind,
+  });
+  await createRuntimeSession({
+    id: details.runtimeSessionId,
+    provider: "aws-agentcore",
+    runtimeIdentity: "local-runtime",
+    providerSessionId: details.providerSessionId,
+    conversationId: details.conversationId,
+    status: "active",
+  });
+  await createAgentRun({
+    id: details.agentRunId,
+    conversationId: details.conversationId,
+    incidentId: details.options.incidentId,
+    deviceId: details.options.deviceId,
+    runtimeSessionId: details.runtimeSessionId,
+    agentKind: details.options.agentKind,
+    relationship: "root",
+    status: "running",
+    requestedByUserId: details.options.userId,
+  });
+  await appendRunItems(details.agentRunId, [
+    {
+      runId: details.agentRunId,
+      kind: "message",
+      role: "user",
+      source: { type: "user", userId: details.options.userId },
+      content: [{ type: "text", text: details.options.prompt }],
+    },
+  ]);
 }
 
 async function printSseStream(stream: ReadableStream<Uint8Array>) {
@@ -168,7 +241,7 @@ function parseArgs(args: string[]): CliOptions {
         options.prompt = next;
         break;
       case "--agent-kind":
-        options.agentKind = next;
+        options.agentKind = parseAgentKind(next);
         break;
       case "--incident-id":
         options.incidentId = next;
@@ -187,15 +260,26 @@ function parseArgs(args: string[]): CliOptions {
   return options;
 }
 
+function parseAgentKind(value: string): AgentKind {
+  if (value === "ops-copilot" || value === "incident-responder") {
+    return value;
+  }
+  throw new Error(`Unsupported agent kind: ${value}`);
+}
+
 function printHelp() {
   console.log(`Invoke the local PulseForge AgentCore runtime.
+
+This direct-runtime smoke path creates matching Conversation, AgentRun, and
+RuntimeSession records before invocation. It requires MONGODB_URI so this script
+and the running runtime share the same lifecycle store.
 
 Required:
   --user-id <cognito-sub>        Cognito user id to pass as the runtime actor and local AgentCore custom user header.
 
 Optional:
   --prompt <text>                Prompt to send. Defaults to "Investigate incident inc-1001".
-  --agent-kind <kind>            Defaults to ops-copilot.
+  --agent-kind <kind>            Defaults to ops-copilot. Only ops-copilot is supported by this prompt-based local path.
   --incident-id <id>             Incident id to include.
   --device-id <id>               Device id to include.
   --base-url <url>               Runtime URL. Defaults to http://localhost:8080.
