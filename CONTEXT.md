@@ -189,3 +189,11 @@ Domain Expert: "The coordinating AgentRun gets a RunAgent item. The resulting Ag
 Dev: "The operator typed another instruction while the agent was waiting on a tool. Is that already a message?"
 
 Domain Expert: "Only after the backend accepts and the agent loop consumes it. Until consumption, accepted input is PendingInput."
+
+Dev: "Operators are discussing an incident and Ethan mentions the ops agent. Is that discussion itself a Conversation?"
+
+Domain Expert: "No. The shared incident timeline is IncidentActivity, and the human discussion entries are IncidentComments. Mentioning the agent can create a separate Conversation for the agent work."
+
+Dev: "A background agent wants to reset a device during an incident, but the action needs approval. Is that Ethan's private tool approval?"
+
+Domain Expert: "No. That should appear as an IncidentActionApproval so any authorized operator can approve or decline that specific action with an audit trail."

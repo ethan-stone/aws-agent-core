@@ -18,15 +18,26 @@ import {
   getPulseForgeAgentConfig,
   getPulseForgeAgentToolAuthorizationGroups,
   getPulseForgeAgentToolDefinitions,
+  isPulseForgeAgentTriggerAllowed,
   pulseForgeAgentKindSchema,
 } from "../../../shared/pulseforge-agent/src/index.js";
 import type {
+  AgentKind,
+  AgentRuntimeInvocationActor,
   AgentRuntimeInvocation,
   AgentRuntimeStreamEvent,
+  AgentRuntimeInvocationTrigger,
+  ResumeRequiredActionInvocation,
+  StartAgentRunInvocation,
   RequiredActionRunItem,
   ToolApprovalDecision,
   ToolApprovalGrant,
 } from "../../../shared/pulseforge-domain/src/index.js";
+import {
+  getAgentRun,
+  getConversation,
+  listRuntimeSessions,
+} from "../../../shared/pulseforge-backend/src/index.js";
 import {
   createPulseForgeStrandsTools,
   type JsonValue,
@@ -47,17 +58,41 @@ interface RuntimeSseChunk {
 }
 
 export const agentRuntimeRequestSchema = z.object({
+  version: z.literal("2026-05-28"),
   conversationId: z.string(),
   agentRunId: z.string(),
   runtimeSessionId: z.string().optional(),
   providerSessionId: z.string().optional(),
-  prompt: z.string(),
-  agentKind: pulseForgeAgentKindSchema.default("ops-copilot"),
-  incidentId: z.string().optional(),
-  deviceId: z.string().optional(),
-  actorId: z.string().optional(),
-  resume: z
-    .object({
+  actor: z.discriminatedUnion("type", [
+    z.object({ type: z.literal("user"), userId: z.string() }),
+    z.object({ type: z.literal("system"), systemId: z.string() }),
+  ]),
+}).and(
+  z.discriminatedUnion("operation", [
+    z.object({
+      operation: z.literal("start_agent_run"),
+      agentKind: pulseForgeAgentKindSchema,
+      trigger: z.discriminatedUnion("type", [
+        z.object({
+          type: z.literal("operator_prompt"),
+          prompt: z.string(),
+          incidentId: z.string().optional(),
+          deviceId: z.string().optional(),
+        }),
+        z.object({
+          type: z.literal("incident_created"),
+          incidentId: z.string(),
+        }),
+        z.object({
+          type: z.literal("incident_agent_mention"),
+          incidentId: z.string(),
+          incidentActivityId: z.string(),
+          prompt: z.string(),
+        }),
+      ]),
+    }),
+    z.object({
+      operation: z.literal("resume_required_action"),
       requiredActionId: z.string(),
       interruptId: z.string(),
       snapshot: z.unknown(),
@@ -69,10 +104,21 @@ export const agentRuntimeRequestSchema = z.object({
         comment: z.string().optional(),
         resolvedByUserId: z.string().optional(),
       }),
-    })
-    .optional(),
-});
+    }),
+  ])
+);
 
+interface ResolvedAgentInvocation {
+  request: AgentRuntimeInvocation;
+  agentKind: AgentKind;
+  actorId?: string;
+  lifecycleContext: {
+    conversationId: string;
+    agentRunId: string;
+    agentKind: AgentKind;
+    actorId?: string;
+  };
+}
 
 export interface AgentRuntimeContext {
   sessionId: string;
@@ -93,10 +139,13 @@ export async function* runPulseForgeAgentInvocation(
   context: AgentRuntimeContext,
   dependencies: PulseForgeAgentInvocationDependencies
 ): AsyncGenerator<RuntimeSseChunk> {
-  const lifecycle = new AgentRunLifecycle(request);
-  const actorId = request.actorId ?? context.sessionId;
-  const memorySessionId = resolveAgentMemorySessionId(request, context);
+  let lifecycle: AgentRunLifecycle | null = null;
   try {
+    const resolved = await resolveAgentInvocation(request);
+    const runLifecycle = new AgentRunLifecycle(resolved.lifecycleContext);
+    lifecycle = runLifecycle;
+    const actorId = resolved.actorId ?? context.sessionId;
+    const memorySessionId = resolveAgentMemorySessionId(request, context);
     const memory = await dependencies.memoryProjection.prepare({
       actorId,
       sessionId: memorySessionId,
@@ -109,11 +158,11 @@ export async function* runPulseForgeAgentInvocation(
       contextSessionId: context.sessionId,
       memorySessionId,
     });
-    const agentConfig = getPulseForgeAgentConfig(request.agentKind);
+    const agentConfig = getPulseForgeAgentConfig(resolved.agentKind);
     const runtimeEvents = new AsyncEventQueue<AgentRuntimeStreamEvent>();
-    const tools = await createAgentTools(request, context, dependencies, {
+    const tools = await createAgentTools(resolved, context, dependencies, {
       onAuthorizationRequired: async (details) => {
-        await lifecycle.recordAuthorizationRequired(details);
+        await runLifecycle.recordAuthorizationRequired(details);
         runtimeEvents.push({ event: "auth_required", data: details });
       },
       onAuthorizationResolved: async (details) => {
@@ -135,11 +184,11 @@ export async function* runPulseForgeAgentInvocation(
             },
           },
         };
-        await lifecycle.recordActionResolution(event.data);
+        await runLifecycle.recordActionResolution(event.data);
         runtimeEvents.push(event);
       },
       onToolCallStarted: async (details) => {
-        await lifecycle.recordToolCallStarted(details);
+        await runLifecycle.recordToolCallStarted(details);
         runtimeEvents.push({
           event: "tool_call",
           data: {
@@ -151,7 +200,7 @@ export async function* runPulseForgeAgentInvocation(
         });
       },
       onToolCallCompleted: async (details) => {
-        await lifecycle.recordToolCallCompleted(details);
+        await runLifecycle.recordToolCallCompleted(details);
         runtimeEvents.push({
           event: "tool_result",
           data: {
@@ -162,7 +211,7 @@ export async function* runPulseForgeAgentInvocation(
         });
       },
       onToolCallFailed: async (details) => {
-        await lifecycle.recordToolCallFailed(details);
+        await runLifecycle.recordToolCallFailed(details);
         runtimeEvents.push({
           event: "tool_result",
           data: {
@@ -175,7 +224,9 @@ export async function* runPulseForgeAgentInvocation(
       },
     });
 
-    const toolDefinitions = getPulseForgeAgentToolDefinitions(request.agentKind);
+    const toolDefinitions = getPulseForgeAgentToolDefinitions(
+      resolved.agentKind
+    );
     const agent = new Agent({
       model: dependencies.model,
       id: agentConfig.id,
@@ -193,19 +244,20 @@ export async function* runPulseForgeAgentInvocation(
     installToolApprovalHook(
       agent,
       toolDefinitions,
-      request,
+      resolved,
       runtimeEvents,
-      lifecycle
+      runLifecycle
     );
 
     const agentInvocation = (async (): Promise<AgentRuntimeStreamEvent[]> => {
-      const result = request.resume
-        ? await resumeInterruptedAgent(agent, request)
-        : await agent.invoke(request.prompt);
+      const result =
+        resolved.request.operation === "resume_required_action"
+          ? await resumeInterruptedAgent(agent, resolved.request)
+          : await agent.invoke(buildAgentPrompt(resolved.request));
 
       console.info("[agent] invocation completed", {
-        agentRunId: request.agentRunId,
-        agentKind: request.agentKind,
+        agentRunId: resolved.request.agentRunId,
+        agentKind: resolved.agentKind,
         stopReason: result.stopReason,
       });
 
@@ -213,12 +265,12 @@ export async function* runPulseForgeAgentInvocation(
         const snapshot = agent.takeSnapshot({
           preset: "session",
           appData: {
-            agentRunId: request.agentRunId,
-            agentKind: request.agentKind,
+            agentRunId: resolved.request.agentRunId,
+            agentKind: resolved.agentKind,
           },
         });
         return result.interrupts.map((interrupt) =>
-          buildInterruptRequiredAction(request, interrupt, snapshot)
+          buildInterruptRequiredAction(resolved, interrupt, snapshot)
         );
       }
 
@@ -258,13 +310,132 @@ export async function* runPulseForgeAgentInvocation(
     }
 
     for (const event of finalEvents ?? []) {
-      await recordFinalRuntimeEvent(lifecycle, event);
+      await recordFinalRuntimeEvent(runLifecycle, event);
       yield toRuntimeSseChunk(event);
     }
   } catch (error) {
-    await lifecycle.failRun(error);
+    lifecycle ??= await createFallbackLifecycle(request);
+    await lifecycle?.failRun(error);
     throw error;
   }
+}
+
+async function createFallbackLifecycle(
+  request: AgentRuntimeInvocation
+): Promise<AgentRunLifecycle | null> {
+  if (request.operation === "start_agent_run") {
+    return new AgentRunLifecycle({
+      conversationId: request.conversationId,
+      agentRunId: request.agentRunId,
+      agentKind: request.agentKind,
+      actorId: actorIdFromInvocation(request.actor),
+    });
+  }
+
+  const run = await getAgentRun(request.agentRunId);
+  if (!run) {
+    return null;
+  }
+
+  return new AgentRunLifecycle({
+    conversationId: request.conversationId,
+    agentRunId: request.agentRunId,
+    agentKind: run.agentKind,
+    actorId: actorIdFromInvocation(request.actor),
+  });
+}
+
+async function resolveAgentInvocation(
+  request: AgentRuntimeInvocation
+): Promise<ResolvedAgentInvocation> {
+  const [conversation, run] = await Promise.all([
+    getConversation(request.conversationId),
+    getAgentRun(request.agentRunId),
+  ]);
+  if (!conversation) {
+    throw new Error(`Conversation ${request.conversationId} not found.`);
+  }
+  if (!run) {
+    throw new Error(`AgentRun ${request.agentRunId} not found.`);
+  }
+  if (run.conversationId !== request.conversationId) {
+    throw new Error(
+      `AgentRun ${run.id} belongs to conversation ${run.conversationId}, not ${request.conversationId}.`
+    );
+  }
+  if (run.relationship === "root" && conversation.rootAgentKind !== run.agentKind) {
+    throw new Error(
+      `Conversation ${conversation.id} root AgentKind ${conversation.rootAgentKind} does not match run AgentKind ${run.agentKind}.`
+    );
+  }
+
+  if (request.runtimeSessionId || request.providerSessionId) {
+    const runtimeSessions = await listRuntimeSessions(conversation.id);
+    const session = request.runtimeSessionId
+      ? runtimeSessions.find((item) => item.id === request.runtimeSessionId)
+      : runtimeSessions.find(
+        (item) => item.providerSessionId === request.providerSessionId
+      );
+    if (!session) {
+      throw new Error("RuntimeSession does not belong to the conversation.");
+    }
+    if (
+      request.providerSessionId &&
+      session.providerSessionId !== request.providerSessionId
+    ) {
+      throw new Error(
+        "RuntimeSession providerSessionId does not match the invocation."
+      );
+    }
+  }
+
+  const agentKind =
+    request.operation === "start_agent_run" ? request.agentKind : run.agentKind;
+  if (request.operation === "start_agent_run") {
+    validateStartInvocation(request, run.agentKind);
+  }
+
+  const actorId = actorIdFromInvocation(request.actor);
+  return {
+    request,
+    agentKind,
+    actorId,
+    lifecycleContext: {
+      conversationId: request.conversationId,
+      agentRunId: request.agentRunId,
+      agentKind,
+      ...(actorId ? { actorId } : {}),
+    },
+  };
+}
+
+function validateStartInvocation(
+  request: StartAgentRunInvocation,
+  persistedAgentKind: AgentKind
+): void {
+  if (request.agentKind !== persistedAgentKind) {
+    throw new Error(
+      `Invocation AgentKind ${request.agentKind} does not match run AgentKind ${persistedAgentKind}.`
+    );
+  }
+  if (!isPulseForgeAgentTriggerAllowed(request.agentKind, request.trigger.type)) {
+    throw new Error(
+      `${request.agentKind} does not accept ${request.trigger.type} triggers.`
+    );
+  }
+  if (
+    (request.trigger.type === "operator_prompt" ||
+      request.trigger.type === "incident_agent_mention") &&
+    request.trigger.prompt.trim().length === 0
+  ) {
+    throw new Error(`${request.trigger.type} trigger requires a prompt.`);
+  }
+}
+
+function actorIdFromInvocation(
+  actor: AgentRuntimeInvocationActor
+): string | undefined {
+  return actor.type === "user" ? actor.userId : actor.systemId;
 }
 
 function toRuntimeSseChunk(event: AgentRuntimeStreamEvent): RuntimeSseChunk {
@@ -277,7 +448,7 @@ function toRuntimeSseChunk(event: AgentRuntimeStreamEvent): RuntimeSseChunk {
 function installToolApprovalHook(
   agent: Agent,
   toolDefinitions: readonly PulseForgeToolDefinition[],
-  request: AgentRuntimeInvocation,
+  invocation: ResolvedAgentInvocation,
   runtimeEvents: AsyncEventQueue<AgentRuntimeStreamEvent>,
   lifecycle: AgentRunLifecycle
 ) {
@@ -303,7 +474,7 @@ function installToolApprovalHook(
     const approvalDescriptor = approval.buildApproval(parsedInput);
     const existingGrant = await findMatchingToolApprovalGrant(
       lifecycle,
-      request,
+      invocation,
       event.toolUse.name,
       approvalDescriptor.approvalKey
     );
@@ -331,7 +502,7 @@ function installToolApprovalHook(
         approvalKey: approvalDescriptor.approvalKey,
         approvalLabel: approvalDescriptor.approvalLabel,
         allowAlwaysLabel: approvalDescriptor.allowAlwaysLabel,
-        agentRunId: request.agentRunId,
+        agentRunId: invocation.request.agentRunId,
       },
     });
 
@@ -340,23 +511,24 @@ function installToolApprovalHook(
     const grant =
       approved && decision === "allow_always"
         ? await createToolApprovalGrantFromRequiredAction(
-            lifecycle,
-            request,
-            {
-              toolName: event.toolUse.name,
-              toolUseId: event.toolUse.toolUseId,
-              approvalKey: approvalDescriptor.approvalKey,
-              approvalLabel: approvalDescriptor.approvalLabel,
-            },
-            response
-          )
+          lifecycle,
+          invocation,
+          {
+            toolName: event.toolUse.name,
+            toolUseId: event.toolUse.toolUseId,
+            approvalKey: approvalDescriptor.approvalKey,
+            approvalLabel: approvalDescriptor.approvalLabel,
+          },
+          response
+        )
         : null;
     const resolutionEvent: AgentRuntimeStreamEvent = {
       event: "action_resolution",
       data: {
         requiredActionId:
-          request.resume?.requiredActionId ??
-          `interrupt:${request.agentRunId}:${event.toolUse.toolUseId}`,
+          invocation.request.operation === "resume_required_action"
+            ? invocation.request.requiredActionId
+            : `interrupt:${invocation.request.agentRunId}:${event.toolUse.toolUseId}`,
         outcome: approved ? "resolved" : "declined",
         content: [
           {
@@ -407,11 +579,11 @@ function resolveToolApprovalDecision(response?: {
 
 async function findMatchingToolApprovalGrant(
   lifecycle: AgentRunLifecycle,
-  request: AgentRuntimeInvocation,
+  invocation: ResolvedAgentInvocation,
   toolName: string,
   approvalKey: string
 ): Promise<ToolApprovalGrant | null> {
-  const actorId = request.actorId;
+  const actorId = invocation.actorId;
   if (!actorId) {
     return null;
   }
@@ -433,7 +605,7 @@ async function findMatchingToolApprovalGrant(
 
 async function createToolApprovalGrantFromRequiredAction(
   lifecycle: AgentRunLifecycle,
-  request: AgentRuntimeInvocation,
+  invocation: ResolvedAgentInvocation,
   current: {
     toolName: string;
     toolUseId?: string;
@@ -442,7 +614,10 @@ async function createToolApprovalGrantFromRequiredAction(
   },
   response?: { resolvedByUserId?: string }
 ): Promise<ToolApprovalGrant> {
-  const requiredActionId = request.resume?.requiredActionId;
+  const requiredActionId =
+    invocation.request.operation === "resume_required_action"
+      ? invocation.request.requiredActionId
+      : undefined;
   if (!requiredActionId) {
     throw new Error("Cannot create tool approval grant without required action.");
   }
@@ -468,7 +643,7 @@ async function createToolApprovalGrantFromRequiredAction(
     );
   }
 
-  const grantedByUserId = response?.resolvedByUserId ?? request.actorId;
+  const grantedByUserId = response?.resolvedByUserId ?? invocation.actorId;
   if (!grantedByUserId) {
     throw new Error("Cannot create tool approval grant without operator user.");
   }
@@ -490,11 +665,11 @@ function getToolApprovalActionData(
   item: RequiredActionRunItem
 ):
   | {
-      toolName: string;
-      toolUseId?: string;
-      approvalKey: string;
-      approvalLabel: string;
-    }
+    toolName: string;
+    toolUseId?: string;
+    approvalKey: string;
+    approvalLabel: string;
+  }
   | null {
   const data = item.data;
   if (typeof data !== "object" || data === null || Array.isArray(data)) {
@@ -523,24 +698,23 @@ function getToolApprovalActionData(
 
 async function resumeInterruptedAgent(
   agent: Agent,
-  request: AgentRuntimeInvocation
+  request: ResumeRequiredActionInvocation
 ): Promise<AgentResult> {
-  if (!request.resume) {
-    throw new Error("Cannot resume agent without interrupt resume data.");
-  }
-
-  agent.loadSnapshot(request.resume.snapshot as Snapshot);
+  // SessionManager restores the rolling latest snapshot during initialization.
+  // Initialize first so the durable interrupt-resume snapshot wins.
+  await agent.initialize();
+  agent.loadSnapshot(request.snapshot as Snapshot);
 
   return agent.invoke([
     new InterruptResponseContent({
-      interruptId: request.resume.interruptId,
-      response: request.resume.response as JSONValue,
+      interruptId: request.interruptId,
+      response: request.response as JSONValue,
     }),
   ]);
 }
 
 function buildInterruptRequiredAction(
-  request: AgentRuntimeInvocation,
+  invocation: ResolvedAgentInvocation,
   interrupt: { id: string; name: string; reason?: JSONValue },
   snapshot: Snapshot
 ): AgentRuntimeStreamEvent {
@@ -558,7 +732,7 @@ function buildInterruptRequiredAction(
   const approvalKey = stringFromRecord(reason, "approvalKey");
   const approvalLabel = stringFromRecord(reason, "approvalLabel");
   const allowAlwaysLabel = stringFromRecord(reason, "allowAlwaysLabel");
-  const requiredActionId = `interrupt:${request.agentRunId}:${interrupt.id}`;
+  const requiredActionId = `interrupt:${invocation.request.agentRunId}:${interrupt.id}`;
 
   return {
     event: "required_action",
@@ -583,7 +757,7 @@ function buildInterruptRequiredAction(
         approvalKey,
         approvalLabel,
         allowAlwaysLabel,
-        agentRunId: request.agentRunId,
+        agentRunId: invocation.request.agentRunId,
         resume: {
           interruptId: interrupt.id,
           snapshot: snapshot as unknown,
@@ -614,6 +788,18 @@ export function resolveAgentMemorySessionId(
   context: Pick<AgentRuntimeContext, "sessionId">
 ): string {
   return request.providerSessionId ?? context.sessionId;
+}
+
+function buildAgentPrompt(request: StartAgentRunInvocation): string {
+  return promptFromTrigger(request.trigger);
+}
+
+function promptFromTrigger(trigger: AgentRuntimeInvocationTrigger): string {
+  if (trigger.type === "operator_prompt" || trigger.type === "incident_agent_mention") {
+    return trigger.prompt;
+  }
+
+  return `Incident ${trigger.incidentId} was created. Investigate the incident, summarize likely causes, and take safe remediation steps when appropriate.`;
 }
 
 function buildInvestigationSummary(agentLabel: string, result: string) {
@@ -655,7 +841,7 @@ async function recordFinalRuntimeEvent(
 }
 
 async function createAgentTools(
-  request: AgentRuntimeInvocation,
+  invocation: ResolvedAgentInvocation,
   context: AgentRuntimeContext,
   dependencies: PulseForgeAgentInvocationDependencies,
   options?: {
@@ -694,20 +880,22 @@ async function createAgentTools(
     return [];
   }
 
-  const toolDefinitions = getPulseForgeAgentToolDefinitions(request.agentKind);
+  const toolDefinitions = getPulseForgeAgentToolDefinitions(
+    invocation.agentKind
+  );
   if (toolDefinitions.length === 0) {
     return [];
   }
 
   const authorizationGroups = getPulseForgeAgentToolAuthorizationGroups(
-    request.agentKind
+    invocation.agentKind
   );
   const bundledAuthorizationScopeByProviderKey = new Map(
     authorizationGroups.map((group) => [group.provider.key, group.scopes])
   );
   console.info("[tools] wiring agent tools", {
-    agentKind: request.agentKind,
-    agentRunId: request.agentRunId,
+    agentKind: invocation.agentKind,
+    agentRunId: invocation.request.agentRunId,
     tools: toolDefinitions.map((definition) => definition.name),
     authorizationGroups: authorizationGroups.map((group) => ({
       providerKey: group.provider.key,
@@ -723,13 +911,13 @@ async function createAgentTools(
   });
 
   const credentialProvider = await createToolCredentialProvider(
-    request,
+    invocation,
     context,
     dependencies
   );
   return createPulseForgeStrandsTools(toolDefinitions, {
     backendUrl: dependencies.runtimeConfig.tools.backendUrl,
-    agentRunId: request.agentRunId,
+    agentRunId: invocation.request.agentRunId,
     providers: {
       "pulseforge-backend": {
         providerName: dependencies.runtimeConfig.tools.providerName,
@@ -753,7 +941,7 @@ async function createAgentTools(
 }
 
 async function createToolCredentialProvider(
-  request: AgentRuntimeInvocation,
+  invocation: ResolvedAgentInvocation,
   context: AgentRuntimeContext,
   dependencies: PulseForgeAgentInvocationDependencies
 ): Promise<ToolCredentialProvider> {
@@ -768,7 +956,7 @@ async function createToolCredentialProvider(
   const userId =
     context.headers["x-amzn-bedrock-agentcore-runtime-custom-user-id"] ??
     dependencies.runtimeConfig.tools.localUserId ??
-    request.actorId;
+    invocation.actorId;
 
   if (!userId) {
     throw new Error(
@@ -791,7 +979,7 @@ async function createToolCredentialProvider(
 }
 
 class AgentCoreIdentityCredentialProvider implements ToolCredentialProvider {
-  constructor(private readonly workloadIdentityToken?: string) {}
+  constructor(private readonly workloadIdentityToken?: string) { }
 
   withAccessToken<TInput, TResult>(
     config: ToolAccessTokenConfig,

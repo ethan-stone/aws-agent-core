@@ -31,6 +31,7 @@ import {
   ActiveRootRunError,
   ConversationInteractionError,
   RequiredActionResolutionError,
+  UnsupportedAgentTriggerError,
   completeAgentResourceTokenAuth,
   createConversationAndRun,
   createConversationAndRunStream,
@@ -451,13 +452,6 @@ app.post(
     if (!isAgentKind(body.agentKind) || !prompt) {
       return c.json({ error: "agentKind and prompt are required" }, 400);
     }
-    if (body.agentKind === "incident-responder") {
-      return c.json(
-        { error: "incident-responder is invoked by incident automation." },
-        400
-      );
-    }
-
     const request = {
       agentKind: body.agentKind,
       prompt,
@@ -465,28 +459,36 @@ app.post(
       deviceId: asOptionalString(body.deviceId),
     };
 
-    if (wantsConversationEventStream(c.req.header("accept"))) {
-      return conversationDetailEventStream(
-        c,
-        await createConversationAndRunStream(
-          request,
-          user,
-          c.get("requestContext")
-        ),
-        {
-          status: 201,
-          diagnostics: c.get("requestContext"),
-        }
+    try {
+      if (wantsConversationEventStream(c.req.header("accept"))) {
+        return conversationDetailEventStream(
+          c,
+          await createConversationAndRunStream(
+            request,
+            user,
+            c.get("requestContext")
+          ),
+          {
+            status: 201,
+            diagnostics: c.get("requestContext"),
+          }
+        );
+      }
+
+      const detail = await createConversationAndRun(
+        request,
+        user,
+        c.get("requestContext")
       );
+
+      return c.json(detail, conversationRunStatus(detail, 201));
+    } catch (error) {
+      if (error instanceof UnsupportedAgentTriggerError) {
+        return c.json({ error: error.message }, 400);
+      }
+
+      throw error;
     }
-
-    const detail = await createConversationAndRun(
-      request,
-      user,
-      c.get("requestContext")
-    );
-
-    return c.json(detail, conversationRunStatus(detail, 201));
   }
 );
 
@@ -599,6 +601,9 @@ app.post(
       }
       if (error instanceof ConversationInteractionError) {
         return c.json({ error: error.message }, 403);
+      }
+      if (error instanceof UnsupportedAgentTriggerError) {
+        return c.json({ error: error.message }, 400);
       }
 
       throw error;

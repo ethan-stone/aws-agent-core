@@ -614,6 +614,32 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     return updated;
   }
 
+  async updateRequiredActionData(
+    runId: string,
+    requiredActionId: string,
+    update: Parameters<PulseForgeRepository["updateRequiredActionData"]>[2]
+  ): Promise<RunItem | null> {
+    const existing = [...this.runItems.values()].find(
+      (item) =>
+        item.runId === runId &&
+        item.kind === "required_action" &&
+        item.requiredActionId === requiredActionId &&
+        item.status === "pending"
+    );
+
+    if (!existing || existing.kind !== "required_action") {
+      return null;
+    }
+
+    const updated: RunItem = {
+      ...existing,
+      ...(update.content ? { content: update.content } : {}),
+      ...("data" in update ? { data: update.data } : {}),
+    };
+    this.runItems.set(existing.id, updated);
+    return updated;
+  }
+
   async updateToolCallStatus(
     runId: string,
     toolCallId: string,

@@ -67,10 +67,11 @@ const app = new BedrockAgentCoreApp({
         return;
       }
 
-      console.log(
-        `Session ${context.sessionId} - Received prompt:`,
-        parsedRequest.data.prompt
-      );
+      console.log(`Session ${context.sessionId} - Runtime invocation`, {
+        operation: parsedRequest.data.operation,
+        conversationId: parsedRequest.data.conversationId,
+        agentRunId: parsedRequest.data.agentRunId,
+      });
       yield* runPulseForgeAgentInvocation(parsedRequest.data, context, {
         model: bedrockModel,
         runtimeConfig,

@@ -8,8 +8,10 @@ import type {
   AgentRun,
   AgentRuntimeInvocation,
   AgentRuntimeInterruptResume,
+  AgentRuntimeInvocationActor,
   AuthenticatedAppUser,
   CreateConversationRequest,
+  OperatorPromptTrigger,
   RuntimeSession,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import {
@@ -115,11 +117,10 @@ export async function* streamRootAgentRuntimeResume(
       agentRunId: run.id,
       runtimeSessionId: runtimeSession.id,
       providerSessionId: runtimeSession.providerSessionId,
-      agentKind: run.agentKind,
-      prompt: "",
-      actorId: runtimeUserId,
-      resume,
-      ...optionalDomainIds(run),
+      version: "2026-05-28",
+      operation: "resume_required_action",
+      actor: invocationActorFromRuntimeUser(runtimeUserId),
+      ...resume,
     },
     run,
     runtimeSession,
@@ -211,21 +212,26 @@ function buildInvocationPayload(
   runtimeUserId: string
 ): AgentRuntimeInvocation {
   return {
+    version: "2026-05-28",
+    operation: "start_agent_run",
     conversationId: run.conversationId,
     agentRunId: run.id,
     runtimeSessionId: runtimeSession.id,
     providerSessionId: runtimeSession.providerSessionId,
     agentKind: request.agentKind,
-    prompt: request.prompt,
-    actorId: runtimeUserId,
-    ...optionalDomainIds(request),
+    actor: invocationActorFromRuntimeUser(runtimeUserId),
+    trigger: {
+      type: "operator_prompt",
+      prompt: request.prompt,
+      ...optionalDomainIds(request),
+    },
   };
 }
 
 function optionalDomainIds(source: {
   incidentId?: string | null;
   deviceId?: string | null;
-}): Pick<AgentRuntimeInvocation, "incidentId" | "deviceId"> {
+}): Pick<OperatorPromptTrigger, "incidentId" | "deviceId"> {
   return {
     ...(typeof source.incidentId === "string"
       ? { incidentId: source.incidentId }
@@ -234,6 +240,14 @@ function optionalDomainIds(source: {
       ? { deviceId: source.deviceId }
       : {}),
   };
+}
+
+function invocationActorFromRuntimeUser(
+  runtimeUserId: string
+): AgentRuntimeInvocationActor {
+  return runtimeUserId === "pulseforge-webbackend"
+    ? { type: "system", systemId: runtimeUserId }
+    : { type: "user", userId: runtimeUserId };
 }
 
 async function* readAgentRuntimeEvents(

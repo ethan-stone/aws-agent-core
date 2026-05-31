@@ -915,22 +915,21 @@ function RunProgressRow(props: {
   itemCount: number;
   status: AgentRun["status"];
 }) {
+  const active = isRunActive(props.status);
   return (
     <div className="py-3 first:pt-0 last:pb-0">
       <div className="min-w-0">
         <div className="mb-1 flex flex-wrap items-center gap-2">
           <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
-            {isRunActive(props.status) ? "Waiting" : "No activity"}
+            {active ? runProgressLabel(props.status) : "No activity"}
           </span>
           <span className="rounded-full bg-sky-300/8 px-2 py-0.5 text-xs text-sky-200">
             {props.status}
           </span>
         </div>
         <p className="m-0 text-sm leading-6 text-slate-300">
-          {isRunActive(props.status)
-            ? props.itemCount > 0
-              ? "Copilot is still working."
-              : "Copilot is starting."
+          {active
+            ? runProgressText(props.status)
             : "No run items were recorded for this run."}
         </p>
       </div>
@@ -1322,6 +1321,32 @@ function shouldShowConversationListStatus(status: AgentRun["status"]): boolean {
     status === "auth_required" ||
     status === "waiting_for_action"
   );
+}
+
+function runProgressLabel(status: AgentRun["status"]): string {
+  if (status === "auth_required") {
+    return "Authorization";
+  }
+  if (status === "waiting_for_action") {
+    return "Operator action";
+  }
+  if (status === "queued") {
+    return "Queued";
+  }
+  return "Running";
+}
+
+function runProgressText(status: AgentRun["status"]): string {
+  if (status === "auth_required") {
+    return "Waiting for delegated tool authorization.";
+  }
+  if (status === "waiting_for_action") {
+    return "Waiting for an operator to resolve the required action.";
+  }
+  if (status === "queued") {
+    return "Queued for the runtime.";
+  }
+  return "Listening for the next streamed run item...";
 }
 
 function timelineDotClass(

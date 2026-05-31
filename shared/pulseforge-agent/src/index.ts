@@ -1,4 +1,8 @@
 import type { AgentKind } from "@agent-core/pulseforge-domain";
+import type {
+  AgentInvocationContextRequirement,
+  AgentInvocationTriggerType,
+} from "@agent-core/pulseforge-domain";
 import {
   pulseForgeToolDefinitionByName,
   type PulseForgeCredentialProviderDescriptor,
@@ -20,6 +24,9 @@ export interface PulseForgeAgentConfig {
   id: string;
   label: string;
   systemPrompt: string;
+  allowedTriggers: readonly AgentInvocationTriggerType[];
+  requiredContext: readonly AgentInvocationContextRequirement[];
+  projectsRequiredActionsToIncidentActivity: boolean;
   toolNames: readonly PulseForgeToolName[];
 }
 
@@ -28,6 +35,9 @@ const pulseForgeAgentConfigs = {
     kind: "ops-copilot",
     id: "pulseforge-ops-copilot",
     label: "Ops Copilot",
+    allowedTriggers: ["operator_prompt", "incident_agent_mention"],
+    requiredContext: ["prompt"],
+    projectsRequiredActionsToIncidentActivity: true,
     systemPrompt: [
       "You are PulseForge Ops Copilot, an IoT operations assistant for device monitoring and incident response.",
       "Investigate user requests using available operational tools as the source of truth, ground conclusions in retrieved data, and keep responses concise enough for an on-call operator.",
@@ -50,12 +60,15 @@ const pulseForgeAgentConfigs = {
     kind: "incident-responder",
     id: "pulseforge-incident-responder",
     label: "Incident Responder",
+    allowedTriggers: ["incident_created"],
+    requiredContext: ["incident_id"],
+    projectsRequiredActionsToIncidentActivity: true,
     systemPrompt: [
-      "You are PulseForge Incident Responder, an IoT incident response workflow agent.",
-      "When invoked for an incident, gather operational evidence with tools, assess likely causes and risk, record high-signal incident activity, and propose or execute approved remediation steps.",
+      "You are PulseForge Incident Responder, a background IoT incident response workflow agent.",
+      "When invoked for an incident, gather operational evidence with tools, assess likely causes and risk, record high-signal incident activity, and take safe, auditable steps toward mitigation.",
       "Keep incident-facing updates concise, factual, and audit-friendly. Distinguish evidence from hypotheses, and stop when confidence or authorization is insufficient.",
       "Resolve follow-up references from conversation history and never invent incident IDs or device IDs.",
-      "For device reset requests, explain the evidence, then call reset_device when remediation is warranted. reset_device is the approval request: the platform interrupts that tool call and requests explicit operator approval before it executes.",
+      "Use tools as the source of truth. For high-risk operational actions such as device reset, call the approval-required tool and wait for operator approval rather than asking in prose.",
     ].join("\n"),
     toolNames: [
       "get_incident_context",
@@ -77,6 +90,13 @@ export interface PulseForgeToolAuthorizationGroup {
 
 export function getPulseForgeAgentConfig(kind: AgentKind): PulseForgeAgentConfig {
   return pulseForgeAgentConfigs[kind];
+}
+
+export function isPulseForgeAgentTriggerAllowed(
+  kind: AgentKind,
+  triggerType: AgentInvocationTriggerType
+): boolean {
+  return getPulseForgeAgentConfig(kind).allowedTriggers.includes(triggerType);
 }
 
 export function getPulseForgeAgentToolDefinitions(

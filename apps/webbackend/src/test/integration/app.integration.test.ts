@@ -21,6 +21,29 @@ describe("PulseForge web backend integration (memory)", () => {
     };
     expect(body.enabled).toBe(false);
   });
+
+  it("rejects prompt-created incident responder conversations before invocation", async () => {
+    delete process.env.MONGODB_URI;
+    delete process.env.MONGODB_DB_NAME;
+    delete process.env.COGNITO_AGENT_IDENTITY_CLIENT_IDS;
+
+    const response = await app.request("/api/conversations", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        agentKind: "incident-responder",
+        prompt: "Investigate the incident.",
+        incidentId: "inc-1001",
+      }),
+    });
+
+    expect(response.status).toBe(400);
+
+    const body = (await response.json()) as { error: string };
+    expect(body.error).toBe(
+      "Agent kind incident-responder does not support operator_prompt triggers."
+    );
+  });
 });
 
 describeMongo("PulseForge web backend integration (mongodb)", () => {

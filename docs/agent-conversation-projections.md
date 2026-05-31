@@ -52,10 +52,12 @@ That invocation is built from:
 - `AgentRun.id` as `agentRunId`
 - `RuntimeSession.id` as `runtimeSessionId`
 - `RuntimeSession.providerSessionId` as `providerSessionId`
-- `Conversation.rootAgentKind` as `agentKind`
-- the current user input as `prompt`
-- optional incident/device ids
-- the authenticated user id as `actorId`
+- a versioned `operation`, such as `start_agent_run` or
+  `resume_required_action`
+- `Conversation.rootAgentKind` as `agentKind` for start operations
+- a typed start trigger, such as `operator_prompt`
+- optional incident/device ids inside the trigger
+- the authenticated user id or system id as `actor`
 
 The backend does not prehydrate investigation context into the runtime payload
 or rewrite the user's prompt. When the invocation includes incident or device
@@ -119,7 +121,7 @@ message history from canonical product `RunItems`; short-term continuity should
 come from the restored Strands session snapshot.
 Snapshot events are keyed by:
 
-- `actorId`
+- the runtime actor id derived from `actor`
 - `RuntimeSession.providerSessionId` as the AgentCore session id
 - Strands snapshot `scope` and `scopeId` metadata
 
@@ -128,9 +130,9 @@ blob, and stale "latest" snapshot events are removed after replacement. Durable
 human-approval resume snapshots are separate `AgentRunSnapshot` product records;
 they are not the rolling short-term session snapshot.
 
-AgentCore long-term memory is retrieved context. It is keyed by `actorId` and,
-for session summaries, the same provider session id. It is not a transcript and
-is not rendered as conversation history.
+AgentCore long-term memory is retrieved context. It is keyed by the runtime
+actor id and, for session summaries, the same provider session id. It is not a
+transcript and is not rendered as conversation history.
 
 If AgentCore memory is deleted, expires, or moves providers, the product
 timeline still exists in `RunItems`, but the runtime does not automatically

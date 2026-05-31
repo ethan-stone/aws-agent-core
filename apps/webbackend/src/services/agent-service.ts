@@ -5,6 +5,7 @@ export {
   ActiveRootRunError,
   ConversationInteractionError,
   RequiredActionResolutionError,
+  UnsupportedAgentTriggerError,
   createConversationAndRun,
   createConversationAndRunStream,
   resolveRunRequiredAction,
