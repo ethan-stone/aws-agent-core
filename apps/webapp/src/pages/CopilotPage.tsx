@@ -219,7 +219,7 @@ export function CopilotConversationPage() {
         <Link to="/copilot" className="text-sm text-slate-400 hover:text-slate-100">
           Back to conversations
         </Link>
-        <div className="mt-5 border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-sm text-slate-300">
+        <div className="mt-5 rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-sm text-slate-300">
           {error ?? "Loading conversation..."}
         </div>
       </section>
@@ -415,7 +415,7 @@ export function ConversationResultView(props: {
       )}
 
       {authAction ? (
-        <div className="grid gap-3 border border-amber-300/30 bg-amber-300/8 px-3 py-3 text-sm text-amber-100">
+        <div className="grid gap-3 rounded-md border border-amber-300/30 bg-amber-300/8 px-3 py-3 text-sm text-amber-100">
           <div>
             <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-amber-200/70">
               Authorization required
@@ -434,7 +434,7 @@ export function ConversationResultView(props: {
             href={authAction.data.authUrl}
             target="_blank"
             rel="noreferrer"
-            className="w-fit border border-amber-200/40 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-amber-50 transition-colors hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
+            className="w-fit rounded-md border border-amber-200/40 px-3 py-1.5 text-xs uppercase tracking-[0.08em] text-amber-50 transition-colors hover:border-amber-100 hover:bg-amber-100 hover:text-slate-950"
           >
             Open authorization URL
           </a>
@@ -442,7 +442,7 @@ export function ConversationResultView(props: {
       ) : null}
 
       {approval && approvalAction ? (
-        <div className="grid gap-3 border border-sky-300/30 bg-sky-300/8 px-3 py-3 text-sm text-sky-100">
+        <div className="grid gap-3 rounded-md border border-sky-300/30 bg-sky-300/8 px-3 py-3 text-sm text-sky-100">
           <div>
             <div className="mb-1 text-[11px] uppercase tracking-[0.08em] text-sky-200/70">
               Approval required
@@ -459,7 +459,7 @@ export function ConversationResultView(props: {
             ) : null}
           </div>
           {approvalError ? (
-            <div className="border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-xs text-rose-100">
+            <div className="rounded-md border border-rose-300/30 bg-rose-300/10 px-3 py-2 text-xs text-rose-100">
               {approvalError}
             </div>
           ) : null}
@@ -468,7 +468,7 @@ export function ConversationResultView(props: {
               type="button"
               disabled={Boolean(approvalLoading)}
               onClick={() => handleApproval("allow_once")}
-              className="max-w-full whitespace-normal border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
+              className="max-w-full rounded-md border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
             >
               {approvalLoading === "allow_once" ? "Approving..." : "Allow once"}
             </button>
@@ -476,7 +476,7 @@ export function ConversationResultView(props: {
               type="button"
               disabled={Boolean(approvalLoading)}
               onClick={() => handleApproval("allow_always")}
-              className="max-w-full whitespace-normal border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
+              className="max-w-full rounded-md border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
             >
               {approvalLoading === "allow_always"
                 ? "Approving..."
@@ -486,7 +486,7 @@ export function ConversationResultView(props: {
               type="button"
               disabled={Boolean(approvalLoading)}
               onClick={() => handleApproval("decline")}
-              className="max-w-full whitespace-normal border border-sky-200/30 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-sky-50 transition-colors hover:border-sky-100 hover:bg-sky-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
+              className="max-w-full rounded-md border border-sky-200/30 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-sky-50 transition-colors hover:border-sky-100 hover:bg-sky-100 hover:text-slate-950 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {approvalLoading === "decline" ? "Declining..." : "Decline"}
             </button>

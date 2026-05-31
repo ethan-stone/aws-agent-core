@@ -17,7 +17,7 @@ export function DeviceDetailPage() {
 
   if (!device) {
     return (
-      <section className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
+      <section className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
         {error ?? (loading ? "Loading device..." : "Device not found.")}
       </section>
     );
@@ -37,7 +37,7 @@ export function DeviceDetailPage() {
       </header>
 
       <div className="grid gap-3.5 md:grid-cols-2">
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
+        <article className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
           <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
             Current state
           </h3>
@@ -49,7 +49,7 @@ export function DeviceDetailPage() {
             <li>Connectivity: {device.connectivityPercent}%</li>
           </ul>
         </article>
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
+        <article className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
           <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
             Recent telemetry
           </h3>

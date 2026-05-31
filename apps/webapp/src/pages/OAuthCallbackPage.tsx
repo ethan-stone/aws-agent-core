@@ -57,7 +57,7 @@ export function OAuthCallbackPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#090d12] px-6 py-12 text-slate-100">
-      <section className="w-full max-w-[520px] border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_38%),rgba(10,14,20,0.96)] p-8 shadow-2xl shadow-black/40">
+      <section className="w-full max-w-[520px] rounded-md border border-white/10 bg-[linear-gradient(180deg,rgba(255,255,255,0.04),transparent_38%),rgba(10,14,20,0.96)] p-8 shadow-2xl shadow-black/40">
         <p className="mb-3 text-[11px] uppercase tracking-[0.16em] text-cyan-300">
           PulseForge delegated auth
         </p>
@@ -73,7 +73,7 @@ export function OAuthCallbackPage() {
           <button
             type="button"
             onClick={() => window.close()}
-            className="mt-6 border border-cyan-300/40 px-4 py-2 text-sm text-cyan-100 transition-colors hover:border-cyan-200 hover:text-white"
+            className="mt-6 rounded-md border border-cyan-300/40 px-4 py-2 text-sm text-cyan-100 transition-colors hover:border-cyan-200 hover:text-white"
           >
             Close window
           </button>

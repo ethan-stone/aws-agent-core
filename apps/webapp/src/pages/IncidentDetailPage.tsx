@@ -43,7 +43,7 @@ export function IncidentDetailPage() {
 
   if (!detail) {
     return (
-      <section className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
+      <section className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
         {loadError ?? (loading ? "Loading incident..." : "Incident not found.")}
       </section>
     );
@@ -65,7 +65,7 @@ export function IncidentDetailPage() {
             type="button"
             onClick={() => void handleInvestigate()}
             disabled={running}
-            className="border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+            className="rounded-md border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             {running ? "Investigating..." : "Investigate with AI"}
           </button>
@@ -74,20 +74,20 @@ export function IncidentDetailPage() {
               type="button"
               onClick={() => void handleResolveIncident()}
               disabled={resolving}
-              className="border border-emerald-300/35 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:border-emerald-200/60 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:border-slate-600 disabled:text-slate-500"
+              className="rounded-md border border-emerald-300/35 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:border-emerald-200/60 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:border-slate-600 disabled:text-slate-500"
             >
               {resolving ? "Resolving..." : "Mark resolved"}
             </button>
           ) : null}
           {error ? (
-            <div className="max-w-sm border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+            <div className="max-w-sm rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
               {error}
             </div>
           ) : null}
         </div>
       </header>
       <div className="grid gap-3.5">
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
+        <article className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
           <div className="flex flex-wrap items-start justify-between gap-5">
             <div className="max-w-3xl">
               <h3 className="m-0 text-[15px] tracking-normal text-slate-100">
@@ -116,7 +116,7 @@ export function IncidentDetailPage() {
           </div>
         </article>
 
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
+        <article className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
           <h3 className="m-0 text-[15px] tracking-normal text-slate-100">
             Activity
           </h3>
@@ -152,13 +152,13 @@ export function IncidentDetailPage() {
               <button
                 type="submit"
                 disabled={postingComment || !commentBody.trim()}
-                className="border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+                className="rounded-md border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
               >
                 {postingComment ? "Posting..." : "Post comment"}
               </button>
             </div>
             {commentError ? (
-              <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+              <div className="rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
                 {commentError}
               </div>
             ) : null}
@@ -411,7 +411,7 @@ function LinkedConversationDrawer(props: {
           <button
             type="button"
             onClick={props.onClose}
-            className="border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-white/20 hover:text-slate-50"
+            className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-white/20 hover:text-slate-50"
           >
             Close
           </button>
@@ -422,7 +422,7 @@ function LinkedConversationDrawer(props: {
             <p className="text-sm text-slate-400">Loading conversation...</p>
           ) : null}
           {props.error ? (
-            <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+            <div className="rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
               {props.error}
             </div>
           ) : null}
@@ -450,7 +450,7 @@ function renderCommentBody(body: string) {
     part === "@copilot" ? (
       <span
         key={`${part}-${index}`}
-        className="border border-sky-300/25 bg-sky-300/10 px-1.5 py-0.5 text-sky-100"
+        className="rounded border border-sky-300/25 bg-sky-300/10 px-1.5 py-0.5 text-sky-100"
       >
         {part}
       </span>

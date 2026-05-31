@@ -46,7 +46,7 @@ export function ConfirmSignupPage() {
 
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#090d12] px-6 py-12">
-      <section className="grid w-full max-w-md gap-6 border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_35%),rgba(12,16,22,0.96)] p-8">
+      <section className="grid w-full max-w-md gap-6 rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_35%),rgba(12,16,22,0.96)] p-8">
         <header className="grid gap-2">
           <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
             PulseForge Access
@@ -68,7 +68,7 @@ export function ConfirmSignupPage() {
               value={email}
               onChange={(event) => setEmail(event.target.value)}
               type="email"
-              className="border border-white/10 bg-black/15 px-3 py-2.5 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-white/25"
+              className="rounded-md border border-white/10 bg-black/15 px-3 py-2.5 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-white/25"
               placeholder="ops@pulseforge.io"
             />
           </label>
@@ -80,19 +80,19 @@ export function ConfirmSignupPage() {
             <input
               value={code}
               onChange={(event) => setCode(event.target.value)}
-              className="border border-white/10 bg-black/15 px-3 py-2.5 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-white/25"
+              className="rounded-md border border-white/10 bg-black/15 px-3 py-2.5 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-white/25"
               placeholder="123456"
             />
           </label>
 
           {error ? (
-            <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+            <div className="rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
               {error}
             </div>
           ) : null}
 
           {notice ? (
-            <div className="border border-emerald-400/30 bg-emerald-400/8 px-3 py-2 text-sm text-emerald-200">
+            <div className="rounded-md border border-emerald-400/30 bg-emerald-400/8 px-3 py-2 text-sm text-emerald-200">
               {notice}
             </div>
           ) : null}
@@ -100,7 +100,7 @@ export function ConfirmSignupPage() {
           <button
             type="submit"
             disabled={submitting}
-            className="border border-white/10 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+            className="rounded-md border border-white/10 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             {submitting ? "Confirming..." : "Confirm account"}
           </button>
