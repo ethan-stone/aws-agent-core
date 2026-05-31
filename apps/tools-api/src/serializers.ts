@@ -1,13 +1,13 @@
 import type {
   Device,
   DeviceMetricSnapshot,
-  IncidentEvent,
+  IncidentActivity,
   IncidentInvestigationContext,
   RemediationAction,
   Ticket,
 } from "../../../shared/pulseforge-domain/src/index.js";
 
-const RECENT_EVENT_LIMIT = 12;
+const RECENT_ACTIVITY_LIMIT = 12;
 const RECENT_TELEMETRY_LIMIT = 24;
 const RELATED_INCIDENT_LIMIT = 5;
 
@@ -72,7 +72,9 @@ export function serializeIncidentContext(context: IncidentInvestigationContext) 
       createdAt: context.incident.createdAt,
       updatedAt: context.incident.updatedAt,
     },
-    recentEvents: context.events.slice(-RECENT_EVENT_LIMIT).map(serializeIncidentEvent),
+    recentActivity: context.activities
+      .slice(-RECENT_ACTIVITY_LIMIT)
+      .map(serializeIncidentActivity),
     affectedDevices: context.devices.map(({ device, telemetry }) => ({
       ...serializeDevice(device).device,
       telemetry: serializeDeviceTelemetry(device.id, telemetry),
@@ -98,20 +100,20 @@ export function serializeIncidentContext(context: IncidentInvestigationContext) 
   };
 }
 
-export function serializeIncidentEvent(event: IncidentEvent) {
+export function serializeIncidentActivity(activity: IncidentActivity) {
   return {
-    id: event.id,
-    incidentId: event.incidentId,
-    timestamp: event.timestamp,
-    kind: event.kind,
-    message: event.message,
+    id: activity.id,
+    incidentId: activity.incidentId,
+    timestamp: activity.timestamp,
+    kind: activity.kind,
+    message: activity.message,
   };
 }
 
-export function serializeCreatedIncidentEvent(event: IncidentEvent) {
+export function serializeCreatedIncidentActivity(activity: IncidentActivity) {
   return {
     ok: true as const,
-    event: serializeIncidentEvent(event),
+    activity: serializeIncidentActivity(activity),
   };
 }
 

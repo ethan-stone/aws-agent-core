@@ -3,8 +3,10 @@ import { Hono, type MiddlewareHandler } from "hono";
 import type {
   AgentKind,
   AuthenticatedAppUser,
+  ConversationSummary,
   CreateConversationRequest,
   CreateConversationRunRequest,
+  RunItem,
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
   appPermissions,
@@ -24,6 +26,7 @@ import {
 } from "../../../shared/pulseforge-backend/src/index.js";
 import {
   ActiveRootRunError,
+  ConversationInteractionError,
   RequiredActionResolutionError,
   completeAgentResourceTokenAuth,
   createConversationAndRun,
@@ -32,6 +35,11 @@ import {
   runConversation,
   runConversationStream,
 } from "./services/agent-service.js";
+import {
+  IncidentCommentError,
+  postIncidentComment,
+  startIncidentCreatedAutomation,
+} from "./services/incident-collaboration-service.js";
 import {
   conversationDetailEventStream,
   conversationRunStatus,
@@ -97,9 +105,7 @@ function requireUserPermission(
 function isAgentKind(value: unknown): value is AgentKind {
   return (
     value === "ops-copilot" ||
-    value === "anomaly-investigation" ||
-    value === "remediation-planner" ||
-    value === "autonomous-remediation"
+    value === "incident-responder"
   );
 }
 
@@ -109,6 +115,15 @@ function asPrompt(value: unknown): string | null {
 
 function asOptionalString(value: unknown): string | undefined {
   return typeof value === "string" && value.trim() ? value.trim() : undefined;
+}
+
+function firstTextBlock(item?: Extract<RunItem, { kind: "message" }>) {
+  const block = item?.content.find((content) => content.type === "text");
+  if (!block || block.type !== "text") {
+    return undefined;
+  }
+  const text = block.text.trim();
+  return text.length > 120 ? `${text.slice(0, 117).trimEnd()}...` : text;
 }
 
 export const app = new Hono<ApiAppEnv>();
@@ -273,6 +288,55 @@ app.get(
   }
 );
 
+app.post(
+  "/api/incidents/:incidentId/comments",
+  requireUserPermission(appPermissions.writeAgentRuns),
+  async (c) => {
+    const body = (await c.req.json()) as { body?: unknown };
+    const commentBody = asPrompt(body.body);
+    const user = c.get("user");
+
+    if (!commentBody) {
+      return c.json({ error: "body is required" }, 400);
+    }
+
+    try {
+      const incident = await postIncidentComment(
+        c.req.param("incidentId"),
+        commentBody,
+        user,
+        c.get("requestContext")
+      );
+      if (!incident) {
+        return c.json({ error: "Incident not found" }, 404);
+      }
+
+      return c.json(incident, 201);
+    } catch (error) {
+      if (error instanceof IncidentCommentError) {
+        return c.json({ error: error.message }, 400);
+      }
+      throw error;
+    }
+  }
+);
+
+app.post(
+  "/api/incidents/:incidentId/automation/incident-created",
+  requireUserPermission(appPermissions.writeAgentRuns),
+  async (c) => {
+    const incident = await startIncidentCreatedAutomation(
+      c.req.param("incidentId"),
+      c.get("requestContext")
+    );
+    if (!incident) {
+      return c.json({ error: "Incident not found" }, 404);
+    }
+
+    return c.json(incident, 201);
+  }
+);
+
 app.get(
   "/api/snapshot",
   requireUserPermission(appPermissions.readDashboard),
@@ -329,6 +393,12 @@ app.post(
     if (!isAgentKind(body.agentKind) || !prompt) {
       return c.json({ error: "agentKind and prompt are required" }, 400);
     }
+    if (body.agentKind === "incident-responder") {
+      return c.json(
+        { error: "incident-responder is invoked by incident automation." },
+        400
+      );
+    }
 
     const request = {
       agentKind: body.agentKind,
@@ -359,6 +429,66 @@ app.post(
     );
 
     return c.json(detail, conversationRunStatus(detail, 201));
+  }
+);
+
+app.get(
+  "/api/conversations",
+  requireUserPermission(appPermissions.writeAgentRuns),
+  async (c) => {
+    const user = c.get("user");
+    const snapshot = await getSnapshot();
+    const visibleConversations = snapshot.conversations
+      .filter((conversation) => conversation.rootAgentKind === "ops-copilot")
+      .filter((conversation) => {
+        if (!getApiAuthConfig().enabled || !user) {
+          return conversation.interactionMode !== "observe_only";
+        }
+        return (
+          conversation.interactionOwnerUserId === user.sub ||
+          snapshot.agentRuns.some(
+            (run) =>
+              run.conversationId === conversation.id &&
+              run.requestedByUserId === user.sub
+          )
+        );
+      })
+      .map((conversation): ConversationSummary => {
+        const runs = snapshot.agentRuns
+          .filter((run) => run.conversationId === conversation.id)
+          .sort((left, right) =>
+            (left.startedAt ?? "").localeCompare(right.startedAt ?? "")
+          );
+        const latestRun = runs.at(-1);
+        const items = runs.flatMap(
+          (run) => snapshot.runItems.filter((item) => item.runId === run.id)
+        );
+        const firstUserMessage = items.find(
+          (item): item is Extract<RunItem, { kind: "message" }> =>
+            item.kind === "message" && item.role === "user"
+        );
+        const latestAgentMessage = [...items]
+          .reverse()
+          .find(
+            (item): item is Extract<RunItem, { kind: "message" }> =>
+              item.kind === "message" && item.role === "agent"
+          );
+
+        return {
+          conversation,
+          latestRun,
+          title:
+            firstTextBlock(firstUserMessage) ??
+            conversation.incidentId ??
+            "Untitled conversation",
+          preview: latestRun?.summary ?? firstTextBlock(latestAgentMessage),
+          itemCount: items.length,
+          updatedAt: latestRun?.completedAt ?? latestRun?.startedAt ?? conversation.updatedAt,
+        };
+      })
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt));
+
+    return c.json({ items: visibleConversations });
   }
 );
 
@@ -408,6 +538,9 @@ app.post(
     } catch (error) {
       if (error instanceof ActiveRootRunError) {
         return c.json({ error: error.message }, 409);
+      }
+      if (error instanceof ConversationInteractionError) {
+        return c.json({ error: error.message }, 403);
       }
 
       throw error;

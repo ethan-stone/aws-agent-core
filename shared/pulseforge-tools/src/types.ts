@@ -13,7 +13,7 @@ export type PulseForgeToolName =
   | "get_incident_context"
   | "get_device"
   | "get_device_telemetry"
-  | "create_incident_event"
+  | "create_incident_activity"
   | "create_ticket"
   | "propose_remediation_action"
   | "reset_device";

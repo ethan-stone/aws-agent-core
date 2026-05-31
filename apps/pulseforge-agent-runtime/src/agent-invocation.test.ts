@@ -1,7 +1,25 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { z } from "zod";
+import { resolveAgentMemorySessionId } from "./agent-invocation.js";
 import { runInvalidAgentInvocation } from "./invalid-agent-invocation.js";
+
+test("resolveAgentMemorySessionId uses the canonical provider session when present", () => {
+  assert.equal(
+    resolveAgentMemorySessionId(
+      { providerSessionId: "conversation-123" },
+      { sessionId: "agentcore-context-session" }
+    ),
+    "conversation-123"
+  );
+});
+
+test("resolveAgentMemorySessionId falls back to the AgentCore context session", () => {
+  assert.equal(
+    resolveAgentMemorySessionId({}, { sessionId: "agentcore-context-session" }),
+    "agentcore-context-session"
+  );
+});
 
 test("runInvalidAgentInvocation fails an existing run when agentRunId is present", async () => {
   const payload = {

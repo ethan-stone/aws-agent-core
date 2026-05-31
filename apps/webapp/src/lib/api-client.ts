@@ -1,6 +1,7 @@
 import {
   type ApiAuthConfig,
   type ConversationDetail,
+  type ConversationSummary,
   type CreateConversationRequest,
   type CreateConversationRunRequest,
   demoDashboard,
@@ -11,7 +12,10 @@ import {
   type Device,
   type DeviceMetricSnapshot,
   type Incident,
-  type IncidentEvent,
+  type IncidentActionApproval,
+  type IncidentActivity,
+  type IncidentAgentMention,
+  type IncidentComment,
 } from "../../../../shared/pulseforge-domain/src/index.js";
 import { getStoredAccessToken } from "./auth-storage.js";
 
@@ -260,24 +264,75 @@ export async function fetchIncidents(): Promise<Incident[]> {
 
 export async function fetchIncident(incidentId: string): Promise<{
   incident: Incident;
-  events: IncidentEvent[];
+  activities: IncidentActivity[];
+  comments: IncidentComment[];
+  agentMentions: IncidentAgentMention[];
+  actionApprovals: IncidentActionApproval[];
 } | null> {
-  return getJson(
-    `/api/incidents/${incidentId}`,
-    (() => {
-      const incident = demoIncidents.find((item) => item.id === incidentId);
-      if (!incident) {
-        return null;
-      }
+  const fallback = (() => {
+    const incident = demoIncidents.find((item) => item.id === incidentId);
+    if (!incident) {
+      return null;
+    }
 
-      return {
-        incident,
-        events: demoSnapshot.incidentEvents.filter(
-          (event) => event.incidentId === incidentId
-        ),
-      };
-    })()
+    return {
+      incident,
+      activities: demoSnapshot.incidentActivities.filter(
+        (activity) => activity.incidentId === incidentId
+      ),
+      comments: demoSnapshot.incidentComments.filter(
+        (comment) => comment.incidentId === incidentId
+      ),
+      agentMentions: demoSnapshot.incidentAgentMentions.filter(
+        (mention) => mention.incidentId === incidentId
+      ),
+      actionApprovals: demoSnapshot.incidentActionApprovals.filter(
+        (approval) => approval.incidentId === incidentId
+      ),
+    };
+  })();
+
+  const response = await getJson<
+    | {
+        incident: Incident;
+        activities?: IncidentActivity[];
+        events?: IncidentActivity[];
+        comments?: IncidentComment[];
+        agentMentions?: IncidentAgentMention[];
+        actionApprovals?: IncidentActionApproval[];
+      }
+    | null
+  >(
+    `/api/incidents/${incidentId}`,
+    fallback
   );
+  if (!response) {
+    return null;
+  }
+
+  return {
+    incident: response.incident,
+    activities: response.activities ?? response.events ?? [],
+    comments: response.comments ?? [],
+    agentMentions: response.agentMentions ?? [],
+    actionApprovals: response.actionApprovals ?? [],
+  };
+}
+
+export async function postIncidentComment(
+  incidentId: string,
+  body: string
+): Promise<{
+  incident: Incident;
+  activities: IncidentActivity[];
+  comments: IncidentComment[];
+  agentMentions: IncidentAgentMention[];
+  actionApprovals: IncidentActionApproval[];
+}> {
+  return requestJson(`/api/incidents/${incidentId}/comments`, {
+    method: "POST",
+    body: JSON.stringify({ body }),
+  });
 }
 
 export async function createConversation(
@@ -292,6 +347,42 @@ export async function createConversation(
     },
     onUpdate
   );
+}
+
+export async function fetchConversations(): Promise<ConversationSummary[]> {
+  const response = await getJson<{ items: ConversationSummary[] }>(
+    "/api/conversations",
+    {
+      items: demoSnapshot.conversations
+        .filter(
+          (conversation) =>
+            conversation.rootAgentKind === "ops-copilot" &&
+            conversation.interactionMode !== "observe_only"
+        )
+        .map((conversation) => {
+          const runs = demoSnapshot.agentRuns.filter(
+            (run) => run.conversationId === conversation.id
+          );
+          const latestRun = runs.at(-1);
+          return {
+            conversation,
+            latestRun,
+            title: conversation.incidentId ?? "Untitled conversation",
+            preview: latestRun?.summary,
+            itemCount: runs.reduce(
+              (count, run) =>
+                count +
+                demoSnapshot.runItems.filter((item) => item.runId === run.id)
+                  .length,
+              0
+            ),
+            updatedAt:
+              latestRun?.completedAt ?? latestRun?.startedAt ?? conversation.updatedAt,
+          };
+        }),
+    }
+  );
+  return response.items;
 }
 
 export async function completeResourceTokenAuth(
@@ -339,5 +430,40 @@ export async function resolveRequiredAction(
 export async function fetchConversation(
   conversationId: string
 ): Promise<ConversationDetail> {
-  return requestJson(`/api/conversations/${conversationId}`);
+  const fallback = demoConversationDetail(conversationId);
+  if (!fallback) {
+    return requestJson(`/api/conversations/${conversationId}`);
+  }
+
+  return getJson(`/api/conversations/${conversationId}`, fallback);
+}
+
+function demoConversationDetail(
+  conversationId: string
+): ConversationDetail | null {
+  const conversation =
+    demoSnapshot.conversations.find((item) => item.id === conversationId) ??
+    null;
+  if (!conversation) {
+    return null;
+  }
+
+  const runs = demoSnapshot.agentRuns.filter(
+    (run) => run.conversationId === conversationId
+  );
+  return {
+    conversation,
+    runs,
+    itemsByRunId: Object.fromEntries(
+      runs.map((run) => [
+        run.id,
+        demoSnapshot.runItems
+          .filter((item) => item.runId === run.id)
+          .sort((left, right) => left.sequence - right.sequence),
+      ])
+    ),
+    runtimeSessions: demoSnapshot.runtimeSessions.filter(
+      (session) => session.conversationId === conversationId
+    ),
+  };
 }

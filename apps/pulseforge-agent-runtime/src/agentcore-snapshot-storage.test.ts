@@ -55,8 +55,35 @@ test("AgentCoreSnapshotStorage saves and loads latest snapshots", async () => {
   assert.equal(client.createdEvents.length, 1);
   assert.equal(client.createdEvents[0]?.sessionId, "session-123");
   assert.deepEqual(client.createdEvents[0]?.payload?.[0], {
-    blob: { snapshot },
+    blob: JSON.stringify({ snapshot }),
   });
+});
+
+test("AgentCoreSnapshotStorage loads snapshots returned as JSON string blobs", async () => {
+  const snapshot = createSnapshot("json-string");
+  const client = new MockBedrockAgentCoreClient([
+    {
+      events: [
+        createSnapshotEvent({
+          eventId: "latest-1",
+          timestamp: new Date("2026-04-21T10:00:00.000Z"),
+          location,
+          snapshotId: "latest",
+          isLatest: true,
+          snapshot,
+          encodeBlobAsJsonString: true,
+        }),
+      ],
+      $metadata: {},
+    },
+  ]);
+  const storage = new AgentCoreSnapshotStorage({
+    client: client.asClient() as never,
+    memoryId: "memory-123",
+    actorId: "user-123",
+  });
+
+  assert.deepEqual(await storage.loadSnapshot({ location }), snapshot);
 });
 
 test("AgentCoreSnapshotStorage replaces stale latest snapshots", async () => {
@@ -215,7 +242,14 @@ function createSnapshotEvent(params: {
   snapshotId: string;
   isLatest: boolean;
   snapshot: Snapshot;
+  encodeBlobAsJsonString?: boolean;
 }): Event {
+  const blob = params.encodeBlobAsJsonString
+    ? JSON.stringify({ snapshot: params.snapshot })
+    : {
+        snapshot: params.snapshot as unknown as PayloadType.BlobMember["blob"],
+      };
+
   return {
     memoryId: "memory-123",
     actorId: "user-123",
@@ -224,9 +258,7 @@ function createSnapshotEvent(params: {
     eventTimestamp: params.timestamp,
     payload: [
       {
-        blob: {
-          snapshot: params.snapshot as unknown as PayloadType.BlobMember["blob"],
-        },
+        blob: blob as PayloadType.BlobMember["blob"],
       },
     ],
     metadata: {

@@ -1,7 +1,10 @@
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth-context.js";
 import { ConfirmSignupPage } from "./pages/ConfirmSignupPage.js";
-import { CopilotPage } from "./pages/CopilotPage.js";
+import {
+  CopilotConversationPage,
+  CopilotPage,
+} from "./pages/CopilotPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { DeviceDetailPage } from "./pages/DeviceDetailPage.js";
 import { DevicesPage } from "./pages/DevicesPage.js";
@@ -46,7 +49,7 @@ function ProtectedAppShell() {
             <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
               PulseForge
             </p>
-            <h1 className="m-0 text-[28px] leading-none font-medium tracking-[-0.04em] text-slate-50">
+            <h1 className="m-0 text-[28px] leading-none font-medium tracking-normal text-slate-50">
               IoT Operations
             </h1>
           </div>
@@ -110,6 +113,7 @@ function ProtectedAppShell() {
             <Route path="/incidents" element={<IncidentsPage />} />
             <Route path="/incidents/:incidentId" element={<IncidentDetailPage />} />
             <Route path="/copilot" element={<CopilotPage />} />
+            <Route path="/copilot/:conversationId" element={<CopilotConversationPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>

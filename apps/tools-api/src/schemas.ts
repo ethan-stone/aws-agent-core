@@ -1,6 +1,6 @@
 import { z } from "@hono/zod-openapi";
 import {
-  createIncidentEventInputSchema,
+  createIncidentActivityInputSchema,
   createTicketInputSchema,
   getDeviceInputSchema,
   getDeviceTelemetryInputSchema,
@@ -26,12 +26,12 @@ export const resetDeviceBodySchema = resetDeviceInputSchema
 export const incidentContextParamsSchema =
   getIncidentContextInputSchema.openapi("IncidentContextParams");
 
-export const incidentEventParamsSchema = z
+export const incidentActivityParamsSchema = z
   .object({ incidentId: z.string().min(1) })
-  .openapi("IncidentEventParams");
-export const createIncidentEventBodySchema = createIncidentEventInputSchema
+  .openapi("IncidentActivityParams");
+export const createIncidentActivityBodySchema = createIncidentActivityInputSchema
   .omit({ incidentId: true })
-  .openapi("CreateIncidentEventBody");
+  .openapi("CreateIncidentActivityBody");
 
 export const createTicketParamsSchema = z
   .object({ incidentId: z.string().min(1) })

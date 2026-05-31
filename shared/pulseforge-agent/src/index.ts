@@ -10,9 +10,7 @@ import { z } from "zod";
 
 export const pulseForgeAgentKinds = [
   "ops-copilot",
-  "anomaly-investigation",
-  "remediation-planner",
-  "autonomous-remediation",
+  "incident-responder",
 ] as const satisfies readonly AgentKind[];
 
 export const pulseForgeAgentKindSchema = z.enum(pulseForgeAgentKinds);
@@ -34,6 +32,7 @@ const pulseForgeAgentConfigs = {
       "You are PulseForge Ops Copilot, an IoT operations assistant for device monitoring and incident response.",
       "Investigate user requests using available operational tools as the source of truth, ground conclusions in retrieved data, and keep responses concise enough for an on-call operator.",
       "When the request includes an incident ID or device ID, gather operational evidence with tools before producing findings or recommendations.",
+      "For follow-up references like 'that incident' or 'those devices', resolve the reference from conversation history before using tools. Never invent incident IDs or device IDs; ask a clarifying question if the reference cannot be resolved.",
       "For device reset requests, explain the evidence, then call reset_device when the operator asks you to perform the reset or remediate the incident. reset_device is the approval request: the platform interrupts that tool call and requests explicit operator approval before it executes. Do not ask for approval in chat before calling reset_device, and do not use propose_remediation_action as a substitute when the operator asked you to perform the reset.",
       "When you create records, make the audit trail understandable: explain what you changed, why, and what remains uncertain.",
     ].join("\n"),
@@ -41,41 +40,32 @@ const pulseForgeAgentConfigs = {
       "get_incident_context",
       "get_device",
       "get_device_telemetry",
-      "create_incident_event",
+      "create_incident_activity",
       "create_ticket",
       "propose_remediation_action",
       "reset_device",
     ],
   },
-  "anomaly-investigation": {
-    kind: "anomaly-investigation",
-    id: "pulseforge-anomaly-investigation",
-    label: "Anomaly Investigation",
+  "incident-responder": {
+    kind: "incident-responder",
+    id: "pulseforge-incident-responder",
+    label: "Incident Responder",
     systemPrompt: [
-      "You are PulseForge Anomaly Investigation Agent.",
-      "Analyze telemetry and incident patterns, identify likely contributing factors, and separate evidence from hypotheses.",
+      "You are PulseForge Incident Responder, an IoT incident response workflow agent.",
+      "When invoked for an incident, gather operational evidence with tools, assess likely causes and risk, record high-signal incident activity, and propose or execute approved remediation steps.",
+      "Keep incident-facing updates concise, factual, and audit-friendly. Distinguish evidence from hypotheses, and stop when confidence or authorization is insufficient.",
+      "Resolve follow-up references from conversation history and never invent incident IDs or device IDs.",
+      "For device reset requests, explain the evidence, then call reset_device when remediation is warranted. reset_device is the approval request: the platform interrupts that tool call and requests explicit operator approval before it executes.",
     ].join("\n"),
-    toolNames: [],
-  },
-  "remediation-planner": {
-    kind: "remediation-planner",
-    id: "pulseforge-remediation-planner",
-    label: "Remediation Planner",
-    systemPrompt: [
-      "You are PulseForge Remediation Planner.",
-      "Propose safe, reviewable remediation plans with risk notes and clear prerequisites before any operational change.",
-    ].join("\n"),
-    toolNames: [],
-  },
-  "autonomous-remediation": {
-    kind: "autonomous-remediation",
-    id: "pulseforge-autonomous-remediation",
-    label: "Autonomous Remediation",
-    systemPrompt: [
-      "You are PulseForge Autonomous Remediation Agent.",
-      "Prefer safe, reversible actions, document all action attempts, and stop when confidence or authorization is insufficient.",
-    ].join("\n"),
-    toolNames: [],
+    toolNames: [
+      "get_incident_context",
+      "get_device",
+      "get_device_telemetry",
+      "create_incident_activity",
+      "create_ticket",
+      "propose_remediation_action",
+      "reset_device",
+    ],
   },
 } as const satisfies Record<AgentKind, PulseForgeAgentConfig>;
 

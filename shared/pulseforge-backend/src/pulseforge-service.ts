@@ -7,7 +7,10 @@ import type {
   AuditLogEntry,
   ConversationDetail,
   IncidentInvestigationContext,
-  IncidentEvent,
+  IncidentActivity,
+  IncidentActionApproval,
+  IncidentAgentMention,
+  IncidentComment,
   RemediationAction,
   RuntimeSession,
   RunItem,
@@ -88,7 +91,7 @@ export async function buildIncidentInvestigationContext(
 
   return {
     incident: aggregate.incident,
-    events: aggregate.events,
+    activities: aggregate.activities,
     devices: devices.filter((item): item is NonNullable<typeof item> => Boolean(item)),
     relatedIncidents: snapshot.incidents.filter(
       (item) =>
@@ -279,14 +282,91 @@ function redactInternalRunItemData(item: RunItem): RunItem {
   };
 }
 
-export async function createIncidentEvent(
-  event: Omit<IncidentEvent, "id" | "timestamp"> & {
+export async function createIncidentActivity(
+  activity: Omit<IncidentActivity, "id" | "timestamp"> & {
     id?: string;
     timestamp?: string;
     createdBy: AuditActor;
   }
 ) {
-  return (await getRepository()).createIncidentEvent(event);
+  return (await getRepository()).createIncidentActivity(activity);
+}
+
+export async function updateIncidentActivity(
+  activityId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentActivity"]>[1]
+) {
+  return (await getRepository()).updateIncidentActivity(activityId, update);
+}
+
+export async function updateIncidentActivityByAgentRun(
+  agentRunId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentActivityByAgentRun"]>[1]
+) {
+  return (await getRepository()).updateIncidentActivityByAgentRun(
+    agentRunId,
+    update
+  );
+}
+
+export async function createIncidentComment(
+  comment: Omit<IncidentComment, "id" | "createdAt" | "updatedAt"> & {
+    id?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  }
+) {
+  return (await getRepository()).createIncidentComment(comment);
+}
+
+export async function createIncidentAgentMention(
+  mention: Omit<IncidentAgentMention, "id" | "createdAt"> & {
+    id?: string;
+    createdAt?: string;
+  }
+) {
+  return (await getRepository()).createIncidentAgentMention(mention);
+}
+
+export async function updateIncidentAgentMention(
+  mentionId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentAgentMention"]>[1]
+) {
+  return (await getRepository()).updateIncidentAgentMention(mentionId, update);
+}
+
+export async function createIncidentActionApproval(
+  approval: Omit<IncidentActionApproval, "id" | "requestedAt" | "status"> & {
+    id?: string;
+    requestedAt?: string;
+    status?: IncidentActionApproval["status"];
+  }
+) {
+  return (await getRepository()).createIncidentActionApproval(approval);
+}
+
+export async function updateIncidentActionApprovalStatus(
+  approvalId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentActionApprovalStatus"]>[1]
+) {
+  return (await getRepository()).updateIncidentActionApprovalStatus(
+    approvalId,
+    update
+  );
+}
+
+export async function updateIncidentActionApprovalByRequiredAction(
+  agentRunId: string,
+  requiredActionId: string,
+  update: Parameters<
+    PulseForgeRepository["updateIncidentActionApprovalByRequiredAction"]
+  >[2]
+) {
+  return (await getRepository()).updateIncidentActionApprovalByRequiredAction(
+    agentRunId,
+    requiredActionId,
+    update
+  );
 }
 
 export async function createTicket(

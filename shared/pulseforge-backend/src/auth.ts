@@ -14,7 +14,7 @@ export const toolScopes = {
   readDevices: "read:devices",
   readIncidents: "read:incidents",
   readTelemetry: "read:telemetry",
-  writeIncidentEvents: "write:incident_events",
+  writeIncidentActivities: "write:incident_events",
   writeTickets: "write:tickets",
   writeRemediationActions: "write:remediation_actions",
   writeDeviceCommands: "write:device_commands",

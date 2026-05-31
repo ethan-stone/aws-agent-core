@@ -43,7 +43,7 @@ describeMongo("MongoPulseForgeRepository", () => {
   it("returns incident aggregates without Mongo internals", async () => {
     const incident = await repository.getIncident("inc-1001");
     expect(incident?.incident).not.toHaveProperty("_id");
-    expect(incident?.events[0]).not.toHaveProperty("_id");
+    expect(incident?.activities[0]).not.toHaveProperty("_id");
   });
 
   it("persists agent-created incident records and audit logs", async () => {
@@ -54,7 +54,7 @@ describeMongo("MongoPulseForgeRepository", () => {
       agentRunId: "run-1",
     };
 
-    const event = await repository.createIncidentEvent({
+    const activity = await repository.createIncidentActivity({
       incidentId: "inc-1001",
       kind: "agent_summary",
       message: "Agent reviewed the temperature drift incident.",
@@ -84,13 +84,15 @@ describeMongo("MongoPulseForgeRepository", () => {
       statusCode: 200,
     });
 
-    expect(event.createdBy).toEqual(actor);
+    expect(activity.createdBy).toEqual(actor);
     expect(ticket.createdBy).toEqual(actor);
     expect(action.createdBy).toEqual(actor);
     expect(auditLog.actor).toEqual(actor);
 
     const snapshot = await repository.getSnapshot();
-    expect(snapshot.incidentEvents.find((item) => item.id === event.id)).toBeTruthy();
+    expect(
+      snapshot.incidentActivities.find((item) => item.id === activity.id)
+    ).toBeTruthy();
     expect(snapshot.tickets.find((item) => item.id === ticket.id)).toBeTruthy();
     expect(
       snapshot.remediationActions.find((item) => item.id === action.id)

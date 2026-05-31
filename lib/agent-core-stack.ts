@@ -72,7 +72,7 @@ export class AgentCoreStack extends Stack {
       ["read:devices", "Read PulseForge device records"],
       ["read:incidents", "Read PulseForge incidents"],
       ["read:telemetry", "Read PulseForge telemetry"],
-      ["write:incident_events", "Create PulseForge incident timeline events"],
+      ["write:incident_events", "Create PulseForge incident activity"],
       ["write:tickets", "Create PulseForge tickets"],
       ["write:remediation_actions", "Create PulseForge remediation proposals"],
       ["write:device_commands", "Execute approved PulseForge device commands"],

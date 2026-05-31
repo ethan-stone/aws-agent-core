@@ -8,7 +8,10 @@ import type {
   Device,
   DeviceMetricSnapshot,
   Incident,
-  IncidentEvent,
+  IncidentActionApproval,
+  IncidentActivity,
+  IncidentAgentMention,
+  IncidentComment,
   PendingInput,
   PulseForgeSnapshot,
   RequiredActionStatus,
@@ -22,7 +25,10 @@ import type {
 
 export interface IncidentAggregate {
   incident: Incident;
-  events: IncidentEvent[];
+  activities: IncidentActivity[];
+  comments: IncidentComment[];
+  agentMentions: IncidentAgentMention[];
+  actionApprovals: IncidentActionApproval[];
 }
 
 export type AppendRunItemInput = RunItem extends infer Item
@@ -128,11 +134,67 @@ export interface PulseForgeRepository {
   ): Promise<RunItem | null>;
   listRunItems(runId: string): Promise<RunItem[]>;
   listPendingInputs(conversationId: string): Promise<PendingInput[]>;
-  createIncidentEvent(event: Omit<IncidentEvent, "id" | "timestamp"> & {
+  createIncidentActivity(activity: Omit<IncidentActivity, "id" | "timestamp"> & {
     id?: string;
     timestamp?: string;
     createdBy: AuditActor;
-  }): Promise<IncidentEvent>;
+  }): Promise<IncidentActivity>;
+  updateIncidentActivity(
+    activityId: string,
+    update: Partial<
+      Pick<
+        IncidentActivity,
+        "agentRunId" | "agentStatus" | "title" | "summary" | "message" | "incidentActionApprovalId"
+      >
+    >
+  ): Promise<IncidentActivity | null>;
+  updateIncidentActivityByAgentRun(
+    agentRunId: string,
+    update: Partial<
+      Pick<
+        IncidentActivity,
+        "agentStatus" | "title" | "summary" | "message" | "incidentActionApprovalId"
+      >
+    >
+  ): Promise<IncidentActivity | null>;
+  createIncidentComment(comment: Omit<IncidentComment, "id" | "createdAt" | "updatedAt"> & {
+    id?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  }): Promise<IncidentComment>;
+  createIncidentAgentMention(
+    mention: Omit<IncidentAgentMention, "id" | "createdAt"> & {
+      id?: string;
+      createdAt?: string;
+    }
+  ): Promise<IncidentAgentMention>;
+  updateIncidentAgentMention(
+    mentionId: string,
+    update: Partial<
+      Pick<
+        IncidentAgentMention,
+        "status" | "conversationId" | "agentRunId" | "activityId" | "acceptedAt" | "errorMessage"
+      >
+    >
+  ): Promise<IncidentAgentMention | null>;
+  createIncidentActionApproval(
+    approval: Omit<IncidentActionApproval, "id" | "requestedAt" | "status"> & {
+      id?: string;
+      requestedAt?: string;
+      status?: IncidentActionApproval["status"];
+    }
+  ): Promise<IncidentActionApproval>;
+  updateIncidentActionApprovalStatus(
+    approvalId: string,
+    update: Pick<IncidentActionApproval, "status"> &
+      Partial<Pick<IncidentActionApproval, "resolvedAt" | "resolvedByUserId" | "activityId">>
+  ): Promise<IncidentActionApproval | null>;
+  updateIncidentActionApprovalByRequiredAction(
+    agentRunId: string,
+    requiredActionId: string,
+    update: Pick<IncidentActionApproval, "status"> &
+      Partial<Pick<IncidentActionApproval, "resolvedAt" | "resolvedByUserId" | "activityId">>
+  ): Promise<IncidentActionApproval | null>;
   createTicket(ticket: Omit<Ticket, "id" | "createdAt" | "externalRef" | "status"> & {
     id?: string;
     externalRef?: string;

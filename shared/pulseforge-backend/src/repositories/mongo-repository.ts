@@ -12,7 +12,10 @@ import {
   demoConversations,
   demoDeviceMetrics,
   demoDevices,
-  demoIncidentEvents,
+  demoIncidentActionApprovals,
+  demoIncidentActivities,
+  demoIncidentAgentMentions,
+  demoIncidentComments,
   demoIncidents,
   demoPendingInputs,
   demoRemediationActions,
@@ -28,7 +31,10 @@ import {
   type Device,
   type DeviceMetricSnapshot,
   type Incident,
-  type IncidentEvent,
+  type IncidentActionApproval,
+  type IncidentActivity,
+  type IncidentAgentMention,
+  type IncidentComment,
   type PendingInput,
   type PulseForgeSnapshot,
   type RemediationAction,
@@ -54,8 +60,29 @@ type PersistedIncident = Omit<Incident, "createdAt" | "updatedAt"> & {
   createdAt: Date;
   updatedAt: Date;
 };
-type PersistedIncidentEvent = Omit<IncidentEvent, "timestamp"> & {
+type PersistedIncidentActivity = Omit<IncidentActivity, "timestamp"> & {
   timestamp: Date;
+};
+type PersistedIncidentComment = Omit<
+  IncidentComment,
+  "createdAt" | "updatedAt"
+> & {
+  createdAt: Date;
+  updatedAt: Date;
+};
+type PersistedIncidentAgentMention = Omit<
+  IncidentAgentMention,
+  "createdAt" | "acceptedAt"
+> & {
+  createdAt: Date;
+  acceptedAt?: Date;
+};
+type PersistedIncidentActionApproval = Omit<
+  IncidentActionApproval,
+  "requestedAt" | "resolvedAt"
+> & {
+  requestedAt: Date;
+  resolvedAt?: Date;
 };
 type PersistedTicket = Omit<Ticket, "createdAt"> & { createdAt: Date };
 type PersistedToolApprovalGrant = Omit<ToolApprovalGrant, "grantedAt"> & {
@@ -97,7 +124,10 @@ interface Collections {
   devices: Collection<PersistedDevice>;
   telemetry: Collection<PersistedTelemetry>;
   incidents: Collection<PersistedIncident>;
-  incidentEvents: Collection<PersistedIncidentEvent>;
+  incidentActivities: Collection<PersistedIncidentActivity>;
+  incidentComments: Collection<PersistedIncidentComment>;
+  incidentAgentMentions: Collection<PersistedIncidentAgentMention>;
+  incidentActionApprovals: Collection<PersistedIncidentActionApproval>;
   remediationActions: Collection<RemediationAction>;
   tickets: Collection<PersistedTicket>;
   conversations: Collection<PersistedConversation>;
@@ -125,8 +155,14 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       devices: this.db.collection<PersistedDevice>("devices"),
       telemetry: this.db.collection<PersistedTelemetry>("telemetry"),
       incidents: this.db.collection<PersistedIncident>("incidents"),
-      incidentEvents:
-        this.db.collection<PersistedIncidentEvent>("incident_events"),
+      incidentActivities:
+        this.db.collection<PersistedIncidentActivity>("incident_events"),
+      incidentComments:
+        this.db.collection<PersistedIncidentComment>("incident_comments"),
+      incidentAgentMentions:
+        this.db.collection<PersistedIncidentAgentMention>("incident_agent_mentions"),
+      incidentActionApprovals:
+        this.db.collection<PersistedIncidentActionApproval>("incident_action_approvals"),
       remediationActions:
         this.db.collection<RemediationAction>("remediation_actions"),
       tickets: this.db.collection<PersistedTicket>("tickets"),
@@ -149,7 +185,10 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       devices,
       telemetryDocs,
       incidents,
-      incidentEvents,
+      incidentActivities,
+      incidentComments,
+      incidentAgentMentions,
+      incidentActionApprovals,
       remediationActions,
       tickets,
       conversations,
@@ -163,7 +202,10 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.devices.find().toArray(),
       collections.telemetry.find().toArray(),
       collections.incidents.find().toArray(),
-      collections.incidentEvents.find().toArray(),
+      collections.incidentActivities.find().toArray(),
+      collections.incidentComments.find().toArray(),
+      collections.incidentAgentMentions.find().toArray(),
+      collections.incidentActionApprovals.find().toArray(),
       collections.remediationActions.find().toArray(),
       collections.tickets.find().toArray(),
       collections.conversations.find().toArray(),
@@ -181,8 +223,26 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     const normalizedIncidents = incidents.map((incident) =>
       mapPersistedIncident(stripMongoId<PersistedIncident>(incident))
     );
-    const normalizedIncidentEvents = incidentEvents.map((event) =>
-      mapPersistedIncidentEvent(stripMongoId<PersistedIncidentEvent>(event))
+    const normalizedIncidentActivities = incidentActivities.map((activity) =>
+      mapPersistedIncidentActivity(
+        stripMongoId<PersistedIncidentActivity>(activity)
+      )
+    );
+    const normalizedIncidentComments = incidentComments.map((comment) =>
+      mapPersistedIncidentComment(
+        stripMongoId<PersistedIncidentComment>(comment)
+      )
+    );
+    const normalizedIncidentAgentMentions = incidentAgentMentions.map((mention) =>
+      mapPersistedIncidentAgentMention(
+        stripMongoId<PersistedIncidentAgentMention>(mention)
+      )
+    );
+    const normalizedIncidentActionApprovals = incidentActionApprovals.map(
+      (approval) =>
+        mapPersistedIncidentActionApproval(
+          stripMongoId<PersistedIncidentActionApproval>(approval)
+        )
     );
     const normalizedRemediationActions = remediationActions.map((action) =>
       stripMongoId<RemediationAction>(action)
@@ -227,7 +287,10 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       devices: normalizedDevices,
       deviceMetrics,
       incidents: normalizedIncidents,
-      incidentEvents: normalizedIncidentEvents,
+      incidentActivities: normalizedIncidentActivities,
+      incidentComments: normalizedIncidentComments,
+      incidentAgentMentions: normalizedIncidentAgentMentions,
+      incidentActionApprovals: normalizedIncidentActionApprovals,
       remediationActions: normalizedRemediationActions,
       tickets: normalizedTickets,
       conversations: normalizedConversations,
@@ -306,11 +369,24 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
 
   async getIncident(incidentId: string): Promise<IncidentAggregate | null> {
     const collections = this.collections();
-    const [incident, events] = await Promise.all([
+    const [incident, activities, comments, agentMentions, actionApprovals] =
+      await Promise.all([
       collections.incidents.findOne({ id: incidentId }),
-      collections.incidentEvents
+      collections.incidentActivities
         .find({ incidentId })
         .sort({ timestamp: 1 })
+        .toArray(),
+      collections.incidentComments
+        .find({ incidentId })
+        .sort({ createdAt: 1 })
+        .toArray(),
+      collections.incidentAgentMentions
+        .find({ incidentId })
+        .sort({ createdAt: 1 })
+        .toArray(),
+      collections.incidentActionApprovals
+        .find({ incidentId })
+        .sort({ requestedAt: 1 })
         .toArray(),
     ]);
 
@@ -320,8 +396,25 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
 
     return {
       incident: mapPersistedIncident(stripMongoId<PersistedIncident>(incident)),
-      events: events.map((event) =>
-        mapPersistedIncidentEvent(stripMongoId<PersistedIncidentEvent>(event))
+      activities: activities.map((activity) =>
+        mapPersistedIncidentActivity(
+          stripMongoId<PersistedIncidentActivity>(activity)
+        )
+      ),
+      comments: comments.map((comment) =>
+        mapPersistedIncidentComment(
+          stripMongoId<PersistedIncidentComment>(comment)
+        )
+      ),
+      agentMentions: agentMentions.map((mention) =>
+        mapPersistedIncidentAgentMention(
+          stripMongoId<PersistedIncidentAgentMention>(mention)
+        )
+      ),
+      actionApprovals: actionApprovals.map((approval) =>
+        mapPersistedIncidentActionApproval(
+          stripMongoId<PersistedIncidentActionApproval>(approval)
+        )
       ),
     };
   }
@@ -343,6 +436,9 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       id: conversation.id,
       rootAgentKind: conversation.rootAgentKind,
       status: conversation.status ?? "open",
+      incidentId: conversation.incidentId,
+      interactionMode: conversation.interactionMode,
+      interactionOwnerUserId: conversation.interactionOwnerUserId,
       activeRootRunId: conversation.activeRootRunId,
       createdAt: conversation.createdAt
         ? new Date(conversation.createdAt)
@@ -713,20 +809,181 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     );
   }
 
-  async createIncidentEvent(
-    event: Parameters<PulseForgeRepository["createIncidentEvent"]>[0]
-  ): Promise<IncidentEvent> {
-    const created: PersistedIncidentEvent = {
-      id: event.id ?? randomUUID(),
-      incidentId: event.incidentId,
-      timestamp: new Date(event.timestamp ?? Date.now()),
-      kind: event.kind,
-      message: event.message,
-      createdBy: event.createdBy,
+  async createIncidentActivity(
+    activity: Parameters<PulseForgeRepository["createIncidentActivity"]>[0]
+  ): Promise<IncidentActivity> {
+    const created: PersistedIncidentActivity = {
+      id: activity.id ?? randomUUID(),
+      incidentId: activity.incidentId,
+      timestamp: new Date(activity.timestamp ?? Date.now()),
+      kind: activity.kind,
+      message: activity.message,
+      createdBy: activity.createdBy,
+      conversationId: activity.conversationId,
+      agentRunId: activity.agentRunId,
+      agentKind: activity.agentKind,
+      agentStatus: activity.agentStatus,
+      title: activity.title,
+      summary: activity.summary,
+      causedByCommentId: activity.causedByCommentId,
+      causedByMentionId: activity.causedByMentionId,
+      incidentActionApprovalId: activity.incidentActionApprovalId,
     };
 
-    await this.collections().incidentEvents.insertOne(created);
-    return mapPersistedIncidentEvent(created);
+    await this.collections().incidentActivities.insertOne(created);
+    return mapPersistedIncidentActivity(created);
+  }
+
+  async updateIncidentActivity(
+    activityId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentActivity"]>[1]
+  ): Promise<IncidentActivity | null> {
+    await this.collections().incidentActivities.updateOne(
+      { id: activityId },
+      { $set: removeUndefined(update) }
+    );
+    const item = await this.collections().incidentActivities.findOne({
+      id: activityId,
+    });
+    return item
+      ? mapPersistedIncidentActivity(stripMongoId<PersistedIncidentActivity>(item))
+      : null;
+  }
+
+  async updateIncidentActivityByAgentRun(
+    agentRunId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentActivityByAgentRun"]>[1]
+  ): Promise<IncidentActivity | null> {
+    await this.collections().incidentActivities.updateOne(
+      { kind: "agent_conversation", agentRunId },
+      { $set: removeUndefined(update) }
+    );
+    const item = await this.collections().incidentActivities.findOne({
+      kind: "agent_conversation",
+      agentRunId,
+    });
+    return item
+      ? mapPersistedIncidentActivity(stripMongoId<PersistedIncidentActivity>(item))
+      : null;
+  }
+
+  async createIncidentComment(
+    comment: Parameters<PulseForgeRepository["createIncidentComment"]>[0]
+  ): Promise<IncidentComment> {
+    const now = new Date();
+    const created: PersistedIncidentComment = {
+      id: comment.id ?? randomUUID(),
+      incidentId: comment.incidentId,
+      body: comment.body,
+      authorUserId: comment.authorUserId,
+      createdAt: new Date(comment.createdAt ?? now),
+      updatedAt: new Date(comment.updatedAt ?? comment.createdAt ?? now),
+    };
+
+    await this.collections().incidentComments.insertOne(created);
+    return mapPersistedIncidentComment(created);
+  }
+
+  async createIncidentAgentMention(
+    mention: Parameters<PulseForgeRepository["createIncidentAgentMention"]>[0]
+  ): Promise<IncidentAgentMention> {
+    const created: PersistedIncidentAgentMention = {
+      ...mention,
+      id: mention.id ?? randomUUID(),
+      createdAt: new Date(mention.createdAt ?? Date.now()),
+      acceptedAt: mention.acceptedAt ? new Date(mention.acceptedAt) : undefined,
+    };
+
+    await this.collections().incidentAgentMentions.insertOne(created);
+    return mapPersistedIncidentAgentMention(created);
+  }
+
+  async updateIncidentAgentMention(
+    mentionId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentAgentMention"]>[1]
+  ): Promise<IncidentAgentMention | null> {
+    await this.collections().incidentAgentMentions.updateOne(
+      { id: mentionId },
+      {
+        $set: removeUndefined({
+          ...update,
+          acceptedAt: update.acceptedAt ? new Date(update.acceptedAt) : undefined,
+        }),
+      }
+    );
+    const item = await this.collections().incidentAgentMentions.findOne({
+      id: mentionId,
+    });
+    return item
+      ? mapPersistedIncidentAgentMention(
+          stripMongoId<PersistedIncidentAgentMention>(item)
+        )
+      : null;
+  }
+
+  async createIncidentActionApproval(
+    approval: Parameters<PulseForgeRepository["createIncidentActionApproval"]>[0]
+  ): Promise<IncidentActionApproval> {
+    const created: PersistedIncidentActionApproval = {
+      ...approval,
+      id: approval.id ?? randomUUID(),
+      status: approval.status ?? "pending",
+      requestedAt: new Date(approval.requestedAt ?? Date.now()),
+      resolvedAt: approval.resolvedAt ? new Date(approval.resolvedAt) : undefined,
+    };
+
+    await this.collections().incidentActionApprovals.insertOne(created);
+    return mapPersistedIncidentActionApproval(created);
+  }
+
+  async updateIncidentActionApprovalStatus(
+    approvalId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentActionApprovalStatus"]>[1]
+  ): Promise<IncidentActionApproval | null> {
+    await this.collections().incidentActionApprovals.updateOne(
+      { id: approvalId },
+      {
+        $set: removeUndefined({
+          ...update,
+          resolvedAt: update.resolvedAt ? new Date(update.resolvedAt) : undefined,
+        }),
+      }
+    );
+    const item = await this.collections().incidentActionApprovals.findOne({
+      id: approvalId,
+    });
+    return item
+      ? mapPersistedIncidentActionApproval(
+          stripMongoId<PersistedIncidentActionApproval>(item)
+        )
+      : null;
+  }
+
+  async updateIncidentActionApprovalByRequiredAction(
+    agentRunId: string,
+    requiredActionId: string,
+    update: Parameters<
+      PulseForgeRepository["updateIncidentActionApprovalByRequiredAction"]
+    >[2]
+  ): Promise<IncidentActionApproval | null> {
+    await this.collections().incidentActionApprovals.updateOne(
+      { agentRunId, requiredActionId },
+      {
+        $set: removeUndefined({
+          ...update,
+          resolvedAt: update.resolvedAt ? new Date(update.resolvedAt) : undefined,
+        }),
+      }
+    );
+    const item = await this.collections().incidentActionApprovals.findOne({
+      agentRunId,
+      requiredActionId,
+    });
+    return item
+      ? mapPersistedIncidentActionApproval(
+          stripMongoId<PersistedIncidentActionApproval>(item)
+        )
+      : null;
   }
 
   async createTicket(
@@ -793,7 +1050,10 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.devices.deleteMany({}),
       collections.telemetry.deleteMany({}),
       collections.incidents.deleteMany({}),
-      collections.incidentEvents.deleteMany({}),
+      collections.incidentActivities.deleteMany({}),
+      collections.incidentComments.deleteMany({}),
+      collections.incidentAgentMentions.deleteMany({}),
+      collections.incidentActionApprovals.deleteMany({}),
       collections.remediationActions.deleteMany({}),
       collections.tickets.deleteMany({}),
       collections.conversations.deleteMany({}),
@@ -814,9 +1074,24 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
         )
       ),
       collections.incidents.insertMany(demoIncidents.map(toPersistedIncident)),
-      collections.incidentEvents.insertMany(
-        demoIncidentEvents.map(toPersistedIncidentEvent)
+      collections.incidentActivities.insertMany(
+        demoIncidentActivities.map(toPersistedIncidentActivity)
       ),
+      demoIncidentComments.length > 0
+        ? collections.incidentComments.insertMany(
+            demoIncidentComments.map(toPersistedIncidentComment)
+          )
+        : Promise.resolve(),
+      demoIncidentAgentMentions.length > 0
+        ? collections.incidentAgentMentions.insertMany(
+            demoIncidentAgentMentions.map(toPersistedIncidentAgentMention)
+          )
+        : Promise.resolve(),
+      demoIncidentActionApprovals.length > 0
+        ? collections.incidentActionApprovals.insertMany(
+            demoIncidentActionApprovals.map(toPersistedIncidentActionApproval)
+          )
+        : Promise.resolve(),
       collections.remediationActions.insertMany(demoRemediationActions),
       collections.tickets.insertMany(demoTickets.map(toPersistedTicket)),
       collections.conversations.insertMany(
@@ -844,7 +1119,10 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     await Promise.all([
       collections.devices.createIndex({ id: 1 }, { unique: true }),
       collections.incidents.createIndex({ id: 1 }, { unique: true }),
-      collections.incidentEvents.createIndex({ incidentId: 1, timestamp: 1 }),
+      collections.incidentActivities.createIndex({ incidentId: 1, timestamp: 1 }),
+      collections.incidentComments.createIndex({ incidentId: 1, createdAt: 1 }),
+      collections.incidentAgentMentions.createIndex({ incidentId: 1, createdAt: 1 }),
+      collections.incidentActionApprovals.createIndex({ incidentId: 1, requestedAt: 1 }),
       collections.telemetry.createIndex({ deviceId: 1, timestamp: 1 }),
       collections.tickets.createIndex({ incidentId: 1 }),
       collections.conversations.createIndex({ id: 1 }, { unique: true }),
@@ -926,19 +1204,81 @@ function mapPersistedIncident(incident: PersistedIncident): Incident {
   };
 }
 
-function toPersistedIncidentEvent(event: IncidentEvent): PersistedIncidentEvent {
+function toPersistedIncidentActivity(
+  activity: IncidentActivity
+): PersistedIncidentActivity {
   return {
-    ...event,
-    timestamp: new Date(event.timestamp),
+    ...activity,
+    timestamp: new Date(activity.timestamp),
   };
 }
 
-function mapPersistedIncidentEvent(
-  event: PersistedIncidentEvent
-): IncidentEvent {
+function mapPersistedIncidentActivity(
+  activity: PersistedIncidentActivity
+): IncidentActivity {
   return {
-    ...event,
-    timestamp: event.timestamp.toISOString(),
+    ...activity,
+    timestamp: activity.timestamp.toISOString(),
+  };
+}
+
+function toPersistedIncidentComment(
+  comment: IncidentComment
+): PersistedIncidentComment {
+  return {
+    ...comment,
+    createdAt: new Date(comment.createdAt),
+    updatedAt: new Date(comment.updatedAt),
+  };
+}
+
+function mapPersistedIncidentComment(
+  comment: PersistedIncidentComment
+): IncidentComment {
+  return {
+    ...comment,
+    createdAt: comment.createdAt.toISOString(),
+    updatedAt: comment.updatedAt.toISOString(),
+  };
+}
+
+function toPersistedIncidentAgentMention(
+  mention: IncidentAgentMention
+): PersistedIncidentAgentMention {
+  return {
+    ...mention,
+    createdAt: new Date(mention.createdAt),
+    acceptedAt: mention.acceptedAt ? new Date(mention.acceptedAt) : undefined,
+  };
+}
+
+function mapPersistedIncidentAgentMention(
+  mention: PersistedIncidentAgentMention
+): IncidentAgentMention {
+  return {
+    ...mention,
+    createdAt: mention.createdAt.toISOString(),
+    acceptedAt: mention.acceptedAt?.toISOString(),
+  };
+}
+
+function toPersistedIncidentActionApproval(
+  approval: IncidentActionApproval
+): PersistedIncidentActionApproval {
+  return {
+    ...approval,
+    requestedAt: new Date(approval.requestedAt),
+    resolvedAt: approval.resolvedAt ? new Date(approval.resolvedAt) : undefined,
+  };
+}
+
+function mapPersistedIncidentActionApproval(
+  approval: PersistedIncidentActionApproval
+): IncidentActionApproval {
+  return {
+    ...approval,
+    requestedAt: approval.requestedAt.toISOString(),
+    resolvedAt: approval.resolvedAt?.toISOString(),
   };
 }
 

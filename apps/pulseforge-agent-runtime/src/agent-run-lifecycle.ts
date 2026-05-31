@@ -13,9 +13,14 @@ import type {
 import {
   appendRunItems,
   createAgentRunSnapshot,
+  createIncidentActionApproval,
+  createIncidentActivity,
   getConversation,
   listRunItems,
   updateAgentRunStatus,
+  updateIncidentActivityByAgentRun,
+  updateIncidentActionApprovalStatus,
+  updateIncidentActionApprovalByRequiredAction,
   updateRequiredActionStatus,
   updateToolCallStatus,
   upsertConversationToolApprovalGrant,
@@ -28,9 +33,14 @@ export interface AgentRunLifecycleStorage {
     items: AppendRunItemInput[]
   ): Promise<RunItem[]>;
   createAgentRunSnapshot: typeof createAgentRunSnapshot;
+  createIncidentActionApproval: typeof createIncidentActionApproval;
+  createIncidentActivity: typeof createIncidentActivity;
   getConversation: typeof getConversation;
   listRunItems: typeof listRunItems;
   updateAgentRunStatus: typeof updateAgentRunStatus;
+  updateIncidentActivityByAgentRun: typeof updateIncidentActivityByAgentRun;
+  updateIncidentActionApprovalStatus: typeof updateIncidentActionApprovalStatus;
+  updateIncidentActionApprovalByRequiredAction: typeof updateIncidentActionApprovalByRequiredAction;
   updateRequiredActionStatus: typeof updateRequiredActionStatus;
   updateToolCallStatus: typeof updateToolCallStatus;
   upsertConversationToolApprovalGrant: typeof upsertConversationToolApprovalGrant;
@@ -39,9 +49,14 @@ export interface AgentRunLifecycleStorage {
 const defaultStorage: AgentRunLifecycleStorage = {
   appendRunItems,
   createAgentRunSnapshot,
+  createIncidentActionApproval,
+  createIncidentActivity,
   getConversation,
   listRunItems,
   updateAgentRunStatus,
+  updateIncidentActivityByAgentRun,
+  updateIncidentActionApprovalStatus,
+  updateIncidentActionApprovalByRequiredAction,
   updateRequiredActionStatus,
   updateToolCallStatus,
   upsertConversationToolApprovalGrant,
@@ -159,6 +174,11 @@ export class AgentRunLifecycle {
       summary: "Agent run requires delegated tool authorization.",
       authRequired,
     });
+    await this.updateObserveOnlyIncidentActivity({
+      agentStatus: "waiting_for_authorization",
+      message: "Incident Responder is waiting for delegated authorization.",
+      summary: "Agent run requires delegated tool authorization.",
+    });
   }
 
   async recordRequiredAction(
@@ -182,6 +202,7 @@ export class AgentRunLifecycle {
       status: "waiting_for_action",
       summary: "Agent run is waiting for operator action.",
     });
+    await this.projectObserveOnlyIncidentActionApproval(details);
   }
 
   async recordActionResolution(details: {
@@ -211,6 +232,32 @@ export class AgentRunLifecycle {
       status: "running",
       authRequired: undefined,
     });
+    await this.updateObserveOnlyIncidentActionApproval(details);
+    await this.updateObserveOnlyIncidentActivity({
+      agentStatus: "running",
+      message: "Incident Responder resumed after operator action.",
+    });
+  }
+
+  private async updateObserveOnlyIncidentActionApproval(details: {
+    requiredActionId: string;
+    outcome: Exclude<RequiredActionStatus, "pending">;
+    data?: unknown;
+  }): Promise<void> {
+    if (!(await this.isObserveOnlyIncidentAutomation())) {
+      return;
+    }
+    const data = asRecord(details.data);
+    const resolvedByUserId = stringFromRecord(data, "resolvedByUserId");
+    await this.storage.updateIncidentActionApprovalByRequiredAction(
+      this.request.agentRunId,
+      details.requiredActionId,
+      {
+        status: details.outcome,
+        resolvedAt: new Date().toISOString(),
+        resolvedByUserId,
+      }
+    );
   }
 
   async recordRunNote(
@@ -280,6 +327,12 @@ export class AgentRunLifecycle {
       summary: stripThinkingBlocks(summary),
       investigation,
     });
+    await this.updateObserveOnlyIncidentActivity({
+      agentStatus: "completed",
+      message: "Incident Responder completed.",
+      title: investigation?.title,
+      summary: stripThinkingBlocks(summary),
+    });
   }
 
   async failRun(error: unknown): Promise<void> {
@@ -289,6 +342,11 @@ export class AgentRunLifecycle {
       status: "failed",
       summary: "Agent run failed.",
       errorMessage: message,
+    });
+    await this.updateObserveOnlyIncidentActivity({
+      agentStatus: "failed",
+      message: "Incident Responder failed.",
+      summary: message,
     });
   }
 
@@ -340,6 +398,100 @@ export class AgentRunLifecycle {
       agentKind: this.request.agentKind,
     };
   }
+
+  private async isObserveOnlyIncidentAutomation(): Promise<boolean> {
+    const conversation = await this.storage.getConversation(
+      this.request.conversationId
+    );
+    return (
+      conversation?.interactionMode === "observe_only" &&
+      conversation.rootAgentKind === "incident-responder" &&
+      typeof conversation.incidentId === "string"
+    );
+  }
+
+  private async updateObserveOnlyIncidentActivity(
+    update: Parameters<
+      AgentRunLifecycleStorage["updateIncidentActivityByAgentRun"]
+    >[1]
+  ): Promise<void> {
+    if (!(await this.isObserveOnlyIncidentAutomation())) {
+      return;
+    }
+    await this.storage.updateIncidentActivityByAgentRun(
+      this.request.agentRunId,
+      update
+    );
+  }
+
+  private async projectObserveOnlyIncidentActionApproval(
+    details: Extract<AgentRuntimeStreamEvent, { event: "required_action" }>["data"]
+  ): Promise<void> {
+    if (
+      details.actionType !== "tool_approval" ||
+      !(await this.isObserveOnlyIncidentAutomation()) ||
+      !this.request.incidentId
+    ) {
+      return;
+    }
+
+    const data = asRecord(details.data);
+    const title = stringFromRecord(data, "title") ?? "Approve incident action";
+    const summary =
+      stringFromRecord(data, "description") ??
+      details.content.find((block) => block.type === "text")?.text ??
+      "The incident responder needs approval before continuing.";
+    const toolName = stringFromRecord(data, "toolName");
+    const approval = await this.storage.createIncidentActionApproval({
+      incidentId: this.request.incidentId,
+      conversationId: this.request.conversationId,
+      agentRunId: this.request.agentRunId,
+      requiredActionId: details.requiredActionId,
+      toolName,
+      title,
+      summary,
+    });
+    const activity = await this.storage.createIncidentActivity({
+      incidentId: this.request.incidentId,
+      kind: "incident_action_approval",
+      message: `Incident Responder requested approval: ${title}.`,
+      createdBy: {
+        actorType: "agent",
+        actorId: this.request.agentKind,
+        agentRunId: this.request.agentRunId,
+      },
+      conversationId: this.request.conversationId,
+      agentRunId: this.request.agentRunId,
+      agentKind: this.request.agentKind,
+      agentStatus: "waiting_for_approval",
+      incidentActionApprovalId: approval.id,
+      title,
+      summary,
+    });
+    await this.storage.updateIncidentActionApprovalStatus(approval.id, {
+      status: "pending",
+      activityId: activity.id,
+    });
+    await this.updateObserveOnlyIncidentActivity({
+      agentStatus: "waiting_for_approval",
+      message: "Incident Responder is waiting for action approval.",
+      incidentActionApprovalId: approval.id,
+    });
+  }
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : null;
+}
+
+function stringFromRecord(
+  value: Record<string, unknown> | null,
+  key: string
+): string | undefined {
+  const item = value?.[key];
+  return typeof item === "string" ? item : undefined;
 }
 
 export function textContent(text: string): ContentBlock[] {

@@ -95,10 +95,19 @@ export async function* runPulseForgeAgentInvocation(
 ): AsyncGenerator<RuntimeSseChunk> {
   const lifecycle = new AgentRunLifecycle(request);
   const actorId = request.actorId ?? context.sessionId;
+  const memorySessionId = resolveAgentMemorySessionId(request, context);
   try {
     const memory = await dependencies.memoryProjection.prepare({
       actorId,
-      sessionId: context.sessionId,
+      sessionId: memorySessionId,
+    });
+    console.info("[agent] memory session prepared", {
+      agentRunId: request.agentRunId,
+      conversationId: request.conversationId,
+      runtimeSessionId: request.runtimeSessionId,
+      providerSessionId: request.providerSessionId,
+      contextSessionId: context.sessionId,
+      memorySessionId,
     });
     const agentConfig = getPulseForgeAgentConfig(request.agentKind);
     const runtimeEvents = new AsyncEventQueue<AgentRuntimeStreamEvent>();
@@ -173,6 +182,9 @@ export async function* runPulseForgeAgentInvocation(
       name: agentConfig.label,
       systemPrompt: agentConfig.systemPrompt,
       tools,
+      // Approval interrupts are snapshot-resumed one at a time. Sequential tool
+      // execution prevents multiple approval buttons from sharing one snapshot.
+      toolExecutor: "sequential",
       conversationManager: new SlidingWindowConversationManager({
         windowSize: 40,
       }),
@@ -189,7 +201,7 @@ export async function* runPulseForgeAgentInvocation(
     const agentInvocation = (async (): Promise<AgentRuntimeStreamEvent[]> => {
       const result = request.resume
         ? await resumeInterruptedAgent(agent, request)
-        : await agent.invoke(buildAgentPrompt(request));
+        : await agent.invoke(request.prompt);
 
       console.info("[agent] invocation completed", {
         agentRunId: request.agentRunId,
@@ -597,35 +609,11 @@ function stringFromRecord(
   return typeof item === "string" ? item : undefined;
 }
 
-function buildAgentPrompt(request: AgentRuntimeInvocation): string {
-  const contextLines = [
-    `Agent kind: ${request.agentKind}`,
-    `Conversation ID: ${request.conversationId}`,
-    `Agent run ID: ${request.agentRunId}`,
-    request.runtimeSessionId
-      ? `Runtime session ID: ${request.runtimeSessionId}`
-      : null,
-    request.providerSessionId
-      ? `Provider session ID: ${request.providerSessionId}`
-      : null,
-    request.incidentId ? `Incident ID: ${request.incidentId}` : null,
-    request.deviceId ? `Device ID: ${request.deviceId}` : null,
-    "",
-    request.prompt,
-    "",
-    "Return a concise operator-ready response. If an ID is provided, use the available tools to gather operational evidence before answering.",
-    shouldUseResetApprovalPath(request.prompt)
-      ? "This request asks you to reset or remediate a device if warranted. After gathering evidence, if reset or reboot is warranted, call reset_device to request operator approval. Do not ask for confirmation in chat, and do not use propose_remediation_action as a substitute for reset_device."
-      : null,
-  ].filter(Boolean);
-
-  return contextLines.join("\n");
-}
-
-function shouldUseResetApprovalPath(prompt: string): boolean {
-  return /\b(reset|reboot|restart|remediate|remediation|resolve|fix)\b/i.test(
-    prompt
-  );
+export function resolveAgentMemorySessionId(
+  request: Pick<AgentRuntimeInvocation, "providerSessionId">,
+  context: Pick<AgentRuntimeContext, "sessionId">
+): string {
+  return request.providerSessionId ?? context.sessionId;
 }
 
 function buildInvestigationSummary(agentLabel: string, result: string) {
