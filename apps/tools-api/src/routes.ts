@@ -2,6 +2,7 @@ import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import {
   buildIncidentInvestigationContext,
   createIncidentActivity,
+  recoverSimulatedDeviceFromReset,
   createRemediationAction,
   createTicket,
   getDevice,
@@ -119,6 +120,7 @@ toolsApp.openapi(
     }
 
     const body = c.req.valid("json");
+    await recoverSimulatedDeviceFromReset(deviceId);
     return c.json(serializeDeviceReset(deviceId, body.reason));
   }) as never
 );

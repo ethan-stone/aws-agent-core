@@ -124,6 +124,54 @@ _Avoid_: Shared chat, bot thread
 An incident-scoped request for an authorized operator to approve or decline an operational action proposed by an observe-only incident automation **Conversation**. An **IncidentActionApproval** links the shared **Incident** collaboration surface to the underlying **RequiredAction** in the agent lifecycle.
 _Avoid_: IncidentApprovalRequest, RequiredAction, ToolApprovalGrant
 
+**Device**:
+A physical or simulated IoT fleet member whose operational state, telemetry, and incidents are monitored by PulseForge. A **Device** is part of a site and may be acted on by approved operator or agent workflows.
+_Avoid_: Asset when discussing runtime telemetry, sensor when the fleet member may be a gateway or meter
+
+**SimulatedDevice**:
+A **Device** whose source is marked as simulated, whose telemetry and operational changes are produced by a **DeviceSimulation** rather than by real hardware. Simulation-backed identity lives on the normal **Device** record so **SimulatedDevices** participate in the same device, telemetry, incident, tool, and agent flows as other devices.
+_Avoid_: Mock device, frontend-only device, fake row
+
+**DeviceTelemetry**:
+A time-ordered observation emitted by a **Device** about its operational condition, such as temperature, vibration, battery, signal strength, or packet loss. **DeviceTelemetry** is evidence for fleet health, incident detection, and agent investigation.
+_Avoid_: Metric when referring to the domain record, log line, UI chart point
+
+**DeviceCurrentState**:
+The latest materialized operational view of a **Device**, including status, battery, connectivity, and last-seen time. **DeviceCurrentState** should stay consistent with the newest **DeviceTelemetry** emitted for that device.
+_Avoid_: Telemetry history, dashboard-only value
+
+**DeviceSimulation**:
+A demo or runtime source that advances PulseForge fleet state by emitting synthetic **DeviceTelemetry** and operational changes for **Devices**. In its baseline state, a **DeviceSimulation** keeps **SimulatedDevices** behaving normally by drawing telemetry from normal ranges for each device type. A queued **SimulationScenario** may push selected **SimulatedDevices** into abnormal ranges that can affect statuses, incidents, tools, and agent investigation. The scheduled **DeviceSimulation** may create or update incidents when simulated behavior crosses detection thresholds. A **DeviceSimulation** is allowed to mark its output as simulated, but simulated output should flow through the same backend, tools, incident, and agent paths as ordinary device output.
+_Avoid_: Frontend animation, mock-only data, background thing
+
+**SimulationRange**:
+A configured normal or abnormal value range used by **DeviceSimulation** to generate **DeviceTelemetry** for a device type and telemetry field. **SimulationRanges** are selected from the device type and **SimulationScenario** vocabulary rather than customized per scenario.
+_Avoid_: Per-device business rule, random magic number
+
+**SimulationScenario**:
+A durable, named abnormal operating condition applied to selected **SimulatedDevices** by a **DeviceSimulation** for learning and demonstration. A **SimulationScenario** creates coherent behavior over a bounded duration and may cause incident detection or updates after its trigger threshold is met. The initial scenario vocabulary is temperature drift, connectivity loss, and battery degradation. **SimulationScenarios** are queued by explicit operator or developer action, not by agents.
+_Avoid_: Random data, one-off seed record, UI demo toggle, agent-triggered failure
+
+**ScenarioDuration**:
+The bounded amount of time a **SimulationScenario** may influence **SimulatedDevice** behavior. The maximum **ScenarioDuration** is fifteen minutes.
+_Avoid_: Forever-running demo failure, unbounded anomaly
+
+**ScenarioTriggerThreshold**:
+The number of consecutive scenario-affected **DeviceTelemetry** points required before a **SimulationScenario** may create or update an incident. The default threshold is immediate.
+_Avoid_: Rules engine, alert policy
+
+**SimulatedResetRecovery**:
+The demo behavior where an approved reset command for a **SimulatedDevice** ends every active **SimulationScenario** affecting that device and returns future **DeviceTelemetry** toward baseline normal behavior. **SimulatedResetRecovery** does not itself resolve or mitigate incidents.
+_Avoid_: Tool result only, pretend reset with no fleet effect, automatic incident resolution
+
+**SimulatedIncidentReuse**:
+The demo behavior where **DeviceSimulation** updates an existing open incident for the same affected **SimulatedDevice** and scenario category instead of creating duplicate incidents on repeated abnormal ticks.
+_Avoid_: Incident spam, one incident per telemetry point
+
+**IncidentResolution**:
+The operator action that marks an **Incident** resolved after the operational condition has been handled. Agent recommendations and device reset results may inform **IncidentResolution**, but they do not resolve incidents automatically.
+_Avoid_: Reset result, automatic scenario completion, agent recommendation
+
 ## Example Dialogue
 
 Dev: "The operator asked the copilot to investigate the freezer incident, then approved a follow-up remediation."

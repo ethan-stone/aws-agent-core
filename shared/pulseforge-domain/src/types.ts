@@ -1,4 +1,5 @@
 export type DeviceStatus = "healthy" | "warning" | "critical" | "offline";
+export type DeviceSource = "real" | "simulated";
 export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 export type IncidentStatus =
   | "open"
@@ -61,11 +62,22 @@ export type IncidentAgentMentionStatus =
   | "failed";
 export type AuditActorType = "agent" | "user";
 export type AuditOutcome = "succeeded" | "failed";
+export type SimulationScenarioType =
+  | "temperature-drift"
+  | "connectivity-loss"
+  | "battery-degradation";
+export type SimulationScenarioStatus =
+  | "queued"
+  | "active"
+  | "completed"
+  | "cancelled";
 export type AppPermission =
   | "read:dashboard"
   | "read:devices"
   | "read:incidents"
   | "read:telemetry"
+  | "write:devices"
+  | "write:incidents"
   | "write:agent_runs"
   | "write:admin";
 
@@ -82,6 +94,7 @@ export interface Device {
   siteId: string;
   name: string;
   type: "freezer-sensor" | "vibration-monitor" | "gateway" | "power-meter";
+  source: DeviceSource;
   firmwareVersion: string;
   batteryPercent: number;
   connectivityPercent: number;
@@ -114,6 +127,32 @@ export interface Incident {
     | "connectivity-loss"
     | "battery-degradation"
     | "firmware-regression";
+}
+
+export interface SimulationScenario {
+  id: string;
+  deviceId: string;
+  type: SimulationScenarioType;
+  status: SimulationScenarioStatus;
+  durationMinutes: number;
+  triggerAfterConsecutivePoints: number;
+  consecutiveAffectedPoints: number;
+  createdAt: string;
+  startedAt?: string;
+  triggeredAt?: string;
+  completedAt?: string;
+  expiresAt?: string;
+  incidentId?: string;
+  completedReason?: "duration_elapsed" | "reset_recovery" | "cancelled";
+}
+
+export interface CreateDeviceRequest {
+  id?: string;
+  siteId: string;
+  name: string;
+  type: Device["type"];
+  firmwareVersion?: string;
+  tags?: string[];
 }
 
 export interface IncidentActivity {
@@ -654,6 +693,7 @@ export interface PulseForgeSnapshot {
   incidentComments: IncidentComment[];
   incidentAgentMentions: IncidentAgentMention[];
   incidentActionApprovals: IncidentActionApproval[];
+  simulationScenarios: SimulationScenario[];
   remediationActions: RemediationAction[];
   tickets: Ticket[];
   conversations: Conversation[];

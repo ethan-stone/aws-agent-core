@@ -21,6 +21,7 @@ import {
   resolveRequiredAction,
 } from "../lib/api-client.js";
 import { useResource } from "../lib/use-resource.js";
+import { MarkdownText } from "../components/MarkdownText.js";
 
 const starterPrompts = [
   {
@@ -69,23 +70,23 @@ export function CopilotPage() {
   }
 
   return (
-    <section>
-      <header className="mb-7 flex flex-col items-start justify-between gap-6 md:flex-row">
+    <section className="grid gap-5">
+      <header className="flex flex-col items-start justify-between gap-5 md:flex-row">
         <div>
           <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
             Agents
           </p>
-          <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-normal text-slate-50">
-            Ops Copilot Workspace
+          <h2 className="mt-1.5 text-[32px] leading-tight font-semibold tracking-normal text-slate-50">
+            Ops Copilot
           </h2>
         </div>
-        <p className="m-0 max-w-[34ch] text-sm text-slate-400">
+        <p className="m-0 max-w-[34ch] text-sm text-slate-500">
           Start a new conversation or reopen prior copilot work.
         </p>
       </header>
 
-      <div className="grid gap-3.5">
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
+      <div className="grid gap-3">
+        <article className="rounded-md border border-white/10 bg-white/[0.03] p-5">
           <NewConversationForm
             prompt={prompt}
             loading={loading}
@@ -94,14 +95,14 @@ export function CopilotPage() {
           />
 
           {error ? (
-            <div className="mt-4 border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+            <div className="mt-4 rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
               {error}
             </div>
           ) : null}
         </article>
 
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
-          <h3 className="m-0 text-[15px] tracking-normal text-slate-100">
+        <article className="rounded-md border border-white/10 bg-white/[0.03] p-5">
+          <h3 className="m-0 text-[16px] font-semibold tracking-normal text-slate-100">
             Conversations
           </h3>
           <div className="mt-4 grid gap-2">
@@ -110,7 +111,7 @@ export function CopilotPage() {
                 <Link
                   key={item.conversation.id}
                   to={`/copilot/${item.conversation.id}`}
-                  className="border border-white/8 bg-black/15 px-3 py-3 text-slate-200 transition-colors hover:border-sky-300/35 hover:bg-sky-300/5"
+                  className="rounded-md border border-white/8 bg-black/15 px-3 py-3 text-slate-200 transition-colors hover:border-emerald-300/30 hover:bg-emerald-300/5"
                 >
                   <div className="flex flex-wrap items-center justify-between gap-3">
                     <span className="min-w-0 text-sm font-medium">
@@ -154,7 +155,7 @@ function NewConversationForm(props: {
 }) {
   return (
     <>
-      <div className="mb-5 flex flex-wrap gap-2">
+      <div className="mb-4 flex flex-wrap gap-2">
         {starterPrompts.map((item) => (
           <button
             key={item.label}
@@ -162,7 +163,7 @@ function NewConversationForm(props: {
             onClick={() => {
               props.onPromptChange(item.prompt);
             }}
-            className="border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-white/20 hover:text-slate-50"
+            className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-emerald-300/30 hover:bg-emerald-300/5 hover:text-slate-50"
           >
             {item.label}
           </button>
@@ -178,7 +179,7 @@ function NewConversationForm(props: {
             value={props.prompt}
             onChange={(event) => props.onPromptChange(event.target.value)}
             rows={4}
-            className="min-h-28 resize-y border border-white/10 bg-black/15 px-3 py-3 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-white/25"
+            className="min-h-28 resize-y rounded-md border border-white/10 bg-black/15 px-3 py-3 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-emerald-300/50"
             placeholder="Ask the ops copilot to summarize an incident or explain abnormal fleet behavior."
           />
         </label>
@@ -187,7 +188,7 @@ function NewConversationForm(props: {
           <button
             type="submit"
             disabled={props.loading || props.prompt.trim().length === 0}
-            className="border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-400"
+            className="rounded-md border border-emerald-200/20 bg-emerald-200 px-4 py-2 text-sm font-semibold text-slate-950 transition-colors hover:bg-emerald-100 disabled:cursor-not-allowed disabled:border-white/10 disabled:bg-slate-500"
           >
             {props.loading ? "Starting..." : "Start conversation"}
           </button>
@@ -311,7 +312,7 @@ export function ConversationReplyBox(props: {
         disabled={isObserveOnly}
         onChange={(event) => setPrompt(event.target.value)}
         onKeyDown={(event) => {
-          if (event.key === "Enter" && event.metaKey) {
+          if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
             event.preventDefault();
             void submit();
           }
@@ -322,7 +323,7 @@ export function ConversationReplyBox(props: {
             ? "This conversation is observe-only."
             : "Send a message..."
         }
-        className="min-h-20 resize-y border border-white/10 bg-black/15 px-3 py-2 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:text-slate-500"
+        className="min-h-20 resize-y rounded-md border border-white/10 bg-black/15 px-3 py-2 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 hover:border-white/15 focus:border-sky-300/35 disabled:cursor-not-allowed disabled:text-slate-500"
       />
       <div className="flex items-center justify-between gap-3">
         {error ? (
@@ -333,7 +334,7 @@ export function ConversationReplyBox(props: {
         <button
           type="submit"
           disabled={loading || !prompt.trim() || isObserveOnly}
-          className="border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="rounded-md border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           {loading ? "Sending..." : "Send"}
         </button>
@@ -408,7 +409,7 @@ export function ConversationResultView(props: {
           <div ref={timelineEndRef} />
         </div>
       ) : (
-        <div className="border border-white/8 bg-black/15 px-4 py-3 text-sm text-slate-400">
+        <div className="px-1 py-3 text-sm text-slate-500">
           No conversation activity yet.
         </div>
       )}
@@ -653,9 +654,7 @@ function ConversationTimelineRow(props: { entry: ConversationTimelineEntry }) {
         tone="success"
         time={props.entry.run.completedAt ?? props.entry.run.startedAt}
       >
-        <p className="m-0 whitespace-pre-wrap text-sm leading-6 text-slate-100">
-          {props.entry.text}
-        </p>
+        <MarkdownText className="text-slate-100">{props.entry.text}</MarkdownText>
       </TimelineTextRow>
     );
   }
@@ -672,9 +671,9 @@ function ConversationTimelineRow(props: { entry: ConversationTimelineEntry }) {
             <h4 className="m-0 text-sm font-medium text-slate-100">
               {props.entry.investigation.title}
             </h4>
-            <p className="m-0 text-sm leading-6 text-slate-300">
+            <MarkdownText className="text-slate-300">
               {props.entry.investigation.summary}
-            </p>
+            </MarkdownText>
           </div>
           <div className="grid gap-3 md:grid-cols-2">
             <ResultList
@@ -732,7 +731,7 @@ function InternalWorkRow(props: {
       <button
         type="button"
         onClick={() => setExpanded((value) => !value)}
-        className="group w-full border border-transparent px-2 py-2 text-left transition-colors hover:border-white/10 hover:bg-white/[0.035] focus-visible:border-sky-300/40 focus-visible:bg-sky-300/5 focus-visible:outline-none"
+        className="group w-full rounded-md border border-transparent px-2 py-2 text-left transition-colors hover:border-white/10 hover:bg-white/[0.035] focus-visible:border-sky-300/40 focus-visible:bg-sky-300/5 focus-visible:outline-none"
       >
         <div className="flex flex-wrap items-center justify-between gap-3">
           <span className="text-sm leading-6 text-slate-300 transition-colors group-hover:text-slate-100">
@@ -825,11 +824,11 @@ function RunItemRow(props: { item: RunItem }) {
           />
         ) : null}
         {details.format === "code" ? (
-          <pre className="m-0 mt-2 overflow-x-auto whitespace-pre rounded border border-white/8 bg-black/20 px-3 py-2 font-mono text-xs leading-5 text-slate-200">
+          <pre className="m-0 mt-2 overflow-x-auto whitespace-pre rounded-md bg-white/[0.025] px-3 py-2 font-mono text-xs leading-5 text-slate-300">
             {visibleBody}
           </pre>
         ) : (
-          <p className="m-0 mt-2 whitespace-pre-wrap break-words text-sm leading-6 text-slate-200">
+          <p className="m-0 mt-2 break-words text-sm leading-6 text-slate-200">
             {visibleBody}
           </p>
         )}
@@ -853,12 +852,12 @@ function MessageTimelineRow(props: {
 
   return (
     <div
-      className={`flex py-3 first:pt-0 last:pb-0 ${
+      className={`flex py-4 first:pt-0 last:pb-0 ${
         isUser ? "justify-end" : "justify-start"
       }`}
     >
       <div
-        className={`max-w-[78%] min-w-0 ${
+        className={`max-w-[82%] min-w-0 ${
           isUser ? "text-right" : "text-left"
         }`}
       >
@@ -876,13 +875,19 @@ function MessageTimelineRow(props: {
             </span>
           ) : null}
         </div>
-        <p
-          className={`m-0 whitespace-pre-wrap break-words text-sm leading-6 ${
-            isUser ? "font-medium text-slate-100" : "text-slate-200"
+        <div
+          className={`rounded-md px-3.5 py-2.5 ${
+            isUser
+              ? "bg-sky-300/10 text-slate-50"
+              : "bg-white/[0.035] text-slate-200"
           }`}
         >
-          {props.details.body}
-        </p>
+          <MarkdownText
+            className={isUser ? "font-medium text-slate-50" : "text-slate-200"}
+          >
+            {props.details.body}
+          </MarkdownText>
+        </div>
       </div>
     </div>
   );
@@ -897,7 +902,7 @@ function OutputToggleButton(props: {
     <button
       type="button"
       onClick={props.onClick}
-      className={`w-fit border border-white/10 px-2.5 py-1 text-xs text-slate-300 transition-colors hover:border-sky-300/35 hover:bg-sky-300/5 hover:text-sky-100 focus-visible:border-sky-300/45 focus-visible:bg-sky-300/8 focus-visible:outline-none ${
+      className={`w-fit rounded-md px-2.5 py-1 text-xs text-slate-400 transition-colors hover:bg-sky-300/5 hover:text-sky-100 focus-visible:bg-sky-300/8 focus-visible:text-sky-100 focus-visible:outline-none ${
         props.position === "bottom" ? "mt-2" : ""
       }`}
     >
@@ -917,7 +922,7 @@ function RunProgressRow(props: {
           <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
             {isRunActive(props.status) ? "Waiting" : "No activity"}
           </span>
-          <span className="border border-sky-300/20 px-2 py-0.5 text-xs text-sky-200">
+          <span className="rounded-full bg-sky-300/8 px-2 py-0.5 text-xs text-sky-200">
             {props.status}
           </span>
         </div>
@@ -1341,33 +1346,33 @@ function timelineDotClass(
 function metaBadgeClass(
   tone: ReturnType<typeof runItemDisplay>["tone"] = "neutral"
 ): string {
-  const base = "border px-2 py-0.5 text-xs";
+  const base = "rounded-full px-2 py-0.5 text-xs";
   if (tone === "success") {
-    return `${base} border-emerald-300/20 text-emerald-200`;
+    return `${base} bg-emerald-300/8 text-emerald-200`;
   }
   if (tone === "warning") {
-    return `${base} border-amber-300/20 text-amber-200`;
+    return `${base} bg-amber-300/8 text-amber-200`;
   }
   if (tone === "danger") {
-    return `${base} border-rose-300/20 text-rose-200`;
+    return `${base} bg-rose-300/8 text-rose-200`;
   }
   if (tone === "info") {
-    return `${base} border-sky-300/20 text-sky-200`;
+    return `${base} bg-sky-300/8 text-sky-200`;
   }
-  return `${base} border-white/10 text-slate-500`;
+  return `${base} bg-white/[0.035] text-slate-500`;
 }
 
 function statusBadgeClass(status: AgentRun["status"]): string {
   const base =
-    "border px-2 py-1 text-[11px] uppercase tracking-[0.08em]";
+    "rounded-full px-2.5 py-1 text-[11px] uppercase tracking-[0.08em]";
   if (status === "completed") {
-    return `${base} border-emerald-300/25 text-emerald-200`;
+    return `${base} bg-emerald-300/8 text-emerald-200`;
   }
   if (status === "failed" || status === "cancelled") {
-    return `${base} border-rose-300/25 text-rose-200`;
+    return `${base} bg-rose-300/8 text-rose-200`;
   }
   if (status === "auth_required" || status === "waiting_for_action") {
-    return `${base} border-amber-300/25 text-amber-200`;
+    return `${base} bg-amber-300/8 text-amber-200`;
   }
-  return `${base} border-sky-300/25 text-sky-200`;
+  return `${base} bg-sky-300/8 text-sky-200`;
 }

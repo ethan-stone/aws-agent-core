@@ -2,16 +2,15 @@ import {
   type ConversationDetail,
   type IncidentActivity,
   type IncidentComment,
-  demoIncidents,
-  demoSnapshot,
 } from "../../../../shared/pulseforge-domain/src/index.js";
-import { useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import {
   createConversation,
   fetchConversation,
   fetchIncident,
   postIncidentComment,
+  resolveIncident as resolveIncidentRequest,
 } from "../lib/api-client.js";
 import { useResource } from "../lib/use-resource.js";
 import {
@@ -21,36 +20,14 @@ import {
 
 export function IncidentDetailPage() {
   const { incidentId = "" } = useParams();
-  const initialValue = useMemo(() => {
-    const incident = demoIncidents.find((item) => item.id === incidentId);
-    if (!incident) {
-      return null;
-    }
-
-    return {
-      incident,
-      activities: demoSnapshot.incidentActivities.filter(
-        (activity) => activity.incidentId === incidentId
-      ),
-      comments: demoSnapshot.incidentComments.filter(
-        (comment) => comment.incidentId === incidentId
-      ),
-      agentMentions: demoSnapshot.incidentAgentMentions.filter(
-        (mention) => mention.incidentId === incidentId
-      ),
-      actionApprovals: demoSnapshot.incidentActionApprovals.filter(
-        (approval) => approval.incidentId === incidentId
-      ),
-    };
-  }, [incidentId]);
-
-  const { data } = useResource(
+  const { data, loading, error: loadError } = useResource(
     () => fetchIncident(incidentId),
-    initialValue,
+    null,
     [incidentId]
   );
   const [postedDetail, setPostedDetail] = useState<typeof data>(null);
   const [running, setRunning] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [commentBody, setCommentBody] = useState("");
   const [postingComment, setPostingComment] = useState(false);
@@ -67,7 +44,7 @@ export function IncidentDetailPage() {
   if (!detail) {
     return (
       <section className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
-        Incident not found.
+        {loadError ?? (loading ? "Loading incident..." : "Incident not found.")}
       </section>
     );
   }
@@ -92,6 +69,16 @@ export function IncidentDetailPage() {
           >
             {running ? "Investigating..." : "Investigate with AI"}
           </button>
+          {detail.incident.status !== "resolved" ? (
+            <button
+              type="button"
+              onClick={() => void handleResolveIncident()}
+              disabled={resolving}
+              className="border border-emerald-300/35 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:border-emerald-200/60 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:border-slate-600 disabled:text-slate-500"
+            >
+              {resolving ? "Resolving..." : "Mark resolved"}
+            </button>
+          ) : null}
           {error ? (
             <div className="max-w-sm border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
               {error}
@@ -142,14 +129,23 @@ export function IncidentDetailPage() {
           />
           <form
             className="mt-5 grid gap-3 border-t border-white/8 pt-5"
-            onSubmit={(event) => void handlePostComment(event)}
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitComment();
+            }}
           >
             <textarea
               value={commentBody}
               onChange={(event) => setCommentBody(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void submitComment();
+                }
+              }}
               rows={3}
               placeholder="Leave a comment..."
-              className="min-h-24 resize-y border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-sky-300/40"
+              className="min-h-24 resize-y rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 hover:border-white/15 focus:border-sky-300/40"
             />
             <div className="flex items-center justify-between gap-3">
               <span />
@@ -203,10 +199,9 @@ export function IncidentDetailPage() {
     }
   }
 
-  async function handlePostComment(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
+  async function submitComment() {
     const body = commentBody.trim();
-    if (!body) {
+    if (!body || postingComment) {
       return;
     }
 
@@ -222,6 +217,19 @@ export function IncidentDetailPage() {
       );
     } finally {
       setPostingComment(false);
+    }
+  }
+
+  async function handleResolveIncident() {
+    setResolving(true);
+    setError(null);
+    try {
+      const next = await resolveIncidentRequest(incidentId);
+      setPostedDetail(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resolve incident");
+    } finally {
+      setResolving(false);
     }
   }
 
@@ -263,7 +271,7 @@ function IncidentThread(props: {
   ].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 
   return (
-    <div className="mt-4 grid gap-0">
+    <div className="mt-4 grid gap-1">
       {items.map((item) =>
         item.kind === "activity" ? (
           <ActivityItem
@@ -318,12 +326,12 @@ function ActivityItem(props: {
         <button
           type="button"
           onClick={() => props.onOpenConversation(activity.conversationId!)}
-          className="w-full border border-sky-300/35 bg-sky-300/5 px-4 py-3 text-left text-slate-200 transition-colors hover:border-sky-200/60 hover:bg-sky-300/10"
+          className="group w-full rounded-md border border-transparent bg-sky-300/[0.035] px-3 py-3 text-left text-slate-200 transition-colors hover:border-sky-200/20 hover:bg-sky-300/[0.07] focus-visible:border-sky-300/40 focus-visible:outline-none"
         >
           {content}
-          <div className="mt-3 flex items-center justify-between border-t border-sky-200/10 pt-2 text-xs text-sky-200/75">
+          <div className="mt-3 flex items-center justify-between text-xs text-sky-200/75">
             <span>{activity.title ?? "Open conversation"}</span>
-            <span>Open</span>
+            <span className="transition-colors group-hover:text-sky-100">Open</span>
           </div>
         </button>
       </TimelineShell>
@@ -332,7 +340,7 @@ function ActivityItem(props: {
 
   return (
     <TimelineShell tone="default">
-      <div className="border border-white/8 bg-white/[0.02] px-4 py-3 text-sm text-slate-300">
+      <div className="px-3 py-2 text-sm text-slate-300">
         {content}
       </div>
     </TimelineShell>
@@ -342,7 +350,7 @@ function ActivityItem(props: {
 function CommentItem(props: { comment: IncidentComment }) {
   return (
     <TimelineShell tone="comment">
-      <div className="border border-white/8 bg-black/15 px-4 py-3 text-sm text-slate-200">
+      <div className="px-3 py-2 text-sm text-slate-200">
         <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-500">
           <span>{props.comment.authorUserId}</span>
           <span>{new Date(props.comment.createdAt).toLocaleString()}</span>
@@ -360,25 +368,13 @@ function TimelineShell(props: {
   inset?: boolean;
   tone: "default" | "comment" | "agent";
 }) {
-  const dotClass =
-    props.tone === "agent"
-      ? "border-sky-300/60 bg-sky-300/35"
-      : props.tone === "comment"
-        ? "border-fuchsia-300/50 bg-fuchsia-300/35"
-        : "border-slate-400/40 bg-slate-400/25";
-
   return (
     <div
-      className={`grid grid-cols-[22px_minmax(0,1fr)] gap-3 border-l border-white/10 pb-3 last:pb-0 ${
-        props.inset ? "ml-7" : ""
+      className={`min-w-0 border-b border-white/8 pb-3 last:border-b-0 last:pb-0 ${
+        props.inset ? "ml-8 border-l border-sky-300/18 pl-4" : ""
       }`}
     >
-      <div className="relative">
-        <span
-          className={`absolute left-[-6px] top-3 h-3 w-3 rounded-full border ${dotClass}`}
-        />
-      </div>
-      <div className="min-w-0">{props.children}</div>
+      {props.children}
     </div>
   );
 }

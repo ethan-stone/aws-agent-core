@@ -19,6 +19,7 @@ export function serializeDevice(device: Device) {
       siteId: device.siteId,
       name: device.name,
       type: device.type,
+      source: device.source,
       firmwareVersion: device.firmwareVersion,
       batteryPercent: device.batteryPercent,
       connectivityPercent: device.connectivityPercent,

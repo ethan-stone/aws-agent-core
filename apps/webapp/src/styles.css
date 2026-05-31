@@ -4,8 +4,7 @@
   :root {
     color: #d6dde7;
     background:
-      radial-gradient(circle at top left, rgba(133, 149, 173, 0.08), transparent 30%),
-      linear-gradient(180deg, #06080c, #0c1016 48%, #0d1219);
+      linear-gradient(180deg, #070a0f, #0b1016 48%, #101319);
     font-family: "IBM Plex Sans", "Azeret Mono", "SF Mono", "Segoe UI", sans-serif;
     font-synthesis: none;
     text-rendering: optimizeLegibility;

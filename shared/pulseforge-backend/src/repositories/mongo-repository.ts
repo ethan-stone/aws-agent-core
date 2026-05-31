@@ -21,6 +21,7 @@ import {
   demoRemediationActions,
   demoRuntimeSessions,
   demoRunItems,
+  demoSimulationScenarios,
   demoSites,
   demoTickets,
   type AgentRun,
@@ -40,6 +41,7 @@ import {
   type RemediationAction,
   type RuntimeSession,
   type RunItem,
+  type SimulationScenario,
   type Site,
   type Ticket,
   type ToolApprovalGrant,
@@ -59,6 +61,16 @@ type PersistedTelemetry = Omit<DeviceMetricSnapshot, "timestamp"> & {
 type PersistedIncident = Omit<Incident, "createdAt" | "updatedAt"> & {
   createdAt: Date;
   updatedAt: Date;
+};
+type PersistedSimulationScenario = Omit<
+  SimulationScenario,
+  "createdAt" | "startedAt" | "triggeredAt" | "completedAt" | "expiresAt"
+> & {
+  createdAt: Date;
+  startedAt?: Date;
+  triggeredAt?: Date;
+  completedAt?: Date;
+  expiresAt?: Date;
 };
 type PersistedIncidentActivity = Omit<IncidentActivity, "timestamp"> & {
   timestamp: Date;
@@ -124,6 +136,7 @@ interface Collections {
   devices: Collection<PersistedDevice>;
   telemetry: Collection<PersistedTelemetry>;
   incidents: Collection<PersistedIncident>;
+  simulationScenarios: Collection<PersistedSimulationScenario>;
   incidentActivities: Collection<PersistedIncidentActivity>;
   incidentComments: Collection<PersistedIncidentComment>;
   incidentAgentMentions: Collection<PersistedIncidentAgentMention>;
@@ -155,6 +168,8 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       devices: this.db.collection<PersistedDevice>("devices"),
       telemetry: this.db.collection<PersistedTelemetry>("telemetry"),
       incidents: this.db.collection<PersistedIncident>("incidents"),
+      simulationScenarios:
+        this.db.collection<PersistedSimulationScenario>("simulation_scenarios"),
       incidentActivities:
         this.db.collection<PersistedIncidentActivity>("incident_events"),
       incidentComments:
@@ -186,6 +201,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       telemetryDocs,
       incidents,
       incidentActivities,
+      simulationScenarios,
       incidentComments,
       incidentAgentMentions,
       incidentActionApprovals,
@@ -203,6 +219,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       collections.telemetry.find().toArray(),
       collections.incidents.find().toArray(),
       collections.incidentActivities.find().toArray(),
+      collections.simulationScenarios.find().toArray(),
       collections.incidentComments.find().toArray(),
       collections.incidentAgentMentions.find().toArray(),
       collections.incidentActionApprovals.find().toArray(),
@@ -226,6 +243,11 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     const normalizedIncidentActivities = incidentActivities.map((activity) =>
       mapPersistedIncidentActivity(
         stripMongoId<PersistedIncidentActivity>(activity)
+      )
+    );
+    const normalizedSimulationScenarios = simulationScenarios.map((scenario) =>
+      mapPersistedSimulationScenario(
+        stripMongoId<PersistedSimulationScenario>(scenario)
       )
     );
     const normalizedIncidentComments = incidentComments.map((comment) =>
@@ -288,6 +310,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       deviceMetrics,
       incidents: normalizedIncidents,
       incidentActivities: normalizedIncidentActivities,
+      simulationScenarios: normalizedSimulationScenarios,
       incidentComments: normalizedIncidentComments,
       incidentAgentMentions: normalizedIncidentAgentMentions,
       incidentActionApprovals: normalizedIncidentActionApprovals,
@@ -340,6 +363,38 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       : null;
   }
 
+  async createDevice(
+    device: Parameters<PulseForgeRepository["createDevice"]>[0]
+  ): Promise<Device> {
+    const created: PersistedDevice = {
+      ...device,
+      source: device.source ?? "simulated",
+      batteryPercent: device.batteryPercent ?? 100,
+      connectivityPercent: device.connectivityPercent ?? 100,
+      status: device.status ?? "healthy",
+      lastSeenAt: new Date(device.lastSeenAt ?? Date.now()),
+    };
+
+    await this.collections().devices.insertOne(created);
+    return mapPersistedDevice(created);
+  }
+
+  async updateDeviceCurrentState(
+    deviceId: string,
+    update: Parameters<PulseForgeRepository["updateDeviceCurrentState"]>[1]
+  ): Promise<Device | null> {
+    await this.collections().devices.updateOne(
+      { id: deviceId },
+      {
+        $set: removeUndefined({
+          ...update,
+          lastSeenAt: update.lastSeenAt ? new Date(update.lastSeenAt) : undefined,
+        }),
+      }
+    );
+    return this.getDevice(deviceId);
+  }
+
   async getDeviceTelemetry(
     deviceId: string
   ): Promise<DeviceMetricSnapshot[] | null> {
@@ -355,6 +410,15 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     return items.map(({ _id, deviceId: _deviceId, ...metric }) =>
       mapPersistedTelemetry(metric)
     );
+  }
+
+  async appendDeviceTelemetry(
+    deviceId: string,
+    metric: DeviceMetricSnapshot
+  ): Promise<DeviceMetricSnapshot> {
+    const persisted = toPersistedTelemetry(deviceId, metric);
+    await this.collections().telemetry.insertOne(persisted);
+    return mapPersistedTelemetry(persisted);
   }
 
   async listIncidents(): Promise<Incident[]> {
@@ -417,6 +481,153 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
         )
       ),
     };
+  }
+
+  async createIncident(
+    incident: Parameters<PulseForgeRepository["createIncident"]>[0]
+  ): Promise<Incident> {
+    const now = new Date();
+    const created: PersistedIncident = {
+      ...incident,
+      id: incident.id ?? `inc-${randomUUID().slice(0, 8)}`,
+      createdAt: new Date(incident.createdAt ?? now),
+      updatedAt: new Date(incident.updatedAt ?? now),
+    };
+    await this.collections().incidents.insertOne(created);
+    return mapPersistedIncident(created);
+  }
+
+  async updateIncident(
+    incidentId: string,
+    update: Parameters<PulseForgeRepository["updateIncident"]>[1]
+  ): Promise<Incident | null> {
+    await this.collections().incidents.updateOne(
+      { id: incidentId },
+      {
+        $set: removeUndefined({
+          ...update,
+          updatedAt: new Date(update.updatedAt ?? Date.now()),
+        }),
+      }
+    );
+    const item = await this.collections().incidents.findOne({ id: incidentId });
+    return item
+      ? mapPersistedIncident(stripMongoId<PersistedIncident>(item))
+      : null;
+  }
+
+  async findOpenIncidentForDeviceCategory(
+    deviceId: string,
+    category: Incident["category"]
+  ): Promise<Incident | null> {
+    const item = await this.collections().incidents.findOne({
+      category,
+      status: { $ne: "resolved" },
+      deviceIds: deviceId,
+    });
+    return item
+      ? mapPersistedIncident(stripMongoId<PersistedIncident>(item))
+      : null;
+  }
+
+  async listSimulationScenarios(
+    statuses?: SimulationScenario["status"][]
+  ): Promise<SimulationScenario[]> {
+    const filter = statuses ? { status: { $in: statuses } } : {};
+    const items = await this.collections()
+      .simulationScenarios.find(filter)
+      .sort({ createdAt: 1 })
+      .toArray();
+    return items.map((item) =>
+      mapPersistedSimulationScenario(
+        stripMongoId<PersistedSimulationScenario>(item)
+      )
+    );
+  }
+
+  async createSimulationScenario(
+    scenario: Parameters<PulseForgeRepository["createSimulationScenario"]>[0]
+  ): Promise<SimulationScenario> {
+    const created: PersistedSimulationScenario = {
+      id: scenario.id ?? randomUUID(),
+      deviceId: scenario.deviceId,
+      type: scenario.type,
+      status: scenario.status ?? "queued",
+      durationMinutes: scenario.durationMinutes ?? 5,
+      triggerAfterConsecutivePoints: scenario.triggerAfterConsecutivePoints ?? 1,
+      consecutiveAffectedPoints: scenario.consecutiveAffectedPoints ?? 0,
+      createdAt: new Date(scenario.createdAt ?? Date.now()),
+      startedAt: scenario.startedAt ? new Date(scenario.startedAt) : undefined,
+      triggeredAt: scenario.triggeredAt
+        ? new Date(scenario.triggeredAt)
+        : undefined,
+      completedAt: scenario.completedAt
+        ? new Date(scenario.completedAt)
+        : undefined,
+      expiresAt: scenario.expiresAt ? new Date(scenario.expiresAt) : undefined,
+      incidentId: scenario.incidentId,
+      completedReason: scenario.completedReason,
+    };
+
+    await this.collections().simulationScenarios.insertOne(created);
+    return mapPersistedSimulationScenario(created);
+  }
+
+  async updateSimulationScenario(
+    scenarioId: string,
+    update: Parameters<PulseForgeRepository["updateSimulationScenario"]>[1]
+  ): Promise<SimulationScenario | null> {
+    await this.collections().simulationScenarios.updateOne(
+      { id: scenarioId },
+      {
+        $set: removeUndefined({
+          ...update,
+          startedAt: update.startedAt ? new Date(update.startedAt) : undefined,
+          triggeredAt: update.triggeredAt ? new Date(update.triggeredAt) : undefined,
+          completedAt: update.completedAt ? new Date(update.completedAt) : undefined,
+          expiresAt: update.expiresAt ? new Date(update.expiresAt) : undefined,
+        }),
+      }
+    );
+    const item = await this.collections().simulationScenarios.findOne({
+      id: scenarioId,
+    });
+    return item
+      ? mapPersistedSimulationScenario(
+          stripMongoId<PersistedSimulationScenario>(item)
+        )
+      : null;
+  }
+
+  async completeActiveSimulationScenariosForDevice(
+    deviceId: string,
+    reason: NonNullable<SimulationScenario["completedReason"]>
+  ): Promise<SimulationScenario[]> {
+    const now = new Date();
+    await this.collections().simulationScenarios.updateMany(
+      {
+        deviceId,
+        status: { $in: ["queued", "active"] },
+      },
+      {
+        $set: {
+          status: "completed",
+          completedAt: now,
+          completedReason: reason,
+        },
+      }
+    );
+    const items = await this.collections()
+      .simulationScenarios.find({
+        deviceId,
+        completedAt: now,
+      })
+      .toArray();
+    return items.map((item) =>
+      mapPersistedSimulationScenario(
+        stripMongoId<PersistedSimulationScenario>(item)
+      )
+    );
   }
 
   async getConversation(conversationId: string): Promise<Conversation | null> {
@@ -1045,25 +1256,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
   async seedDemoData(): Promise<void> {
     const collections = this.collections();
 
-    await Promise.all([
-      collections.sites.deleteMany({}),
-      collections.devices.deleteMany({}),
-      collections.telemetry.deleteMany({}),
-      collections.incidents.deleteMany({}),
-      collections.incidentActivities.deleteMany({}),
-      collections.incidentComments.deleteMany({}),
-      collections.incidentAgentMentions.deleteMany({}),
-      collections.incidentActionApprovals.deleteMany({}),
-      collections.remediationActions.deleteMany({}),
-      collections.tickets.deleteMany({}),
-      collections.conversations.deleteMany({}),
-      collections.runtimeSessions.deleteMany({}),
-      collections.agentRuns.deleteMany({}),
-      collections.agentRunSnapshots.deleteMany({}),
-      collections.runItems.deleteMany({}),
-      collections.pendingInputs.deleteMany({}),
-      collections.auditLogs.deleteMany({}),
-    ]);
+    await this.cleanupDemoData();
 
     await Promise.all([
       collections.sites.insertMany(demoSites),
@@ -1074,6 +1267,11 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
         )
       ),
       collections.incidents.insertMany(demoIncidents.map(toPersistedIncident)),
+      demoSimulationScenarios.length > 0
+        ? collections.simulationScenarios.insertMany(
+            demoSimulationScenarios.map(toPersistedSimulationScenario)
+          )
+        : Promise.resolve(),
       collections.incidentActivities.insertMany(
         demoIncidentActivities.map(toPersistedIncidentActivity)
       ),
@@ -1117,34 +1315,77 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
     ]);
 
     await Promise.all([
+      collections.sites.createIndex({ id: 1 }, { unique: true }),
       collections.devices.createIndex({ id: 1 }, { unique: true }),
+      collections.telemetry.createIndex({ deviceId: 1, timestamp: -1 }),
       collections.incidents.createIndex({ id: 1 }, { unique: true }),
+      collections.simulationScenarios.createIndex({ id: 1 }, { unique: true }),
+      collections.simulationScenarios.createIndex({ status: 1, deviceId: 1 }),
       collections.incidentActivities.createIndex({ incidentId: 1, timestamp: 1 }),
+      collections.incidentActivities.createIndex({ agentRunId: 1 }),
       collections.incidentComments.createIndex({ incidentId: 1, createdAt: 1 }),
-      collections.incidentAgentMentions.createIndex({ incidentId: 1, createdAt: 1 }),
-      collections.incidentActionApprovals.createIndex({ incidentId: 1, requestedAt: 1 }),
-      collections.telemetry.createIndex({ deviceId: 1, timestamp: 1 }),
+      collections.incidentAgentMentions.createIndex({ commentId: 1 }),
+      collections.incidentAgentMentions.createIndex({ agentRunId: 1 }),
+      collections.incidentActionApprovals.createIndex({ agentRunId: 1 }),
+      collections.incidentActionApprovals.createIndex(
+        { agentRunId: 1, requiredActionId: 1 },
+        { unique: true }
+      ),
+      collections.remediationActions.createIndex({ incidentId: 1 }),
       collections.tickets.createIndex({ incidentId: 1 }),
       collections.conversations.createIndex({ id: 1 }, { unique: true }),
+      collections.conversations.createIndex({ ownerUserId: 1, updatedAt: -1 }),
+      collections.conversations.createIndex({ incidentId: 1, createdAt: -1 }),
+      collections.runtimeSessions.createIndex({ id: 1 }, { unique: true }),
       collections.runtimeSessions.createIndex(
         { conversationId: 1, provider: 1, runtimeIdentity: 1 },
         { unique: true }
       ),
       collections.agentRuns.createIndex({ id: 1 }, { unique: true }),
-      collections.agentRuns.createIndex({ incidentId: 1 }),
       collections.agentRuns.createIndex({ conversationId: 1, startedAt: 1 }),
       collections.agentRunSnapshots.createIndex({ id: 1 }, { unique: true }),
-      collections.agentRunSnapshots.createIndex({
-        runId: 1,
-        requiredActionId: 1,
-      }),
+      collections.agentRunSnapshots.createIndex({ runId: 1, createdAt: -1 }),
       collections.runItems.createIndex({ id: 1 }, { unique: true }),
       collections.runItems.createIndex({ runId: 1, sequence: 1 }),
-      collections.pendingInputs.createIndex({ conversationId: 1, acceptedAt: 1 }),
+      collections.pendingInputs.createIndex({ conversationId: 1, status: 1 }),
       collections.auditLogs.createIndex({ timestamp: -1 }),
-      collections.auditLogs.createIndex({ "actor.agentRunId": 1 }),
-      collections.auditLogs.createIndex({ operation: 1 }),
     ]);
+  }
+
+  async cleanupDemoData() {
+    const collections = this.collections();
+    const deleted = {
+      sites: (await collections.sites.deleteMany({})).deletedCount,
+      devices: (await collections.devices.deleteMany({})).deletedCount,
+      telemetry: (await collections.telemetry.deleteMany({})).deletedCount,
+      incidents: (await collections.incidents.deleteMany({})).deletedCount,
+      simulationScenarios: (await collections.simulationScenarios.deleteMany({}))
+        .deletedCount,
+      incidentActivities: (await collections.incidentActivities.deleteMany({}))
+        .deletedCount,
+      incidentComments: (await collections.incidentComments.deleteMany({}))
+        .deletedCount,
+      incidentAgentMentions: (
+        await collections.incidentAgentMentions.deleteMany({})
+      ).deletedCount,
+      incidentActionApprovals: (
+        await collections.incidentActionApprovals.deleteMany({})
+      ).deletedCount,
+      remediationActions: (await collections.remediationActions.deleteMany({}))
+        .deletedCount,
+      tickets: (await collections.tickets.deleteMany({})).deletedCount,
+      conversations: (await collections.conversations.deleteMany({})).deletedCount,
+      runtimeSessions: (await collections.runtimeSessions.deleteMany({}))
+        .deletedCount,
+      agentRuns: (await collections.agentRuns.deleteMany({})).deletedCount,
+      agentRunSnapshots: (await collections.agentRunSnapshots.deleteMany({}))
+        .deletedCount,
+      runItems: (await collections.runItems.deleteMany({})).deletedCount,
+      pendingInputs: (await collections.pendingInputs.deleteMany({})).deletedCount,
+      auditLogs: (await collections.auditLogs.deleteMany({})).deletedCount,
+    };
+
+    return { deleted };
   }
 }
 
@@ -1164,6 +1405,7 @@ function toPersistedDevice(device: Device): PersistedDevice {
 function mapPersistedDevice(device: PersistedDevice): Device {
   return {
     ...device,
+    source: device.source ?? "simulated",
     lastSeenAt: device.lastSeenAt.toISOString(),
   };
 }
@@ -1201,6 +1443,32 @@ function mapPersistedIncident(incident: PersistedIncident): Incident {
     ...incident,
     createdAt: incident.createdAt.toISOString(),
     updatedAt: incident.updatedAt.toISOString(),
+  };
+}
+
+function toPersistedSimulationScenario(
+  scenario: SimulationScenario
+): PersistedSimulationScenario {
+  return {
+    ...scenario,
+    createdAt: new Date(scenario.createdAt),
+    startedAt: scenario.startedAt ? new Date(scenario.startedAt) : undefined,
+    triggeredAt: scenario.triggeredAt ? new Date(scenario.triggeredAt) : undefined,
+    completedAt: scenario.completedAt ? new Date(scenario.completedAt) : undefined,
+    expiresAt: scenario.expiresAt ? new Date(scenario.expiresAt) : undefined,
+  };
+}
+
+function mapPersistedSimulationScenario(
+  scenario: PersistedSimulationScenario
+): SimulationScenario {
+  return {
+    ...scenario,
+    createdAt: scenario.createdAt.toISOString(),
+    startedAt: scenario.startedAt?.toISOString(),
+    triggeredAt: scenario.triggeredAt?.toISOString(),
+    completedAt: scenario.completedAt?.toISOString(),
+    expiresAt: scenario.expiresAt?.toISOString(),
   };
 }
 

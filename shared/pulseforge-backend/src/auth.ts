@@ -27,6 +27,8 @@ export const appPermissions = {
   readDevices: "read:devices",
   readIncidents: "read:incidents",
   readTelemetry: "read:telemetry",
+  writeDevices: "write:devices",
+  writeIncidents: "write:incidents",
   writeAgentRuns: "write:agent_runs",
   writeAdmin: "write:admin",
 } as const satisfies Record<string, AppPermission>;
@@ -36,6 +38,8 @@ const defaultUserPermissions: AppPermission[] = [
   appPermissions.readDevices,
   appPermissions.readIncidents,
   appPermissions.readTelemetry,
+  appPermissions.writeDevices,
+  appPermissions.writeIncidents,
   appPermissions.writeAgentRuns,
 ];
 

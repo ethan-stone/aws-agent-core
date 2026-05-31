@@ -2,6 +2,7 @@ import {
   type ApiAuthConfig,
   type ConversationDetail,
   type ConversationSummary,
+  type CreateDeviceRequest,
   type CreateConversationRequest,
   type CreateConversationRunRequest,
   demoDashboard,
@@ -236,6 +237,15 @@ export async function fetchDevices(): Promise<Device[]> {
   return response.items;
 }
 
+export async function createDevice(
+  request: CreateDeviceRequest
+): Promise<Device> {
+  return requestJson("/api/devices", {
+    method: "POST",
+    body: JSON.stringify(request),
+  });
+}
+
 export async function fetchDevice(deviceId: string): Promise<Device | null> {
   return getJson(
     `/api/devices/${deviceId}`,
@@ -332,6 +342,18 @@ export async function postIncidentComment(
   return requestJson(`/api/incidents/${incidentId}/comments`, {
     method: "POST",
     body: JSON.stringify({ body }),
+  });
+}
+
+export async function resolveIncident(incidentId: string): Promise<{
+  incident: Incident;
+  activities: IncidentActivity[];
+  comments: IncidentComment[];
+  agentMentions: IncidentAgentMention[];
+  actionApprovals: IncidentActionApproval[];
+}> {
+  return requestJson(`/api/incidents/${incidentId}/resolve`, {
+    method: "POST",
   });
 }
 

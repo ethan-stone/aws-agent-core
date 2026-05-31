@@ -1,18 +1,12 @@
-import { demoDevices } from "../../../../shared/pulseforge-domain/src/index.js";
-import { useMemo } from "react";
 import { useParams } from "react-router-dom";
 import { fetchDevice, fetchDeviceTelemetry } from "../lib/api-client.js";
 import { useResource } from "../lib/use-resource.js";
 
 export function DeviceDetailPage() {
   const { deviceId = "" } = useParams();
-  const initialDevice = useMemo(
-    () => demoDevices.find((device) => device.id === deviceId) ?? null,
-    [deviceId]
-  );
-  const { data: device } = useResource(
+  const { data: device, loading, error } = useResource(
     () => fetchDevice(deviceId),
-    initialDevice,
+    null,
     [deviceId]
   );
   const { data: telemetry } = useResource(
@@ -24,7 +18,7 @@ export function DeviceDetailPage() {
   if (!device) {
     return (
       <section className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
-        Device not found.
+        {error ?? (loading ? "Loading device..." : "Device not found.")}
       </section>
     );
   }
@@ -49,6 +43,7 @@ export function DeviceDetailPage() {
           </h3>
           <ul className="mt-3.5 pl-[18px] text-slate-300">
             <li>Status: {device.status}</li>
+            <li>Source: {device.source}</li>
             <li>Firmware: {device.firmwareVersion}</li>
             <li>Battery: {device.batteryPercent}%</li>
             <li>Connectivity: {device.connectivityPercent}%</li>

@@ -19,6 +19,7 @@ import type {
   RuntimeSession,
   RunItem,
   RunItemSource,
+  SimulationScenario,
   Ticket,
   ToolApprovalGrant,
 } from "@agent-core/pulseforge-domain";
@@ -29,6 +30,10 @@ export interface IncidentAggregate {
   comments: IncidentComment[];
   agentMentions: IncidentAgentMention[];
   actionApprovals: IncidentActionApproval[];
+}
+
+export interface CleanupDemoDataResult {
+  deleted: Record<string, number>;
 }
 
 export type AppendRunItemInput = RunItem extends infer Item
@@ -53,9 +58,91 @@ export interface PulseForgeRepository {
   getDashboard(): Promise<DashboardSummary>;
   listDevices(): Promise<Device[]>;
   getDevice(deviceId: string): Promise<Device | null>;
+  createDevice(
+    device: Omit<
+      Device,
+      | "source"
+      | "batteryPercent"
+      | "connectivityPercent"
+      | "status"
+      | "lastSeenAt"
+    > &
+      Partial<
+        Pick<
+          Device,
+          "source" | "batteryPercent" | "connectivityPercent" | "status" | "lastSeenAt"
+        >
+      >
+  ): Promise<Device>;
+  updateDeviceCurrentState(
+    deviceId: string,
+    update: Partial<
+      Pick<Device, "batteryPercent" | "connectivityPercent" | "status" | "lastSeenAt">
+    >
+  ): Promise<Device | null>;
   getDeviceTelemetry(deviceId: string): Promise<DeviceMetricSnapshot[] | null>;
+  appendDeviceTelemetry(
+    deviceId: string,
+    metric: DeviceMetricSnapshot
+  ): Promise<DeviceMetricSnapshot>;
   listIncidents(): Promise<Incident[]>;
   getIncident(incidentId: string): Promise<IncidentAggregate | null>;
+  createIncident(
+    incident: Omit<Incident, "id" | "createdAt" | "updatedAt"> & {
+      id?: string;
+      createdAt?: string;
+      updatedAt?: string;
+    }
+  ): Promise<Incident>;
+  updateIncident(
+    incidentId: string,
+    update: Partial<Pick<Incident, "severity" | "status" | "summary" | "updatedAt">>
+  ): Promise<Incident | null>;
+  findOpenIncidentForDeviceCategory(
+    deviceId: string,
+    category: Incident["category"]
+  ): Promise<Incident | null>;
+  listSimulationScenarios(
+    statuses?: SimulationScenario["status"][]
+  ): Promise<SimulationScenario[]>;
+  createSimulationScenario(
+    scenario: Omit<
+      SimulationScenario,
+      | "id"
+      | "status"
+      | "createdAt"
+      | "consecutiveAffectedPoints"
+      | "durationMinutes"
+      | "triggerAfterConsecutivePoints"
+    > & {
+      id?: string;
+      status?: SimulationScenario["status"];
+      createdAt?: string;
+      consecutiveAffectedPoints?: number;
+      durationMinutes?: number;
+      triggerAfterConsecutivePoints?: number;
+    }
+  ): Promise<SimulationScenario>;
+  updateSimulationScenario(
+    scenarioId: string,
+    update: Partial<
+      Pick<
+        SimulationScenario,
+        | "status"
+        | "consecutiveAffectedPoints"
+        | "startedAt"
+        | "triggeredAt"
+        | "completedAt"
+        | "expiresAt"
+        | "incidentId"
+        | "completedReason"
+      >
+    >
+  ): Promise<SimulationScenario | null>;
+  completeActiveSimulationScenariosForDevice(
+    deviceId: string,
+    reason: NonNullable<SimulationScenario["completedReason"]>
+  ): Promise<SimulationScenario[]>;
   getConversation(conversationId: string): Promise<Conversation | null>;
   createConversation(
     conversation: Omit<Conversation, "createdAt" | "updatedAt" | "status"> & {
@@ -216,4 +303,5 @@ export interface PulseForgeRepository {
     }
   ): Promise<AuditLogEntry>;
   seedDemoData(): Promise<void>;
+  cleanupDemoData(): Promise<CleanupDemoDataResult>;
 }

@@ -6,6 +6,7 @@ import type {
   ConversationSummary,
   CreateConversationRequest,
   CreateConversationRunRequest,
+  Device,
   RunItem,
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
@@ -19,8 +20,10 @@ import {
   getIncident,
   getSnapshot,
   getStorageMode,
+  createDevice,
   listDevices,
   listIncidents,
+  resolveIncident,
   seedDemoData,
   verifyAccessToken,
 } from "../../../shared/pulseforge-backend/src/index.js";
@@ -106,6 +109,15 @@ function isAgentKind(value: unknown): value is AgentKind {
   return (
     value === "ops-copilot" ||
     value === "incident-responder"
+  );
+}
+
+function isDeviceType(value: unknown): value is Device["type"] {
+  return (
+    value === "freezer-sensor" ||
+    value === "vibration-monitor" ||
+    value === "gateway" ||
+    value === "power-meter"
   );
 }
 
@@ -241,6 +253,39 @@ app.get(
   }
 );
 
+app.post(
+  "/api/devices",
+  requireUserPermission(appPermissions.writeDevices),
+  async (c) => {
+    const body = (await c.req.json()) as {
+      id?: unknown;
+      siteId?: unknown;
+      name?: unknown;
+      type?: unknown;
+      firmwareVersion?: unknown;
+      tags?: unknown;
+    };
+    const siteId = asOptionalString(body.siteId);
+    const name = asOptionalString(body.name);
+    const type = asOptionalString(body.type);
+    if (!siteId || !name || !isDeviceType(type)) {
+      return c.json({ error: "siteId, name, and valid type are required" }, 400);
+    }
+
+    const device = await createDevice({
+      id: asOptionalString(body.id) ?? `dev-${randomUUID().slice(0, 8)}`,
+      siteId,
+      name,
+      type,
+      firmwareVersion: asOptionalString(body.firmwareVersion) ?? "1.0.0",
+      tags: Array.isArray(body.tags)
+        ? body.tags.filter((tag): tag is string => typeof tag === "string")
+        : ["simulated"],
+    });
+    return c.json(device, 201);
+  }
+);
+
 app.get(
   "/api/devices/:deviceId",
   requireUserPermission(appPermissions.readDevices),
@@ -285,6 +330,19 @@ app.get(
     }
 
     return c.json(incident);
+  }
+);
+
+app.post(
+  "/api/incidents/:incidentId/resolve",
+  requireUserPermission(appPermissions.writeIncidents),
+  async (c) => {
+    const incident = await resolveIncident(c.req.param("incidentId"));
+    if (!incident) {
+      return c.json({ error: "Incident not found" }, 404);
+    }
+
+    return c.json(await getIncident(incident.id));
   }
 );
 

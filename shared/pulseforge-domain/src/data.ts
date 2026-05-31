@@ -17,6 +17,7 @@ import type {
   RunbookDocument,
   RunItem,
   Site,
+  SimulationScenario,
   Ticket,
 } from "./types.js";
 
@@ -45,6 +46,7 @@ export const demoDevices: Device[] = [
     siteId: "site-atl-1",
     name: "Freezer Sensor 014",
     type: "freezer-sensor",
+    source: "simulated",
     firmwareVersion: "1.14.7",
     batteryPercent: 82,
     connectivityPercent: 98,
@@ -57,6 +59,7 @@ export const demoDevices: Device[] = [
     siteId: "site-atl-1",
     name: "Freezer Sensor 022",
     type: "freezer-sensor",
+    source: "simulated",
     firmwareVersion: "1.14.7",
     batteryPercent: 77,
     connectivityPercent: 97,
@@ -69,6 +72,7 @@ export const demoDevices: Device[] = [
     siteId: "site-phx-1",
     name: "Line Gateway 003",
     type: "gateway",
+    source: "simulated",
     firmwareVersion: "2.2.1",
     batteryPercent: 100,
     connectivityPercent: 72,
@@ -81,6 +85,7 @@ export const demoDevices: Device[] = [
     siteId: "site-phx-1",
     name: "Vibration Monitor 118",
     type: "vibration-monitor",
+    source: "simulated",
     firmwareVersion: "3.0.2",
     batteryPercent: 64,
     connectivityPercent: 99,
@@ -287,6 +292,7 @@ export const demoIncidentAgentMentions: IncidentAgentMention[] = [
 ];
 
 export const demoIncidentActionApprovals: IncidentActionApproval[] = [];
+export const demoSimulationScenarios: SimulationScenario[] = [];
 
 export const demoRemediationActions: RemediationAction[] = [
   {
@@ -553,6 +559,7 @@ export const demoSnapshot: PulseForgeSnapshot = {
   incidentComments: demoIncidentComments,
   incidentAgentMentions: demoIncidentAgentMentions,
   incidentActionApprovals: demoIncidentActionApprovals,
+  simulationScenarios: demoSimulationScenarios,
   remediationActions: demoRemediationActions,
   tickets: demoTickets,
   conversations: demoConversations,
