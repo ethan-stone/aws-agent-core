@@ -534,16 +534,18 @@ export function ConversationResultView(props: {
             >
               {approvalLoading === "allow_once" ? "Approving..." : "Allow once"}
             </button>
-            <button
-              type="button"
-              disabled={Boolean(approvalLoading)}
-              onClick={() => handleApproval("allow_always")}
-              className="max-w-full rounded-md border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
-            >
-              {approvalLoading === "allow_always"
-                ? "Approving..."
-                : approvalAction.data.allowAlwaysLabel ?? "Always allow"}
-            </button>
+            {approvalAction.data.allowAlwaysLabel ? (
+              <button
+                type="button"
+                disabled={Boolean(approvalLoading)}
+                onClick={() => handleApproval("allow_always")}
+                className="max-w-full rounded-md border border-sky-100/40 bg-sky-100 px-3 py-1.5 text-xs uppercase leading-4 tracking-[0.08em] text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-sky-300/50"
+              >
+                {approvalLoading === "allow_always"
+                  ? "Approving..."
+                  : approvalAction.data.allowAlwaysLabel}
+              </button>
+            ) : null}
             <button
               type="button"
               disabled={Boolean(approvalLoading)}
@@ -1116,7 +1118,7 @@ type ToolApprovalActionItem = Extract<
     input?: unknown;
     approvalKey: string;
     approvalLabel: string;
-    allowAlwaysLabel: string;
+    allowAlwaysLabel?: string;
     agentRunId: string;
   };
 };
@@ -1197,10 +1199,10 @@ function isToolApprovalActionData(
     typeof value.approvalKey === "string" &&
     "approvalLabel" in value &&
     typeof value.approvalLabel === "string" &&
-    "allowAlwaysLabel" in value &&
-    typeof value.allowAlwaysLabel === "string" &&
     "agentRunId" in value &&
-    typeof value.agentRunId === "string"
+    typeof value.agentRunId === "string" &&
+    (!("allowAlwaysLabel" in value) ||
+      typeof value.allowAlwaysLabel === "string")
   );
 }
 

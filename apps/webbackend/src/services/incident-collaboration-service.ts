@@ -8,12 +8,14 @@ import {
   createIncidentAgentMention,
   createIncidentComment,
   getIncident,
+  getSnapshot,
   updateIncidentActivityByAgentRun,
   updateIncidentAgentMention,
   type IncidentAggregate,
 } from "../../../../shared/pulseforge-backend/src/index.js";
 import {
   createConversationAndRunStream,
+  createIncidentCreatedConversationAndRunStream,
 } from "./root-agent-run-lifecycle.js";
 import type { WebBackendDiagnosticContext } from "./webbackend-diagnostics.js";
 
@@ -29,6 +31,18 @@ export class IncidentCommentError extends Error {
 export interface IncidentCommentProgress {
   incident: IncidentAggregate;
   conversation?: ConversationDetail;
+}
+
+export interface IncidentAutomationSweepResult {
+  checked: number;
+  started: number;
+  skipped: number;
+  failed: number;
+  incidents: Array<{
+    incidentId: string;
+    status: "started" | "skipped" | "failed";
+    error?: string;
+  }>;
 }
 
 export async function postIncidentComment(
@@ -155,15 +169,12 @@ export async function startIncidentCreatedAutomation(
   if (!incident) {
     return null;
   }
+  if (await hasObserveOnlyIncidentConversation(incidentId)) {
+    return incident;
+  }
 
-  const stream = await createConversationAndRunStream(
-    {
-      agentKind: "incident-responder",
-      prompt: `Incident ${incidentId} was created. Investigate the incident, record high-signal activity, and recommend next operator actions.`,
-      incidentId,
-      interactionMode: "observe_only",
-    },
-    null,
+  const stream = await createIncidentCreatedConversationAndRunStream(
+    incidentId,
     diagnostics
   );
 
@@ -188,6 +199,76 @@ export async function startIncidentCreatedAutomation(
   }
 
   return getIncident(incidentId);
+}
+
+export async function runIncidentResponderAutomationSweep(
+  options: {
+    limit?: number;
+    diagnostics?: WebBackendDiagnosticContext;
+  } = {}
+): Promise<IncidentAutomationSweepResult> {
+  const snapshot = await getSnapshot();
+  const observeOnlyIncidentIds = new Set(
+    snapshot.conversations
+      .filter(
+        (conversation) =>
+          conversation.interactionMode === "observe_only" &&
+          typeof conversation.incidentId === "string"
+      )
+      .map((conversation) => conversation.incidentId as string)
+  );
+  const candidates = snapshot.incidents
+    .filter(
+      (incident) =>
+        incident.status !== "resolved" &&
+        !observeOnlyIncidentIds.has(incident.id)
+    )
+    .sort((a, b) => a.createdAt.localeCompare(b.createdAt))
+    .slice(0, options.limit ?? 3);
+  const result: IncidentAutomationSweepResult = {
+    checked: candidates.length,
+    started: 0,
+    skipped: 0,
+    failed: 0,
+    incidents: [],
+  };
+
+  for (const incident of candidates) {
+    try {
+      const before = await hasObserveOnlyIncidentConversation(incident.id);
+      const aggregate = await startIncidentCreatedAutomation(
+        incident.id,
+        options.diagnostics
+      );
+      const after = await hasObserveOnlyIncidentConversation(incident.id);
+      const started = Boolean(aggregate) && !before && after;
+      result[started ? "started" : "skipped"] += 1;
+      result.incidents.push({
+        incidentId: incident.id,
+        status: started ? "started" : "skipped",
+      });
+    } catch (error) {
+      result.failed += 1;
+      result.incidents.push({
+        incidentId: incident.id,
+        status: "failed",
+        error: error instanceof Error ? error.message : String(error),
+      });
+    }
+  }
+
+  return result;
+}
+
+async function hasObserveOnlyIncidentConversation(
+  incidentId: string
+): Promise<boolean> {
+  const snapshot = await getSnapshot();
+  return snapshot.conversations.some(
+    (conversation) =>
+      conversation.interactionMode === "observe_only" &&
+      conversation.incidentId === incidentId
+  );
 }
 
 function countCopilotMentions(body: string): number {

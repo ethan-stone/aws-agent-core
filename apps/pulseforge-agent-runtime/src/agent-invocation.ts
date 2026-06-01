@@ -32,6 +32,7 @@ import type {
   RequiredActionRunItem,
   ToolApprovalDecision,
   ToolApprovalGrant,
+  Conversation,
 } from "../../../shared/pulseforge-domain/src/index.js";
 import {
   getAgentRun,
@@ -48,6 +49,7 @@ import {
 import {
   AgentRunLifecycle,
   stripThinkingBlocks,
+  type AgentRunLifecycleContext,
 } from "./agent-run-lifecycle.js";
 import type { AgentMemoryProjection } from "./agent-memory-projection.js";
 import type { RuntimeConfig } from "./runtime-config.js";
@@ -112,12 +114,8 @@ interface ResolvedAgentInvocation {
   request: AgentRuntimeInvocation;
   agentKind: AgentKind;
   actorId?: string;
-  lifecycleContext: {
-    conversationId: string;
-    agentRunId: string;
-    agentKind: AgentKind;
-    actorId?: string;
-  };
+  conversation: Conversation;
+  lifecycleContext: AgentRunLifecycleContext;
 }
 
 export interface AgentRuntimeContext {
@@ -324,10 +322,12 @@ async function createFallbackLifecycle(
   request: AgentRuntimeInvocation
 ): Promise<AgentRunLifecycle | null> {
   if (request.operation === "start_agent_run") {
+    const incidentId = request.trigger.incidentId;
     return new AgentRunLifecycle({
       conversationId: request.conversationId,
       agentRunId: request.agentRunId,
       agentKind: request.agentKind,
+      ...(incidentId ? { incidentId } : {}),
       actorId: actorIdFromInvocation(request.actor),
     });
   }
@@ -341,6 +341,7 @@ async function createFallbackLifecycle(
     conversationId: request.conversationId,
     agentRunId: request.agentRunId,
     agentKind: run.agentKind,
+    ...(run.incidentId ? { incidentId: run.incidentId } : {}),
     actorId: actorIdFromInvocation(request.actor),
   });
 }
@@ -400,10 +401,12 @@ async function resolveAgentInvocation(
     request,
     agentKind,
     actorId,
+    conversation,
     lifecycleContext: {
       conversationId: request.conversationId,
       agentRunId: request.agentRunId,
       agentKind,
+      ...(conversation.incidentId ? { incidentId: conversation.incidentId } : {}),
       ...(actorId ? { actorId } : {}),
     },
   };
@@ -454,7 +457,7 @@ function installToolApprovalHook(
 ) {
   const approvalToolByName = new Map<string, PulseForgeToolDefinition>();
   for (const definition of toolDefinitions) {
-    if (definition.approval?.required) {
+    if (shouldRequireToolApproval(definition, invocation)) {
       approvalToolByName.set(definition.name, definition);
     }
   }
@@ -472,12 +475,15 @@ function installToolApprovalHook(
 
     const parsedInput = definition.inputSchema.parse(event.toolUse.input);
     const approvalDescriptor = approval.buildApproval(parsedInput);
-    const existingGrant = await findMatchingToolApprovalGrant(
-      lifecycle,
-      invocation,
-      event.toolUse.name,
-      approvalDescriptor.approvalKey
-    );
+    const observeOnlyIncidentLinked = isObserveOnlyIncidentLinked(invocation);
+    const existingGrant = observeOnlyIncidentLinked
+      ? null
+      : await findMatchingToolApprovalGrant(
+        lifecycle,
+        invocation,
+        event.toolUse.name,
+        approvalDescriptor.approvalKey
+      );
     if (existingGrant) {
       await lifecycle.recordToolApprovalGrantUsed(existingGrant);
       return;
@@ -501,12 +507,19 @@ function installToolApprovalHook(
         risk: approval.risk,
         approvalKey: approvalDescriptor.approvalKey,
         approvalLabel: approvalDescriptor.approvalLabel,
-        allowAlwaysLabel: approvalDescriptor.allowAlwaysLabel,
+        ...(observeOnlyIncidentLinked
+          ? {}
+          : { allowAlwaysLabel: approvalDescriptor.allowAlwaysLabel }),
         agentRunId: invocation.request.agentRunId,
       },
     });
 
     const decision = resolveToolApprovalDecision(response);
+    if (observeOnlyIncidentLinked && decision === "allow_always") {
+      throw new Error(
+        "allow_always is not supported for observe-only incident approvals."
+      );
+    }
     const approved = decision !== "decline";
     const grant =
       approved && decision === "allow_always"
@@ -559,6 +572,26 @@ function installToolApprovalHook(
       event.cancel = `Operator declined approval for ${event.toolUse.name}.`;
     }
   });
+}
+
+function shouldRequireToolApproval(
+  definition: PulseForgeToolDefinition,
+  invocation: ResolvedAgentInvocation
+): boolean {
+  const policy = definition.approval?.required;
+  if (!policy) {
+    return false;
+  }
+  return policy === true || isObserveOnlyIncidentLinked(invocation);
+}
+
+function isObserveOnlyIncidentLinked(
+  invocation: ResolvedAgentInvocation
+): boolean {
+  return (
+    invocation.conversation.interactionMode === "observe_only" &&
+    typeof invocation.conversation.incidentId === "string"
+  );
 }
 
 function resolveToolApprovalDecision(response?: {
@@ -756,7 +789,7 @@ function buildInterruptRequiredAction(
         input: reason?.input,
         approvalKey,
         approvalLabel,
-        allowAlwaysLabel,
+        ...(allowAlwaysLabel ? { allowAlwaysLabel } : {}),
         agentRunId: invocation.request.agentRunId,
         resume: {
           interruptId: interrupt.id,
@@ -915,17 +948,27 @@ async function createAgentTools(
     context,
     dependencies
   );
+  const authFlow =
+    invocation.conversation.interactionMode === "observe_only"
+      ? "M2M"
+      : "USER_FEDERATION";
+  const providerName =
+    authFlow === "M2M"
+      ? dependencies.runtimeConfig.tools.m2mProviderName ??
+        dependencies.runtimeConfig.tools.providerName
+      : dependencies.runtimeConfig.tools.providerName;
   return createPulseForgeStrandsTools(toolDefinitions, {
     backendUrl: dependencies.runtimeConfig.tools.backendUrl,
     agentRunId: invocation.request.agentRunId,
     providers: {
       "pulseforge-backend": {
-        providerName: dependencies.runtimeConfig.tools.providerName,
+        providerName,
         resourceServerIdentifier:
           dependencies.runtimeConfig.tools.resourceServerIdentifier,
         oauthCallbackUrl:
           context.oauth2CallbackUrl ??
           dependencies.runtimeConfig.tools.oauthCallbackUrl,
+        authFlow,
         credentialProvider,
       },
     },

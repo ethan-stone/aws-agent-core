@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import type {
   AgentKind,
   AgentRun,
+  AgentRuntimeInvocationTrigger,
   AgentRuntimeInterruptResume,
   Conversation,
   ConversationDetail,
@@ -18,6 +19,10 @@ import {
   extendDiagnostics,
   webBackendDiagnostics,
 } from "./webbackend-diagnostics.js";
+
+type RootAgentRunRequest = CreateConversationRequest & {
+  runtimeTrigger?: AgentRuntimeInvocationTrigger;
+};
 
 export class ActiveRootRunError extends Error {
   constructor(conversationId: string, runId: string) {
@@ -83,6 +88,32 @@ export async function createConversationAndRunStream(
     user,
     diagnostics
   );
+}
+
+export async function createIncidentCreatedConversationAndRunStream(
+  incidentId: string,
+  diagnostics?: WebBackendDiagnosticContext
+): Promise<AsyncGenerator<ConversationDetail>> {
+  const prompt = `Incident ${incidentId} was created. Investigate the incident, record high-signal activity, and recommend next operator actions.`;
+  const request: RootAgentRunRequest = {
+    agentKind: "incident-responder",
+    prompt,
+    incidentId,
+    interactionMode: "observe_only",
+    runtimeTrigger: {
+      type: "incident_created",
+      incidentId,
+    },
+  };
+
+  const conversation = await agentConversationStorage.conversations.create({
+    id: randomUUID(),
+    rootAgentKind: request.agentKind,
+    incidentId,
+    interactionMode: "observe_only",
+  });
+
+  return runRootAgentWithProgress(conversation, request, null, diagnostics);
 }
 
 export async function runConversation(
@@ -179,6 +210,19 @@ export async function resolveRunRequiredAction(
     run.conversationId,
     diagnostics
   );
+  const conversation =
+    await agentConversationStorage.conversations.get(run.conversationId);
+  if (!conversation) {
+    return null;
+  }
+  if (
+    request.decision === "allow_always" &&
+    isObserveOnlyIncidentLinkedConversation(conversation)
+  ) {
+    throw new RequiredActionResolutionError(
+      "Always allow is not supported for observe-only incident approvals."
+    );
+  }
   const claimed = await agentConversationStorage.conversations.claimActiveRootRun(
     run.conversationId,
     run.id
@@ -220,10 +264,13 @@ export async function resolveRunRequiredAction(
       runtimeSession.id,
       "active"
     );
+    const runtimeUserId = isObserveOnlyIncidentLinkedConversation(conversation)
+      ? "pulseforge-webbackend"
+      : user?.sub ?? run.requestedByUserId ?? "pulseforge-webbackend";
     for await (const event of agentRuntime.streamRootAgentRuntimeResume(
       run,
       runtimeSession,
-      user?.sub ?? run.requestedByUserId ?? "pulseforge-webbackend",
+      runtimeUserId,
       {
         requiredActionId,
         interruptId: resumeState.interruptId,
@@ -263,7 +310,7 @@ export async function resolveRunRequiredAction(
 
 async function* runRootAgentWithProgress(
   conversation: Conversation,
-  request: CreateConversationRequest,
+  request: RootAgentRunRequest,
   user?: AuthenticatedAppUser | null,
   diagnostics?: WebBackendDiagnosticContext
 ): AsyncGenerator<ConversationDetail> {
@@ -382,7 +429,7 @@ async function getOrCreateRuntimeSession(
 
 async function startRootAgentRun(
   conversation: Conversation,
-  request: CreateConversationRequest,
+  request: RootAgentRunRequest,
   runtimeSession: RuntimeSession,
   user?: AuthenticatedAppUser | null,
   diagnostics?: WebBackendDiagnosticContext
@@ -444,6 +491,15 @@ async function startRootAgentRun(
     );
     throw error;
   }
+}
+
+function isObserveOnlyIncidentLinkedConversation(
+  conversation: Conversation
+): boolean {
+  return (
+    conversation.interactionMode === "observe_only" &&
+    typeof conversation.incidentId === "string"
+  );
 }
 
 function assertCanAddConversationInput(

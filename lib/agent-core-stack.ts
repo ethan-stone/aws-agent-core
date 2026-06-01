@@ -121,8 +121,22 @@ export class AgentCoreStack extends Stack {
         preventUserExistenceErrors: true,
       }
     );
+    const pulseForgeToolsMachineClient = userPool.addClient(
+      "PulseForgeToolsMachineClient",
+      {
+        generateSecret: true,
+        oAuth: {
+          flows: {
+            clientCredentials: true,
+          },
+          scopes: toolsResourceServerOauthScopes,
+        },
+        preventUserExistenceErrors: true,
+      }
+    );
 
     const pulseForgeToolsProviderName = "pulseforge-backend-user-federation";
+    const pulseForgeToolsMachineProviderName = "pulseforge-backend-machine";
     const pulseForgeToolsAuthReturnUrl =
       this.node.tryGetContext("pulseForgeToolsAuthReturnUrl") ??
       "http://localhost:5173/oauth2/callback";
@@ -157,6 +171,37 @@ export class AgentCoreStack extends Stack {
       pulseForgeToolsUserPoolClient
     );
     pulseForgeToolsOauthProvider.node.addDependency(userPoolDomain);
+    const pulseForgeToolsMachineOauthProvider =
+      new bedrockAgentCore.CfnOAuth2CredentialProvider(
+        this,
+        "PulseForgeToolsMachineOauthProvider",
+        {
+          name: pulseForgeToolsMachineProviderName,
+          credentialProviderVendor: "CustomOauth2",
+          oauth2ProviderConfigInput: {
+            customOauth2ProviderConfig: {
+              clientId: pulseForgeToolsMachineClient.userPoolClientId,
+              clientSecret:
+                pulseForgeToolsMachineClient.userPoolClientSecret.unsafeUnwrap(),
+              oauthDiscovery: {
+                discoveryUrl: Fn.join("", [
+                  "https://cognito-idp.",
+                  this.region,
+                  ".",
+                  this.urlSuffix,
+                  "/",
+                  userPool.userPoolId,
+                  "/.well-known/openid-configuration",
+                ]),
+              },
+            },
+          },
+        }
+      );
+    pulseForgeToolsMachineOauthProvider.node.addDependency(
+      pulseForgeToolsMachineClient
+    );
+    pulseForgeToolsMachineOauthProvider.node.addDependency(userPoolDomain);
 
     // AgentCore Identity generates its OAuth callback URL only after the
     // credential provider exists, while Cognito needs that URL on the app
@@ -237,8 +282,10 @@ export class AgentCoreStack extends Stack {
       COGNITO_REGION: this.region,
       COGNITO_USER_POOL_ID: userPool.userPoolId,
       COGNITO_USER_POOL_CLIENT_ID: pulseForgeUserPoolClient.userPoolClientId,
-      COGNITO_AGENT_IDENTITY_CLIENT_IDS:
+      COGNITO_AGENT_IDENTITY_CLIENT_IDS: Fn.join(",", [
         pulseForgeToolsUserPoolClient.userPoolClientId,
+        pulseForgeToolsMachineClient.userPoolClientId,
+      ]),
       COGNITO_RESOURCE_SERVER_IDENTIFIER:
         pulseForgeBackendResourceServerIdentifier,
     };
@@ -361,6 +408,7 @@ export class AgentCoreStack extends Stack {
       PULSEFORGE_TOOLS_API_URL: pulseForgeToolsApiUrl,
       PULSEFORGE_TOOL_AUTH_MODE: "agentcore-runtime",
       PULSEFORGE_TOOLS_PROVIDER_NAME: pulseForgeToolsProviderName,
+      PULSEFORGE_TOOLS_M2M_PROVIDER_NAME: pulseForgeToolsMachineProviderName,
       PULSEFORGE_TOOLS_RESOURCE_SERVER_IDENTIFIER:
         pulseForgeBackendResourceServerIdentifier,
       OAUTH_CALLBACK_URL: pulseForgeToolsAuthReturnUrl,
@@ -423,6 +471,7 @@ export class AgentCoreStack extends Stack {
         resources: [
           `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:workload-identity-directory/default/workload-identity/*`,
           pulseForgeToolsOauthProvider.attrCredentialProviderArn,
+          pulseForgeToolsMachineOauthProvider.attrCredentialProviderArn,
           `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:workload-identity-directory/default`,
           `arn:${this.partition}:bedrock-agentcore:${this.region}:${this.account}:token-vault/default`,
         ],
@@ -433,6 +482,7 @@ export class AgentCoreStack extends Stack {
         actions: ["secretsmanager:GetSecretValue"],
         resources: [
           `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsProviderName}*`,
+          `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsMachineProviderName}*`,
         ],
       })
     );
@@ -519,9 +569,58 @@ export class AgentCoreStack extends Stack {
         actions: ["secretsmanager:GetSecretValue"],
         resources: [
           `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsProviderName}*`,
+          `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsMachineProviderName}*`,
         ],
       })
     );
+
+    const pulseForgeIncidentAutomationFunction = new nodejs.NodejsFunction(
+      this,
+      "PulseForgeIncidentAutomationFunction",
+      {
+        entry: path.join(
+          __dirname,
+          "../apps/webbackend/src/incident-automation-handler.ts"
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        timeout: Duration.minutes(15),
+        memorySize: 512,
+        environment: webBackendEnvironment,
+        bundling: {
+          bundleAwsSDK: true,
+          target: "node22",
+          sourceMap: true,
+        },
+      }
+    );
+    pulseForgeSecrets.grantRead(pulseForgeIncidentAutomationFunction);
+    pulseForgeIncidentAutomationFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: [
+          "bedrock-agentcore:InvokeAgentRuntime",
+          "bedrock-agentcore:InvokeAgentRuntimeForUser",
+          "bedrock-agentcore:CompleteResourceTokenAuth",
+        ],
+        resources: ["*"],
+      })
+    );
+    pulseForgeIncidentAutomationFunction.addToRolePolicy(
+      new iam.PolicyStatement({
+        actions: ["secretsmanager:GetSecretValue"],
+        resources: [
+          `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsProviderName}*`,
+          `arn:${this.partition}:secretsmanager:${this.region}:${this.account}:secret:bedrock-agentcore-identity!default/oauth2/${pulseForgeToolsMachineProviderName}*`,
+        ],
+      })
+    );
+
+    new events.Rule(this, "PulseForgeIncidentAutomationSchedule", {
+      schedule: events.Schedule.rate(Duration.minutes(1)),
+      targets: [
+        new eventTargets.LambdaFunction(pulseForgeIncidentAutomationFunction),
+      ],
+    });
 
     const webBackendIntegration = new apigateway.LambdaIntegration(
       pulseForgeWebBackendFunction,
@@ -696,6 +795,9 @@ export class AgentCoreStack extends Stack {
 
     new CfnOutput(this, "PulseForgeToolsOauthProviderArn", {
       value: pulseForgeToolsOauthProvider.attrCredentialProviderArn,
+    });
+    new CfnOutput(this, "PulseForgeToolsMachineOauthProviderArn", {
+      value: pulseForgeToolsMachineOauthProvider.attrCredentialProviderArn,
     });
 
     new CfnOutput(this, "PulseForgeBackendResourceServerIdentifier", {

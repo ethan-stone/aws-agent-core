@@ -9,6 +9,7 @@ import type {
   AgentRuntimeInvocation,
   AgentRuntimeInterruptResume,
   AgentRuntimeInvocationActor,
+  AgentRuntimeInvocationTrigger,
   AuthenticatedAppUser,
   CreateConversationRequest,
   OperatorPromptTrigger,
@@ -24,6 +25,10 @@ import {
   extendDiagnostics,
   webBackendDiagnostics,
 } from "./webbackend-diagnostics.js";
+
+export type RootAgentRuntimeRequest = CreateConversationRequest & {
+  runtimeTrigger?: AgentRuntimeInvocationTrigger;
+};
 
 const region = process.env.AWS_REGION ?? "us-east-1";
 export const runtimeProvider = "aws-agentcore";
@@ -68,7 +73,7 @@ export async function completeAgentResourceTokenAuth(
 }
 
 export async function invokeRootAgentRuntime(
-  request: CreateConversationRequest,
+  request: RootAgentRuntimeRequest,
   run: AgentRun,
   runtimeSession: RuntimeSession,
   runtimeUserId: string,
@@ -89,7 +94,7 @@ export async function invokeRootAgentRuntime(
 }
 
 export async function* streamRootAgentRuntime(
-  request: CreateConversationRequest,
+  request: RootAgentRuntimeRequest,
   run: AgentRun,
   runtimeSession: RuntimeSession,
   runtimeUserId: string,
@@ -206,7 +211,7 @@ export function getRuntimeIdentity() {
 }
 
 function buildInvocationPayload(
-  request: CreateConversationRequest,
+  request: RootAgentRuntimeRequest,
   run: AgentRun,
   runtimeSession: RuntimeSession,
   runtimeUserId: string
@@ -220,11 +225,12 @@ function buildInvocationPayload(
     providerSessionId: runtimeSession.providerSessionId,
     agentKind: request.agentKind,
     actor: invocationActorFromRuntimeUser(runtimeUserId),
-    trigger: {
-      type: "operator_prompt",
-      prompt: request.prompt,
-      ...optionalDomainIds(request),
-    },
+    trigger:
+      request.runtimeTrigger ?? {
+        type: "operator_prompt",
+        prompt: request.prompt,
+        ...optionalDomainIds(request),
+      },
   };
 }
 

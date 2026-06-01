@@ -111,6 +111,19 @@ export const pulseForgeToolDefinitions = [
     outputSchema: genericToolOutputSchema,
     credentialProvider: pulseForgeBackendCredentialProvider,
     requiredScopes: [pulseForgeToolScopes.writeTickets],
+    approval: {
+      required: "observe_only",
+      actionType: "tool_approval",
+      title: "Create ticket",
+      description:
+        "The agent wants to create an incident ticket for external or team follow-up.",
+      actionLabel: "Create ticket",
+      risk: "medium",
+      buildApproval: (input) => ({
+        approvalKey: `create_ticket:incident:${input.incidentId}`,
+        approvalLabel: `Create ticket for ${input.incidentId}`,
+      }),
+    },
     http: {
       method: "POST",
       path: (input) => `/incidents/${encodeURIComponent(input.incidentId)}/tickets`,

@@ -52,6 +52,7 @@ export interface AgentRunLifecycleContext {
   conversationId: string;
   agentRunId: string;
   agentKind: AgentKind;
+  incidentId?: string;
   actorId?: string;
 }
 
@@ -455,7 +456,6 @@ export class AgentRunLifecycle {
     );
     return (
       conversation?.interactionMode === "observe_only" &&
-      conversation.rootAgentKind === "incident-responder" &&
       typeof conversation.incidentId === "string"
     );
   }

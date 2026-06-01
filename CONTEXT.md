@@ -60,6 +60,14 @@ _Avoid_: Permission, OAuth grant, blanket approval, policy
 A deterministic scope key produced by an approval-required tool to identify exactly which future **ToolCalls** can reuse a **ToolApprovalGrant**. An **ApprovalKey** is opaque to the **Conversation** model; the tool owns its shape and must keep it narrow enough for the operator's approval to remain meaningful.
 _Avoid_: Resource id, permission string, model-provided key
 
+**ToolApprovalPolicy**:
+The rule attached to a tool that decides whether a **ToolCall** needs human approval before execution. **ToolApprovalPolicy** may vary by agent or interaction context, such as allowing conversation-scoped approval reuse for an interactive **ops-copilot** **Conversation** while requiring one-time **IncidentActionApproval** for observe-only **incident-responder** automation. **ToolApprovalPolicy** is separate from risk metadata: risk explains why an action may be sensitive, while the approval policy decides whether approval is required.
+_Avoid_: Risk label, credential grant, authorization scope
+
+**IncidentAutomationCredential**:
+A platform-controlled machine credential used by observe-only **incident-responder** automation to execute approved tool calls without waiting for a user OAuth flow. **IncidentAutomationCredential** authorizes the platform execution path only; it does not replace **IncidentActionApproval** and must not be presented as a delegated user credential.
+_Avoid_: ToolApprovalGrant, IncidentActionApproval, delegated user token
+
 **ActionResolution**:
 A **RunItem** that records the outcome of a **RequiredAction** at the point it becomes known to an **AgentRun**. Resolving an action updates the **RequiredAction** state and appends an **ActionResolution** so the timeline remains auditable.
 _Avoid_: RequiredAction, status update
@@ -121,8 +129,8 @@ An incident-linked **Conversation** created by automation rather than by an ordi
 _Avoid_: Shared chat, bot thread
 
 **IncidentActionApproval**:
-An incident-scoped request for an authorized operator to approve or decline an operational action proposed by an observe-only incident automation **Conversation**. An **IncidentActionApproval** links the shared **Incident** collaboration surface to the underlying **RequiredAction** in the agent lifecycle.
-_Avoid_: IncidentApprovalRequest, RequiredAction, ToolApprovalGrant
+An incident-scoped, one-time request for an authorized operator to approve or decline a non-read-only operational action proposed by an observe-only incident automation **Conversation**. An **IncidentActionApproval** links the shared **Incident** collaboration surface to the underlying **RequiredAction** in the agent lifecycle and never creates reusable permission for future **ToolCalls**.
+_Avoid_: IncidentApprovalRequest, RequiredAction, ToolApprovalGrant, reusable approval
 
 **Device**:
 A physical or simulated IoT fleet member whose operational state, telemetry, and incidents are monitored by PulseForge. A **Device** is part of a site and may be acted on by approved operator or agent workflows.

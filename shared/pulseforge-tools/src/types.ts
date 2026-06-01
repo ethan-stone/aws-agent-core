@@ -49,7 +49,7 @@ export interface PulseForgeToolDefinition<
   credentialProvider: PulseForgeCredentialProviderDescriptor;
   requiredScopes: PulseForgeToolScope[];
   approval?: {
-    required: true;
+    required: true | "observe_only";
     actionType: "tool_approval";
     title: string;
     description: string;
@@ -58,7 +58,7 @@ export interface PulseForgeToolDefinition<
     buildApproval: (input: z.infer<TInputSchema>) => {
       approvalKey: string;
       approvalLabel: string;
-      allowAlwaysLabel: string;
+      allowAlwaysLabel?: string;
     };
   };
   http: {
@@ -71,7 +71,7 @@ export interface PulseForgeToolDefinition<
 export interface ToolAccessTokenConfig {
   providerName: string;
   scopes: string[];
-  authFlow: "USER_FEDERATION";
+  authFlow: "M2M" | "USER_FEDERATION";
   callbackUrl?: string;
   onAuthUrl?: (url: string) => void | Promise<void>;
 }
@@ -127,5 +127,6 @@ export interface PulseForgeRuntimeCredentialProvider {
   providerName: string;
   resourceServerIdentifier?: string;
   oauthCallbackUrl?: string;
+  authFlow?: ToolAccessTokenConfig["authFlow"];
   credentialProvider: ToolCredentialProvider;
 }

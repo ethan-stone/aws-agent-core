@@ -19,6 +19,7 @@ const runtimeEnvSchema = z.object({
     .string()
     .min(1)
     .default("pulseforge-backend-user-federation"),
+  PULSEFORGE_TOOLS_M2M_PROVIDER_NAME: z.string().min(1).optional(),
   PULSEFORGE_TOOLS_RESOURCE_SERVER_IDENTIFIER: z.string().min(1).optional(),
   OAUTH_CALLBACK_URL: z.string().url().optional(),
   PULSEFORGE_WORKLOAD_NAME: z.string().optional(),
@@ -38,6 +39,7 @@ export interface RuntimeConfig {
         backendUrl: string;
         authMode: "agentcore-runtime" | "local-user-id";
         providerName: string;
+        m2mProviderName?: string;
         resourceServerIdentifier?: string;
         oauthCallbackUrl?: string;
         workloadName?: string;
@@ -92,6 +94,7 @@ export function loadRuntimeConfig(
       backendUrl: toolsApiUrl,
       authMode: toolAuthMode,
       providerName: parsed.PULSEFORGE_TOOLS_PROVIDER_NAME,
+      m2mProviderName: parsed.PULSEFORGE_TOOLS_M2M_PROVIDER_NAME,
       resourceServerIdentifier:
         parsed.PULSEFORGE_TOOLS_RESOURCE_SERVER_IDENTIFIER,
       oauthCallbackUrl: parsed.OAUTH_CALLBACK_URL,

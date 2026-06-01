@@ -51,10 +51,9 @@ const adminPermissions: AppPermission[] = [
 export interface ToolAuthContext {
   actor: AuditActor & {
     actorType: "agent";
-    onBehalfOfUserId: string;
     agentRunId: string;
   };
-  user: AuthenticatedAppUser;
+  user?: AuthenticatedAppUser;
   scopes: string[];
 }
 
@@ -206,13 +205,10 @@ export async function verifyToolAccessToken(
   const payload = await getToolAccessTokenVerifier().verify(token);
   const user = toAuthenticatedUser(payload);
   const clientId = user.clientId;
+  const userId = asString(payload.sub);
 
   if (!clientId) {
     throw new Error("Tool token is missing client_id");
-  }
-
-  if (!user.sub) {
-    throw new Error("Tool token is missing user subject");
   }
 
   const scopeSet = new Set(user.scopes);
@@ -225,10 +221,10 @@ export async function verifyToolAccessToken(
     actor: {
       actorType: "agent",
       actorId: clientId,
-      onBehalfOfUserId: user.sub,
       agentRunId,
+      ...(userId ? { onBehalfOfUserId: userId } : {}),
     },
-    user,
+    ...(userId ? { user: { ...user, sub: userId } } : {}),
     scopes: user.scopes,
   };
 }

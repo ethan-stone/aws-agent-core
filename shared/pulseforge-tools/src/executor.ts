@@ -36,7 +36,7 @@ export async function executePulseForgeTool(
     {
       providerName: runtimeProvider.providerName,
       scopes: oauthScopes,
-      authFlow: "USER_FEDERATION",
+      authFlow: runtimeProvider.authFlow ?? "USER_FEDERATION",
       callbackUrl: runtimeProvider.oauthCallbackUrl,
       onAuthUrl: async (authUrl) => {
         authorizationRequired = true;
