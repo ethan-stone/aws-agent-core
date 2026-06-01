@@ -59,9 +59,9 @@ That invocation is built from:
 - optional incident/device ids inside the trigger
 - the authenticated user id or system id as `actor`
 
-The backend does not prehydrate investigation context into the runtime payload.
-When the invocation includes incident or device ids, the agent should retrieve
-the needed operational context through its tools.
+The backend does not prehydrate investigation context into the runtime payload
+or rewrite the user's prompt. When the invocation includes incident or device
+ids, the agent should retrieve the needed operational context through its tools.
 
 The backend also passes `RuntimeSession.providerSessionId` to AWS AgentCore as
 the provider `runtimeSessionId`. That is how multiple root runs in one
@@ -116,7 +116,10 @@ deployed runtimes, the session manager uses PulseForge's AgentCore-backed
 `SnapshotStorage`; locally, it falls back to an in-process snapshot store. The
 storage saves the latest Strands session snapshot after each invocation as a
 replacement current-state projection, then restores that snapshot when the same
-runtime session is invoked again. Snapshot events are keyed by:
+runtime session is invoked again. The runtime does not seed model-visible
+message history from canonical product `RunItems`; short-term continuity should
+come from the restored Strands session snapshot.
+Snapshot events are keyed by:
 
 - the runtime actor id derived from `actor`
 - `RuntimeSession.providerSessionId` as the AgentCore session id
@@ -132,5 +135,5 @@ actor id and, for session summaries, the same provider session id. It is not a
 transcript and is not rendered as conversation history.
 
 If AgentCore memory is deleted, expires, or moves providers, the product
-timeline still exists in `RunItems`. Reconstructing a model-ready prompt from
-`RunItems` is a separate future projection and is not implemented in this PR.
+timeline still exists in `RunItems`, but the runtime does not automatically
+reconstruct model context from that product history.

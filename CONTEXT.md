@@ -5,12 +5,20 @@ PulseForge supports AI-assisted IoT fleet operations by coordinating operator co
 ## Language
 
 **Conversation**:
-A long-lived interaction thread between an operator, a stable root agent, and the system. A **Conversation** provides continuity across related **AgentRuns**, has at most one active root **AgentRun** at a time, and does not own a separate item list; its timeline is projected from root **AgentRuns**.
-_Avoid_: Session, chat, transcript
+A long-lived interaction thread between one ordinary human interactor, a stable root agent, and the system. A **Conversation** provides continuity across related **AgentRuns**, has at most one active root **AgentRun** at a time, and does not own a separate item list; its timeline is projected from root **AgentRuns**.
+_Avoid_: Session, chat, transcript, shared room
+
+**ConversationInteractionMode**:
+The rule that determines whether ordinary human follow-up messages can be added to a **Conversation**. Interactive conversations accept ordinary follow-up from their interaction owner; observe-only conversations can be inspected and may allow eligible **RequiredAction** resolution without accepting ordinary follow-up messages.
+_Avoid_: Permission, status, AgentRunStatus
+
+**ConversationInteractionOwner**:
+The operator who owns ordinary follow-up interaction with an interactive **Conversation**. For a mention-created incident-linked **Conversation**, the **ConversationInteractionOwner** is the author of the **IncidentAgentMention**.
+_Avoid_: Viewer, approver, participant
 
 **AgentKind**:
-The configured identity of an agent that can run work, including its purpose and configuration. A **Conversation** is bound to one root **AgentKind** for its lifetime, while delegated child **AgentRuns** may use other agent kinds.
-_Avoid_: AgentProfile, broad category, model
+The configured identity of an agent that can run work, including its purpose and configuration. PulseForge uses **ops-copilot** for general operator assistance and **incident-responder** for incident response workflow; a **Conversation** is bound to one root **AgentKind** for its lifetime, while delegated child **AgentRuns** may use other agent kinds.
+_Avoid_: AgentProfile, broad category, model, anomaly-investigation, remediation-planner, autonomous-remediation
 
 **AgentRun**:
 A single execution attempt by an agent within a **Conversation**, corresponding to one call to run that agent. An **AgentRun** owns ordered **RunItems** and may have one parent **AgentRun** when it is caused by multi-agent orchestration.
@@ -72,17 +80,97 @@ _Avoid_: Message, RunAgent
 A **RunItem** that records operational activity in an **AgentRun** without treating it as semantic message content. **RunNote** is for traceability and diagnostics, including saved **ToolApprovalGrant** use, while system messages are for semantic content the run should remember or expose.
 _Avoid_: Message, system prompt
 
-**IncidentActivity**:
-An append-only entry in an **Incident** timeline that records human discussion, agent activity, operational events, or approval requests related to that incident. **IncidentActivity** is shared incident history; it is not an agent **Conversation**.
-_Avoid_: Conversation, chat, transcript
-
 **IncidentComment**:
-A human-authored **IncidentActivity** entry used for operator discussion on an **Incident**. An **IncidentComment** may mention an agent, but the resulting agent work belongs to a separate **Conversation**.
-_Avoid_: AgentRun, Conversation, RunItem
+A human-authored discussion item on an **Incident**. **IncidentComments** form the shared operator collaboration thread and are distinct from private **Conversation** messages.
+_Avoid_: IncidentEvent, Message, activity
 
-**IncidentApprovalRequest**:
-An **IncidentActivity** entry that asks an authorized operator to approve or decline a specific operational action requested by an **AgentRun**. An **IncidentApprovalRequest** resolves one **RequiredAction** and records who decided it; it is not a reusable **ToolApprovalGrant**.
-_Avoid_: ToolApprovalGrant, permission, blanket approval
+**IncidentActivity**:
+A system-authored or agent-authored timeline item on an **Incident**. **IncidentActivity** records notable operational facts, agent progress, outcomes, and linked agent-conversation cards without treating them as human discussion.
+_Avoid_: IncidentEvent, comment, Conversation item
+
+**IncidentActivity Projection**:
+The high-signal incident-facing record of an incident-linked **Conversation**, including start, blocking approvals, authorization waits, completion, failure, and cancellation. **IncidentActivity Projection** does not mirror every **RunItem**; detailed agent trace remains in the linked **Conversation**.
+_Avoid_: Full transcript mirror, tool trace mirror
+
+**IncidentAgentActivityStatus**:
+The incident-facing lifecycle state of a linked agent-conversation card, such as queued, running, waiting for approval, waiting for authorization, completed, failed, or cancelled. **IncidentAgentActivityStatus** is operator-facing incident language, not necessarily the same vocabulary as **AgentRunStatus**.
+_Avoid_: Raw AgentRunStatus when describing incident activity
+
+**IncidentAgentMention**:
+An actionable request embedded in an **IncidentComment** that asks an **AgentKind** to respond in incident context. An **IncidentComment** has at most one actionable **IncidentAgentMention**; when accepted, it starts a new incident-linked **Conversation** owned for ordinary follow-up by the mention author.
+_Avoid_: Parsed text only, command, slash command, multiple actionable mentions in one comment
+
+**AgentMentionHandle**:
+A user-facing mention token in an **IncidentComment** that resolves to a user-invokable **AgentKind**. **@copilot** resolves to **ops-copilot**, while specialist **AgentKinds** such as **incident-responder** are invoked by automation or agent orchestration rather than by direct user mention.
+_Avoid_: AgentKind, display name
+
+**IncidentCreated Trigger**:
+An automatic incident lifecycle trigger that may start an observe-only **incident-responder** **Conversation** linked to the **Incident** when incident automation is enabled. The trigger records what the agent did on the incident surface without creating an ordinary human chat.
+_Avoid_: User prompt, mention
+
+**IncidentAgentMention Trigger**:
+A human-authored trigger created from an **IncidentAgentMention**. The trigger starts a new interactive incident-linked **Conversation** for **ops-copilot**, owned for ordinary follow-up by the mention author.
+_Avoid_: IncidentCreated Trigger, shared chat message
+
+**Incident-linked Conversation**:
+A **Conversation** caused by an incident trigger or **IncidentAgentMention** and reachable from the **Incident** collaboration surface. An **Incident-linked Conversation** is still a separate agent interaction thread, not the incident thread itself; the **Incident** remains the multi-user collaboration surface.
+_Avoid_: Incident thread, shared incident chat
+
+**Observe-only Conversation**:
+An incident-linked **Conversation** created by automation rather than by an ordinary human interactor. Operators may inspect an **Observe-only Conversation** and resolve eligible **RequiredActions**, but they do not send ordinary follow-up messages into it.
+_Avoid_: Shared chat, bot thread
+
+**IncidentActionApproval**:
+An incident-scoped request for an authorized operator to approve or decline an operational action proposed by an observe-only incident automation **Conversation**. An **IncidentActionApproval** links the shared **Incident** collaboration surface to the underlying **RequiredAction** in the agent lifecycle.
+_Avoid_: IncidentApprovalRequest, RequiredAction, ToolApprovalGrant
+
+**Device**:
+A physical or simulated IoT fleet member whose operational state, telemetry, and incidents are monitored by PulseForge. A **Device** is part of a site and may be acted on by approved operator or agent workflows.
+_Avoid_: Asset when discussing runtime telemetry, sensor when the fleet member may be a gateway or meter
+
+**SimulatedDevice**:
+A **Device** whose source is marked as simulated, whose telemetry and operational changes are produced by a **DeviceSimulation** rather than by real hardware. Simulation-backed identity lives on the normal **Device** record so **SimulatedDevices** participate in the same device, telemetry, incident, tool, and agent flows as other devices.
+_Avoid_: Mock device, frontend-only device, fake row
+
+**DeviceTelemetry**:
+A time-ordered observation emitted by a **Device** about its operational condition, such as temperature, vibration, battery, signal strength, or packet loss. **DeviceTelemetry** is evidence for fleet health, incident detection, and agent investigation.
+_Avoid_: Metric when referring to the domain record, log line, UI chart point
+
+**DeviceCurrentState**:
+The latest materialized operational view of a **Device**, including status, battery, connectivity, and last-seen time. **DeviceCurrentState** should stay consistent with the newest **DeviceTelemetry** emitted for that device.
+_Avoid_: Telemetry history, dashboard-only value
+
+**DeviceSimulation**:
+A demo or runtime source that advances PulseForge fleet state by emitting synthetic **DeviceTelemetry** and operational changes for **Devices**. In its baseline state, a **DeviceSimulation** keeps **SimulatedDevices** behaving normally by drawing telemetry from normal ranges for each device type. A queued **SimulationScenario** may push selected **SimulatedDevices** into abnormal ranges that can affect statuses, incidents, tools, and agent investigation. The scheduled **DeviceSimulation** may create or update incidents when simulated behavior crosses detection thresholds. A **DeviceSimulation** is allowed to mark its output as simulated, but simulated output should flow through the same backend, tools, incident, and agent paths as ordinary device output.
+_Avoid_: Frontend animation, mock-only data, background thing
+
+**SimulationRange**:
+A configured normal or abnormal value range used by **DeviceSimulation** to generate **DeviceTelemetry** for a device type and telemetry field. **SimulationRanges** are selected from the device type and **SimulationScenario** vocabulary rather than customized per scenario.
+_Avoid_: Per-device business rule, random magic number
+
+**SimulationScenario**:
+A durable, named abnormal operating condition applied to selected **SimulatedDevices** by a **DeviceSimulation** for learning and demonstration. A **SimulationScenario** creates coherent behavior over a bounded duration and may cause incident detection or updates after its trigger threshold is met. The initial scenario vocabulary is temperature drift, connectivity loss, and battery degradation. **SimulationScenarios** are queued by explicit operator or developer action, not by agents.
+_Avoid_: Random data, one-off seed record, UI demo toggle, agent-triggered failure
+
+**ScenarioDuration**:
+The bounded amount of time a **SimulationScenario** may influence **SimulatedDevice** behavior. The maximum **ScenarioDuration** is fifteen minutes.
+_Avoid_: Forever-running demo failure, unbounded anomaly
+
+**ScenarioTriggerThreshold**:
+The number of consecutive scenario-affected **DeviceTelemetry** points required before a **SimulationScenario** may create or update an incident. The default threshold is immediate.
+_Avoid_: Rules engine, alert policy
+
+**SimulatedResetRecovery**:
+The demo behavior where an approved reset command for a **SimulatedDevice** ends every active **SimulationScenario** affecting that device and returns future **DeviceTelemetry** toward baseline normal behavior. **SimulatedResetRecovery** does not itself resolve or mitigate incidents.
+_Avoid_: Tool result only, pretend reset with no fleet effect, automatic incident resolution
+
+**SimulatedIncidentReuse**:
+The demo behavior where **DeviceSimulation** updates an existing open incident for the same affected **SimulatedDevice** and scenario category instead of creating duplicate incidents on repeated abnormal ticks.
+_Avoid_: Incident spam, one incident per telemetry point
+
+**IncidentResolution**:
+The operator action that marks an **Incident** resolved after the operational condition has been handled. Agent recommendations and device reset results may inform **IncidentResolution**, but they do not resolve incidents automatically.
+_Avoid_: Reset result, automatic scenario completion, agent recommendation
 
 ## Example Dialogue
 
@@ -108,4 +196,4 @@ Domain Expert: "No. The shared incident timeline is IncidentActivity, and the hu
 
 Dev: "A background agent wants to reset a device during an incident, but the action needs approval. Is that Ethan's private tool approval?"
 
-Domain Expert: "No. That should appear as an IncidentApprovalRequest so any authorized operator can approve or decline that specific action with an audit trail."
+Domain Expert: "No. That should appear as an IncidentActionApproval so any authorized operator can approve or decline that specific action with an audit trail."

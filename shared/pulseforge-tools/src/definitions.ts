@@ -1,6 +1,6 @@
 import type { z } from "zod";
 import {
-  createIncidentEventInputSchema,
+  createIncidentActivityInputSchema,
   createTicketInputSchema,
   genericToolOutputSchema,
   getDeviceInputSchema,
@@ -20,7 +20,7 @@ export const pulseForgeToolScopes = {
   readDevices: "read:devices",
   readIncidents: "read:incidents",
   readTelemetry: "read:telemetry",
-  writeIncidentEvents: "write:incident_events",
+  writeIncidentActivities: "write:incident_events",
   writeTickets: "write:tickets",
   writeRemediationActions: "write:remediation_actions",
   writeDeviceCommands: "write:device_commands",
@@ -45,7 +45,7 @@ export const pulseForgeToolDefinitions = [
   defineTool({
     name: "get_incident_context",
     description:
-      "Fetch curated incident context, including the incident, recent events, affected devices, recent telemetry, related incidents, and runbook hints.",
+      "Fetch curated incident context, including the incident, recent activity, affected devices, recent telemetry, related incidents, and runbook hints.",
     inputSchema: getIncidentContextInputSchema,
     outputSchema: genericToolOutputSchema,
     credentialProvider: pulseForgeBackendCredentialProvider,
@@ -87,16 +87,16 @@ export const pulseForgeToolDefinitions = [
     },
   }),
   defineTool({
-    name: "create_incident_event",
+    name: "create_incident_activity",
     description:
-      "Record an audit-visible incident event when the agent summarizes, attempts an action, observes an action result, or creates a ticket.",
-    inputSchema: createIncidentEventInputSchema,
+      "Record audit-visible incident activity when the agent summarizes, attempts an action, observes an action result, or creates a ticket.",
+    inputSchema: createIncidentActivityInputSchema,
     outputSchema: genericToolOutputSchema,
     credentialProvider: pulseForgeBackendCredentialProvider,
-    requiredScopes: [pulseForgeToolScopes.writeIncidentEvents],
+    requiredScopes: [pulseForgeToolScopes.writeIncidentActivities],
     http: {
       method: "POST",
-      path: (input) => `/incidents/${encodeURIComponent(input.incidentId)}/events`,
+      path: (input) => `/incidents/${encodeURIComponent(input.incidentId)}/activities`,
       body: (input) => ({
         kind: input.kind,
         message: input.message,

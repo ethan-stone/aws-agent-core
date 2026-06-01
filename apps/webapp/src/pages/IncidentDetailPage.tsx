@@ -1,42 +1,50 @@
 import {
   type ConversationDetail,
-  demoIncidents,
-  demoSnapshot,
+  type IncidentActivity,
+  type IncidentComment,
 } from "../../../../shared/pulseforge-domain/src/index.js";
-import { useMemo, useState } from "react";
+import { useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
-import { createConversation, fetchIncident } from "../lib/api-client.js";
+import {
+  createConversation,
+  fetchConversation,
+  fetchIncident,
+  postIncidentComment,
+  resolveIncident as resolveIncidentRequest,
+} from "../lib/api-client.js";
 import { useResource } from "../lib/use-resource.js";
+import {
+  ConversationReplyBox,
+  ConversationResultView,
+} from "./CopilotPage.js";
 
 export function IncidentDetailPage() {
   const { incidentId = "" } = useParams();
-  const initialValue = useMemo(() => {
-    const incident = demoIncidents.find((item) => item.id === incidentId);
-    if (!incident) {
-      return null;
-    }
-
-    return {
-      incident,
-      events: demoSnapshot.incidentEvents.filter(
-        (event) => event.incidentId === incidentId
-      ),
-    };
-  }, [incidentId]);
-
-  const { data } = useResource(
+  const { data, loading, error: loadError } = useResource(
     () => fetchIncident(incidentId),
-    initialValue,
+    null,
     [incidentId]
   );
-  const [investigation, setInvestigation] = useState<ConversationDetail | null>(null);
+  const [postedDetail, setPostedDetail] = useState<typeof data>(null);
   const [running, setRunning] = useState(false);
+  const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [commentBody, setCommentBody] = useState("");
+  const [postingComment, setPostingComment] = useState(false);
+  const [commentError, setCommentError] = useState<string | null>(null);
+  const [linkedConversation, setLinkedConversation] =
+    useState<ConversationDetail | null>(null);
+  const [linkedConversationError, setLinkedConversationError] = useState<
+    string | null
+  >(null);
+  const [linkedConversationLoading, setLinkedConversationLoading] =
+    useState(false);
+  const detail = postedDetail ?? data;
 
-  if (!data) {
+  if (!detail) {
     return (
-      <section className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
-        Incident not found.
+      <section className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
+        {loadError ?? (loading ? "Loading incident..." : "Incident not found.")}
       </section>
     );
   }
@@ -46,10 +54,10 @@ export function IncidentDetailPage() {
       <header className="mb-7 flex flex-col items-start justify-between gap-6 md:flex-row">
         <div>
           <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
-            {data.incident.category}
+            {detail.incident.category}
           </p>
-          <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-[-0.05em] text-slate-50">
-            {data.incident.title}
+          <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-normal text-slate-50">
+            {detail.incident.title}
           </h2>
         </div>
         <div className="flex flex-col items-start gap-3 md:items-end">
@@ -57,100 +65,117 @@ export function IncidentDetailPage() {
             type="button"
             onClick={() => void handleInvestigate()}
             disabled={running}
-            className="border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+            className="rounded-md border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
           >
             {running ? "Investigating..." : "Investigate with AI"}
           </button>
+          {detail.incident.status !== "resolved" ? (
+            <button
+              type="button"
+              onClick={() => void handleResolveIncident()}
+              disabled={resolving}
+              className="rounded-md border border-emerald-300/35 px-4 py-2 text-sm font-medium text-emerald-100 transition-colors hover:border-emerald-200/60 hover:bg-emerald-300/10 disabled:cursor-not-allowed disabled:border-slate-600 disabled:text-slate-500"
+            >
+              {resolving ? "Resolving..." : "Mark resolved"}
+            </button>
+          ) : null}
           {error ? (
-            <div className="max-w-sm border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+            <div className="max-w-sm rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
               {error}
             </div>
           ) : null}
         </div>
       </header>
-      <div className="grid gap-3.5 md:grid-cols-2">
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
-          <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
-            Summary
-          </h3>
-          <p className="mt-3.5 text-slate-300">{data.incident.summary}</p>
+      <div className="grid gap-3.5">
+        <article className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
+          <div className="flex flex-wrap items-start justify-between gap-5">
+            <div className="max-w-3xl">
+              <h3 className="m-0 text-[15px] tracking-normal text-slate-100">
+                Summary
+              </h3>
+              <p className="mt-3.5 text-base leading-7 text-slate-300">
+                {detail.incident.summary}
+              </p>
+            </div>
+            <dl className="m-0 grid min-w-56 gap-2 text-xs uppercase tracking-[0.08em]">
+              <div className="flex justify-between gap-4 border-t border-white/8 pt-2">
+                <dt className="text-slate-500">Status</dt>
+                <dd className="m-0 text-slate-100">{detail.incident.status}</dd>
+              </div>
+              <div className="flex justify-between gap-4 border-t border-white/8 pt-2">
+                <dt className="text-slate-500">Severity</dt>
+                <dd className="m-0 text-slate-100">{detail.incident.severity}</dd>
+              </div>
+              <div className="flex justify-between gap-4 border-t border-white/8 pt-2">
+                <dt className="text-slate-500">Opened</dt>
+                <dd className="m-0 text-slate-100">
+                  {new Date(detail.incident.createdAt).toLocaleString()}
+                </dd>
+              </div>
+            </dl>
+          </div>
         </article>
-        <article className="border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
-          <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
-            Timeline
+
+        <article className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
+          <h3 className="m-0 text-[15px] tracking-normal text-slate-100">
+            Activity
           </h3>
-          <ul className="mt-3.5 pl-[18px] text-slate-300">
-            {data.events.map((event) => (
-              <li key={event.id}>
-                {new Date(event.timestamp).toLocaleTimeString()}: {event.message}
-              </li>
-            ))}
-          </ul>
+          <IncidentThread
+            activities={detail.activities}
+            comments={detail.comments}
+            onOpenConversation={(conversationId) =>
+              void handleOpenLinkedConversation(conversationId)
+            }
+          />
+          <form
+            className="mt-5 grid gap-3 border-t border-white/8 pt-5"
+            onSubmit={(event) => {
+              event.preventDefault();
+              void submitComment();
+            }}
+          >
+            <textarea
+              value={commentBody}
+              onChange={(event) => setCommentBody(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.preventDefault();
+                  void submitComment();
+                }
+              }}
+              rows={3}
+              placeholder="Leave a comment..."
+              className="min-h-24 resize-y rounded-md border border-white/10 bg-black/20 px-3 py-2 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 hover:border-white/15 focus:border-sky-300/40"
+            />
+            <div className="flex items-center justify-between gap-3">
+              <span />
+              <button
+                type="submit"
+                disabled={postingComment || !commentBody.trim()}
+                className="rounded-md border border-white/10 bg-slate-100 px-4 py-2 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+              >
+                {postingComment ? "Posting..." : "Post comment"}
+              </button>
+            </div>
+            {commentError ? (
+              <div className="rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+                {commentError}
+              </div>
+            ) : null}
+          </form>
         </article>
       </div>
 
-      <article className="mt-3.5 border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px]">
-        <h3 className="m-0 text-[15px] tracking-[-0.02em] text-slate-100">
-          AI investigation
-        </h3>
-
-        {!investigation ? (
-          <p className="mt-3.5 text-sm text-slate-400">
-            Run an investigation to generate findings and recommended actions for this incident.
-          </p>
-        ) : (
-          <div className="mt-3.5 grid gap-4">
-            <div className="grid gap-2">
-              <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-                Summary
-              </span>
-              <p className="m-0 text-sm text-slate-200">
-                {cleanText(
-                  latestRun(investigation)?.summary ?? "Agent run completed."
-                )}
-              </p>
-            </div>
-
-            {latestRun(investigation)?.investigation ? (
-              <div className="grid gap-3">
-                <h4 className="m-0 text-sm font-medium text-slate-100">
-                  {cleanText(
-                    latestRun(investigation)?.investigation?.title ?? ""
-                  )}
-                </h4>
-                <p className="m-0 text-sm text-slate-300">
-                  {cleanText(
-                    latestRun(investigation)?.investigation?.summary ?? ""
-                  )}
-                </p>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <SimpleList
-                    label="Findings"
-                    items={
-                      latestRun(investigation)?.investigation?.findings.map(
-                        cleanText
-                      ) ?? []
-                    }
-                  />
-                  <SimpleList
-                    label="Recommended actions"
-                    items={
-                      latestRun(investigation)?.investigation
-                        ?.recommendedActions.map(cleanText) ?? []
-                    }
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            {latestRun(investigation)?.errorMessage ? (
-              <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
-                {latestRun(investigation)?.errorMessage}
-              </div>
-            ) : null}
-          </div>
-        )}
-      </article>
+      <LinkedConversationDrawer
+        conversation={linkedConversation}
+        error={linkedConversationError}
+        loading={linkedConversationLoading}
+        onClose={() => {
+          setLinkedConversation(null);
+          setLinkedConversationError(null);
+        }}
+        onDetailChange={setLinkedConversation}
+      />
     </section>
   );
 
@@ -164,7 +189,7 @@ export function IncidentDetailPage() {
         prompt: `Investigate incident ${incidentId}. Summarize the likely cause, strongest evidence, and next operator actions.`,
         incidentId,
       });
-      setInvestigation(detail);
+      setLinkedConversation(detail);
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to investigate incident"
@@ -173,34 +198,274 @@ export function IncidentDetailPage() {
       setRunning(false);
     }
   }
+
+  async function submitComment() {
+    const body = commentBody.trim();
+    if (!body || postingComment) {
+      return;
+    }
+
+    setPostingComment(true);
+    setCommentError(null);
+    try {
+      const next = await postIncidentComment(incidentId, body);
+      setPostedDetail(next);
+      setCommentBody("");
+    } catch (err) {
+      setCommentError(
+        err instanceof Error ? err.message : "Failed to post comment"
+      );
+    } finally {
+      setPostingComment(false);
+    }
+  }
+
+  async function handleResolveIncident() {
+    setResolving(true);
+    setError(null);
+    try {
+      const next = await resolveIncidentRequest(incidentId);
+      setPostedDetail(next);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resolve incident");
+    } finally {
+      setResolving(false);
+    }
+  }
+
+  async function handleOpenLinkedConversation(conversationId: string) {
+    setLinkedConversationLoading(true);
+    setLinkedConversationError(null);
+    try {
+      setLinkedConversation(await fetchConversation(conversationId));
+    } catch (err) {
+      setLinkedConversation(null);
+      setLinkedConversationError(
+        err instanceof Error ? err.message : "Failed to load conversation"
+      );
+    } finally {
+      setLinkedConversationLoading(false);
+    }
+  }
+
 }
 
-function latestRun(detail: ConversationDetail) {
-  return detail.runs.at(-1) ?? null;
-}
+function IncidentThread(props: {
+  activities: IncidentActivity[];
+  comments: IncidentComment[];
+  onOpenConversation: (conversationId: string) => void;
+}) {
+  const items = [
+    ...props.activities.map((activity) => ({
+      id: `activity:${activity.id}`,
+      timestamp: activity.timestamp,
+      kind: "activity" as const,
+      activity,
+    })),
+    ...props.comments.map((comment) => ({
+      id: `comment:${comment.id}`,
+      timestamp: comment.createdAt,
+      kind: "comment" as const,
+      comment,
+    })),
+  ].sort((left, right) => left.timestamp.localeCompare(right.timestamp));
 
-function cleanText(value: string): string {
-  return value
-    .replace(/<thinking>[\s\S]*?<\/thinking>/gi, "")
-    .replace(/<\/?thinking>/gi, "")
-    .trim();
-}
-
-function SimpleList(props: { label: string; items: string[] }) {
   return (
-    <div className="grid gap-2">
-      <span className="text-xs uppercase tracking-[0.08em] text-slate-500">
-        {props.label}
-      </span>
-      {props.items.length > 0 ? (
-        <ul className="grid gap-2 pl-[18px] text-sm text-slate-300">
-          {props.items.map((item) => (
-            <li key={item}>{item}</li>
-          ))}
-        </ul>
-      ) : (
-        <p className="m-0 text-sm text-slate-500">No items returned.</p>
+    <div className="mt-4 grid gap-1">
+      {items.map((item) =>
+        item.kind === "activity" ? (
+          <ActivityItem
+            key={item.id}
+            activity={item.activity}
+            onOpenConversation={props.onOpenConversation}
+          />
+        ) : (
+          <CommentItem key={item.id} comment={item.comment} />
+        )
       )}
     </div>
   );
+}
+
+function ActivityItem(props: {
+  activity: IncidentActivity;
+  onOpenConversation: (conversationId: string) => void;
+}) {
+  const activity = props.activity;
+  const isAgentCard = Boolean(activity.conversationId);
+  const isMentionResponse = Boolean(activity.causedByCommentId);
+  const content = (
+    <>
+      <div className="flex items-center justify-between gap-3 text-sm">
+        <span className="font-medium text-slate-100">
+          {isAgentCard ? agentDisplayName(activity.agentKind) : activity.title ?? activity.message}
+        </span>
+        {activity.agentStatus ? (
+          <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
+            {activity.agentStatus.replaceAll("_", " ")}
+          </span>
+        ) : null}
+      </div>
+      {isAgentCard ? (
+        <p className="m-0 mt-2 text-xs text-slate-500">{activity.message}</p>
+      ) : null}
+      {activity.summary && activity.summary !== activity.title ? (
+        <p className="m-0 mt-2 text-sm leading-6 text-slate-300">
+          {activity.summary}
+        </p>
+      ) : null}
+      <p className="m-0 mt-2 text-xs text-slate-600">
+        {new Date(activity.timestamp).toLocaleString()}
+      </p>
+    </>
+  );
+
+  if (isAgentCard && activity.conversationId) {
+    return (
+      <TimelineShell tone="agent" inset={isMentionResponse}>
+        <button
+          type="button"
+          onClick={() => props.onOpenConversation(activity.conversationId!)}
+          className="group w-full rounded-md border border-transparent bg-sky-300/[0.035] px-3 py-3 text-left text-slate-200 transition-colors hover:border-sky-200/20 hover:bg-sky-300/[0.07] focus-visible:border-sky-300/40 focus-visible:outline-none"
+        >
+          {content}
+          <div className="mt-3 flex items-center justify-between text-xs text-sky-200/75">
+            <span>{activity.title ?? "Open conversation"}</span>
+            <span className="transition-colors group-hover:text-sky-100">Open</span>
+          </div>
+        </button>
+      </TimelineShell>
+    );
+  }
+
+  return (
+    <TimelineShell tone="default">
+      <div className="px-3 py-2 text-sm text-slate-300">
+        {content}
+      </div>
+    </TimelineShell>
+  );
+}
+
+function CommentItem(props: { comment: IncidentComment }) {
+  return (
+    <TimelineShell tone="comment">
+      <div className="px-3 py-2 text-sm text-slate-200">
+        <div className="mb-2 flex items-center justify-between gap-3 text-xs text-slate-500">
+          <span>{props.comment.authorUserId}</span>
+          <span>{new Date(props.comment.createdAt).toLocaleString()}</span>
+        </div>
+        <p className="m-0 whitespace-pre-wrap">
+          {renderCommentBody(props.comment.body)}
+        </p>
+      </div>
+    </TimelineShell>
+  );
+}
+
+function TimelineShell(props: {
+  children: ReactNode;
+  inset?: boolean;
+  tone: "default" | "comment" | "agent";
+}) {
+  return (
+    <div
+      className={`min-w-0 border-b border-white/8 pb-3 last:border-b-0 last:pb-0 ${
+        props.inset ? "ml-8 border-l border-sky-300/18 pl-4" : ""
+      }`}
+    >
+      {props.children}
+    </div>
+  );
+}
+
+function LinkedConversationDrawer(props: {
+  conversation: ConversationDetail | null;
+  error: string | null;
+  loading: boolean;
+  onClose: () => void;
+  onDetailChange: (detail: ConversationDetail) => void;
+}) {
+  if (!props.conversation && !props.loading && !props.error) {
+    return null;
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-40 flex justify-end bg-black/55"
+      onClick={props.onClose}
+    >
+      <aside
+        className="grid h-full w-full max-w-[620px] grid-rows-[auto_minmax(0,1fr)] border-l border-sky-200/20 bg-[#0d1219] shadow-2xl"
+        onClick={(event) => event.stopPropagation()}
+      >
+        <header className="flex items-start justify-between gap-4 border-b border-white/8 px-5 py-4">
+          <div>
+            <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+              Linked conversation
+            </p>
+            <h3 className="m-0 mt-1 text-[18px] tracking-normal text-slate-100">
+              {props.conversation?.conversation.rootAgentKind ?? "Loading..."}
+            </h3>
+          </div>
+          <button
+            type="button"
+            onClick={props.onClose}
+            className="rounded-md border border-white/10 px-3 py-1.5 text-xs text-slate-300 transition-colors hover:border-white/20 hover:text-slate-50"
+          >
+            Close
+          </button>
+        </header>
+
+        <div className="min-h-0 overflow-y-auto px-5 py-5">
+          {props.loading ? (
+            <p className="text-sm text-slate-400">Loading conversation...</p>
+          ) : null}
+          {props.error ? (
+            <div className="rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+              {props.error}
+            </div>
+          ) : null}
+          {props.conversation ? (
+            <div className="grid gap-4">
+              <ConversationResultView
+                detail={props.conversation}
+                onDetailChange={props.onDetailChange}
+              />
+              <ConversationReplyBox
+                key={props.conversation.conversation.id}
+                conversation={props.conversation}
+                onDetailChange={props.onDetailChange}
+              />
+            </div>
+          ) : null}
+        </div>
+      </aside>
+    </div>
+  );
+}
+
+function renderCommentBody(body: string) {
+  return body.split(/(@copilot)/g).map((part, index) =>
+    part === "@copilot" ? (
+      <span
+        key={`${part}-${index}`}
+        className="rounded border border-sky-300/25 bg-sky-300/10 px-1.5 py-0.5 text-sky-100"
+      >
+        {part}
+      </span>
+    ) : (
+      part
+    )
+  );
+}
+
+function agentDisplayName(agentKind?: IncidentActivity["agentKind"]) {
+  if (agentKind === "ops-copilot") {
+    return "Copilot conversation";
+  }
+  if (agentKind === "incident-responder") {
+    return "Incident responder";
+  }
+  return "Agent conversation";
 }

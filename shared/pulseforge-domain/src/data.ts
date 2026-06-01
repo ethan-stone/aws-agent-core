@@ -6,7 +6,10 @@ import type {
   Device,
   DeviceMetricSnapshot,
   Incident,
-  IncidentEvent,
+  IncidentActionApproval,
+  IncidentActivity,
+  IncidentAgentMention,
+  IncidentComment,
   PendingInput,
   PulseForgeSnapshot,
   RemediationAction,
@@ -14,6 +17,7 @@ import type {
   RunbookDocument,
   RunItem,
   Site,
+  SimulationScenario,
   Ticket,
 } from "./types.js";
 
@@ -42,6 +46,7 @@ export const demoDevices: Device[] = [
     siteId: "site-atl-1",
     name: "Freezer Sensor 014",
     type: "freezer-sensor",
+    source: "simulated",
     firmwareVersion: "1.14.7",
     batteryPercent: 82,
     connectivityPercent: 98,
@@ -54,6 +59,7 @@ export const demoDevices: Device[] = [
     siteId: "site-atl-1",
     name: "Freezer Sensor 022",
     type: "freezer-sensor",
+    source: "simulated",
     firmwareVersion: "1.14.7",
     batteryPercent: 77,
     connectivityPercent: 97,
@@ -66,6 +72,7 @@ export const demoDevices: Device[] = [
     siteId: "site-phx-1",
     name: "Line Gateway 003",
     type: "gateway",
+    source: "simulated",
     firmwareVersion: "2.2.1",
     batteryPercent: 100,
     connectivityPercent: 72,
@@ -78,6 +85,7 @@ export const demoDevices: Device[] = [
     siteId: "site-phx-1",
     name: "Vibration Monitor 118",
     type: "vibration-monitor",
+    source: "simulated",
     firmwareVersion: "3.0.2",
     batteryPercent: 64,
     connectivityPercent: 99,
@@ -208,30 +216,83 @@ export const demoIncidents: Incident[] = [
   },
 ];
 
-export const demoIncidentEvents: IncidentEvent[] = [
+export const demoIncidentActivities: IncidentActivity[] = [
   {
-    id: "evt-1",
+    id: "actv-1",
     incidentId: "inc-1001",
     timestamp: "2026-04-12T13:42:00.000Z",
     kind: "detected",
     message: "Alert rule `freezer-temp-drift` triggered for 2 devices.",
   },
   {
-    id: "evt-2",
+    id: "actv-2",
     incidentId: "inc-1001",
     timestamp: "2026-04-12T13:55:00.000Z",
     kind: "agent_summary",
     message:
-      "Anomaly Investigation Agent found strongest correlation with firmware version 1.14.7 rollout.",
+      "Incident Responder found strongest correlation with firmware version 1.14.7 rollout.",
+    conversationId: "conv-1",
+    agentRunId: "run-1",
+    agentKind: "incident-responder",
+    agentStatus: "completed",
+    title: "Firmware correlation check",
+    summary:
+      "Warm-temperature drift aligns with the latest firmware rollout and not ambient site changes.",
   },
   {
-    id: "evt-3",
+    id: "actv-3",
     incidentId: "inc-1002",
     timestamp: "2026-04-12T14:18:00.000Z",
     kind: "detected",
     message: "Gateway connectivity degraded beyond high-severity threshold.",
   },
+  {
+    id: "actv-4",
+    incidentId: "inc-1001",
+    timestamp: "2026-04-12T14:05:01.000Z",
+    kind: "agent_conversation",
+    message: "Copilot connected by demo-user.",
+    conversationId: "conv-3",
+    agentRunId: "run-3",
+    agentKind: "ops-copilot",
+    agentStatus: "completed",
+    title: "Compare firmware rollout timing",
+    summary:
+      "The timing still points at the 1.14.7 rollout, with both affected sensors in the same cohort.",
+    causedByCommentId: "comment-1",
+    causedByMentionId: "mention-1",
+  },
 ];
+
+export const demoIncidentComments: IncidentComment[] = [
+  {
+    id: "comment-1",
+    incidentId: "inc-1001",
+    authorUserId: "demo-user",
+    body: "@copilot compare this drift against the firmware rollout window.",
+    createdAt: "2026-04-12T14:05:00.000Z",
+    updatedAt: "2026-04-12T14:05:00.000Z",
+  },
+];
+
+export const demoIncidentAgentMentions: IncidentAgentMention[] = [
+  {
+    id: "mention-1",
+    incidentId: "inc-1001",
+    commentId: "comment-1",
+    handle: "@copilot",
+    agentKind: "ops-copilot",
+    status: "accepted",
+    conversationId: "conv-3",
+    agentRunId: "run-3",
+    activityId: "actv-4",
+    createdAt: "2026-04-12T14:05:00.000Z",
+    acceptedAt: "2026-04-12T14:05:01.000Z",
+  },
+];
+
+export const demoIncidentActionApprovals: IncidentActionApproval[] = [];
+export const demoSimulationScenarios: SimulationScenario[] = [];
 
 export const demoRemediationActions: RemediationAction[] = [
   {
@@ -293,8 +354,10 @@ export const demoRunbooks: RunbookDocument[] = [
 export const demoConversations: Conversation[] = [
   {
     id: "conv-1",
-    rootAgentKind: "ops-copilot",
+    rootAgentKind: "incident-responder",
     status: "open",
+    incidentId: "inc-1001",
+    interactionMode: "observe_only",
     createdAt: "2026-04-12T13:50:00.000Z",
     updatedAt: "2026-04-12T13:55:00.000Z",
   },
@@ -302,9 +365,21 @@ export const demoConversations: Conversation[] = [
     id: "conv-2",
     rootAgentKind: "incident-responder",
     status: "open",
+    incidentId: "inc-1002",
+    interactionMode: "observe_only",
     activeRootRunId: "run-2",
     createdAt: "2026-04-12T14:20:00.000Z",
     updatedAt: "2026-04-12T14:20:00.000Z",
+  },
+  {
+    id: "conv-3",
+    rootAgentKind: "ops-copilot",
+    status: "open",
+    incidentId: "inc-1001",
+    interactionMode: "interactive",
+    interactionOwnerUserId: "demo-user",
+    createdAt: "2026-04-12T14:05:01.000Z",
+    updatedAt: "2026-04-12T14:06:00.000Z",
   },
 ];
 
@@ -329,6 +404,16 @@ export const demoRuntimeSessions: RuntimeSession[] = [
     createdAt: "2026-04-12T14:20:00.000Z",
     lastUsedAt: "2026-04-12T14:20:00.000Z",
   },
+  {
+    id: "runtime-session-3",
+    provider: "aws-agentcore",
+    runtimeIdentity: "demo-agent-runtime",
+    providerSessionId: "conv-3-agentcore",
+    conversationId: "conv-3",
+    status: "idle",
+    createdAt: "2026-04-12T14:05:01.000Z",
+    lastUsedAt: "2026-04-12T14:06:00.000Z",
+  },
 ];
 
 export const demoAgentRuns: AgentRun[] = [
@@ -337,7 +422,7 @@ export const demoAgentRuns: AgentRun[] = [
     conversationId: "conv-1",
     incidentId: "inc-1001",
     runtimeSessionId: "runtime-session-1",
-    agentKind: "ops-copilot",
+    agentKind: "incident-responder",
     relationship: "root",
     status: "completed",
     startedAt: "2026-04-12T13:50:00.000Z",
@@ -355,6 +440,20 @@ export const demoAgentRuns: AgentRun[] = [
     status: "queued",
     startedAt: "2026-04-12T14:20:00.000Z",
     summary: "Background remediation queued for gateway packet loss incident.",
+  },
+  {
+    id: "run-3",
+    conversationId: "conv-3",
+    incidentId: "inc-1001",
+    runtimeSessionId: "runtime-session-3",
+    agentKind: "ops-copilot",
+    relationship: "root",
+    status: "completed",
+    startedAt: "2026-04-12T14:05:01.000Z",
+    requestedByUserId: "demo-user",
+    completedAt: "2026-04-12T14:06:00.000Z",
+    summary:
+      "The timing still points at the 1.14.7 rollout, with both affected sensors in the same cohort.",
   },
 ];
 
@@ -383,13 +482,47 @@ export const demoRunItems: RunItem[] = [
     source: {
       type: "agent",
       agentRunId: "run-1",
-      agentKind: "ops-copilot",
+      agentKind: "incident-responder",
     },
     createdAt: "2026-04-12T13:55:00.000Z",
     content: [
       {
         type: "text",
         text: "Warm-temperature drift aligns with the latest firmware rollout and not ambient site changes.",
+      },
+    ],
+  },
+  {
+    id: "item-3",
+    runId: "run-3",
+    sequence: 0,
+    kind: "message",
+    role: "user",
+    source: { type: "user", userId: "demo-user" },
+    createdAt: "2026-04-12T14:05:01.000Z",
+    content: [
+      {
+        type: "text",
+        text: "Compare this drift against the firmware rollout window.",
+      },
+    ],
+  },
+  {
+    id: "item-4",
+    runId: "run-3",
+    sequence: 1,
+    kind: "message",
+    role: "agent",
+    source: {
+      type: "agent",
+      agentRunId: "run-3",
+      agentKind: "ops-copilot",
+    },
+    createdAt: "2026-04-12T14:06:00.000Z",
+    content: [
+      {
+        type: "text",
+        text: "The timing still points at the 1.14.7 rollout, with both affected sensors in the same cohort.",
       },
     ],
   },
@@ -422,7 +555,11 @@ export const demoSnapshot: PulseForgeSnapshot = {
   devices: demoDevices,
   deviceMetrics: demoDeviceMetrics,
   incidents: demoIncidents,
-  incidentEvents: demoIncidentEvents,
+  incidentActivities: demoIncidentActivities,
+  incidentComments: demoIncidentComments,
+  incidentAgentMentions: demoIncidentAgentMentions,
+  incidentActionApprovals: demoIncidentActionApprovals,
+  simulationScenarios: demoSimulationScenarios,
   remediationActions: demoRemediationActions,
   tickets: demoTickets,
   conversations: demoConversations,

@@ -36,16 +36,16 @@ export const resetDeviceInputSchema = z.object({
     .describe("Operator-readable reason for resetting the device."),
 });
 
-export const createIncidentEventInputSchema = z.object({
-  incidentId: z.string().min(1).describe("Incident id to append an event to."),
+export const createIncidentActivityInputSchema = z.object({
+  incidentId: z.string().min(1).describe("Incident id to append activity to."),
   kind: z
     .enum(["agent_summary", "action_attempted", "action_result", "ticket_created"])
-    .describe("Type of event being recorded."),
+    .describe("Type of activity being recorded."),
   message: z
     .string()
     .min(1)
     .max(1200)
-    .describe("Operator-readable event text."),
+    .describe("Operator-readable activity text."),
 });
 
 export const createTicketInputSchema = z.object({

@@ -15,8 +15,11 @@
     "agent:dev:local": "pnpm --filter @agent-core/pulseforge-agent-runtime dev",
     "agent:invoke:local": "pnpm --filter @agent-core/pulseforge-agent-runtime invoke:local",
     "pulseforge:seed": "pnpm --filter @agent-core/webbackend seed",
+    "pulseforge:cleanup-demo-data": "pnpm --filter @agent-core/webbackend cleanup-demo-data",
     "webbackend:dev:local": "pnpm --filter @agent-core/webbackend dev",
     "tools-api:dev:local": "pnpm --filter @agent-core/tools-api dev",
+    "simulator:tick": "pnpm --filter @agent-core/device-simulator tick",
+    "simulator:queue-scenario": "pnpm --filter @agent-core/device-simulator queue-scenario",
     "webapp:dev:local": "pnpm --filter @agent-core/webapp dev",
     "webapp:dev:deployed-backend": "pnpm --filter @agent-core/webapp dev:deployed-backend"
   },

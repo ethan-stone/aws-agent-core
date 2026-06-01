@@ -1,7 +1,8 @@
 import { OpenAPIHono, createRoute } from "@hono/zod-openapi";
 import {
   buildIncidentInvestigationContext,
-  createIncidentEvent,
+  createIncidentActivity,
+  recoverSimulatedDeviceFromReset,
   createRemediationAction,
   createTicket,
   getDevice,
@@ -11,13 +12,13 @@ import {
 import type { ToolsApiEnv } from "./types.js";
 import { getToolAuth, requireToolAccess, toolScopes } from "./auth.js";
 import {
-  createIncidentEventBodySchema,
+  createIncidentActivityBodySchema,
   createTicketBodySchema,
   createTicketParamsSchema,
   curatedToolResponseSchema,
   deviceParamsSchema,
   errorResponseSchema,
-  incidentEventParamsSchema,
+  incidentActivityParamsSchema,
   incidentContextParamsSchema,
   proposeRemediationActionBodySchema,
   proposeRemediationActionParamsSchema,
@@ -26,7 +27,7 @@ import {
   telemetryParamsSchema,
 } from "./schemas.js";
 import {
-  serializeCreatedIncidentEvent,
+  serializeCreatedIncidentActivity,
   serializeDevice,
   serializeDeviceReset,
   serializeDeviceTelemetry,
@@ -119,6 +120,7 @@ toolsApp.openapi(
     }
 
     const body = c.req.valid("json");
+    await recoverSimulatedDeviceFromReset(deviceId);
     return c.json(serializeDeviceReset(deviceId, body.reason));
   }) as never
 );
@@ -185,17 +187,17 @@ toolsApp.openapi(
 toolsApp.openapi(
   createRoute({
     method: "post",
-    path: "/incidents/{incidentId}/events",
+    path: "/incidents/{incidentId}/activities",
     request: {
-      params: incidentEventParamsSchema,
+      params: incidentActivityParamsSchema,
       body: {
-        content: { "application/json": { schema: createIncidentEventBodySchema } },
+        content: { "application/json": { schema: createIncidentActivityBodySchema } },
       },
     },
     middleware: [
       requireToolAccess({
-        operation: "incident_events.create",
-        scopes: [toolScopes.writeIncidentEvents],
+        operation: "incident_activities.create",
+        scopes: [toolScopes.writeIncidentActivities],
         resourceType: "incident",
         getResourceId: (c) => c.req.param("incidentId") ?? "",
       }),
@@ -210,14 +212,14 @@ toolsApp.openapi(
     }
 
     const body = c.req.valid("json");
-    const event = await createIncidentEvent({
+    const activity = await createIncidentActivity({
       incidentId,
       kind: body.kind,
       message: body.message,
       createdBy: getToolAuth(c).actor,
     });
 
-    return c.json(serializeCreatedIncidentEvent(event), 201);
+    return c.json(serializeCreatedIncidentActivity(activity), 201);
   }) as never
 );
 

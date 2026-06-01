@@ -145,9 +145,18 @@ export async function* runPulseForgeAgentInvocation(
     const runLifecycle = new AgentRunLifecycle(resolved.lifecycleContext);
     lifecycle = runLifecycle;
     const actorId = resolved.actorId ?? context.sessionId;
+    const memorySessionId = resolveAgentMemorySessionId(request, context);
     const memory = await dependencies.memoryProjection.prepare({
       actorId,
-      sessionId: context.sessionId,
+      sessionId: memorySessionId,
+    });
+    console.info("[agent] memory session prepared", {
+      agentRunId: request.agentRunId,
+      conversationId: request.conversationId,
+      runtimeSessionId: request.runtimeSessionId,
+      providerSessionId: request.providerSessionId,
+      contextSessionId: context.sessionId,
+      memorySessionId,
     });
     const agentConfig = getPulseForgeAgentConfig(resolved.agentKind);
     const runtimeEvents = new AsyncEventQueue<AgentRuntimeStreamEvent>();
@@ -774,38 +783,15 @@ function stringFromRecord(
   return typeof item === "string" ? item : undefined;
 }
 
-function buildAgentPrompt(request: StartAgentRunInvocation): string {
-  const trigger = request.trigger;
-  const prompt = promptFromTrigger(trigger);
-  const incidentId = incidentIdFromTrigger(trigger);
-  const deviceId =
-    trigger.type === "operator_prompt" ? trigger.deviceId : undefined;
-  const contextLines = [
-    `Agent kind: ${request.agentKind}`,
-    `Conversation ID: ${request.conversationId}`,
-    `Agent run ID: ${request.agentRunId}`,
-    request.runtimeSessionId
-      ? `Runtime session ID: ${request.runtimeSessionId}`
-      : null,
-    request.providerSessionId
-      ? `Provider session ID: ${request.providerSessionId}`
-      : null,
-    `Trigger: ${trigger.type}`,
-    incidentId ? `Incident ID: ${incidentId}` : null,
-    deviceId ? `Device ID: ${deviceId}` : null,
-    trigger.type === "incident_agent_mention"
-      ? `Incident activity ID: ${trigger.incidentActivityId}`
-      : null,
-    "",
-    prompt,
-    "",
-    "Return a concise operator-ready response. If an ID is provided, use the available tools to gather operational evidence before answering.",
-    shouldUseResetApprovalPath(prompt)
-      ? "This request asks you to reset or remediate a device if warranted. After gathering evidence, if reset or reboot is warranted, call reset_device to request operator approval. Do not ask for confirmation in chat, and do not use propose_remediation_action as a substitute for reset_device."
-      : null,
-  ].filter(Boolean);
+export function resolveAgentMemorySessionId(
+  request: Pick<AgentRuntimeInvocation, "providerSessionId">,
+  context: Pick<AgentRuntimeContext, "sessionId">
+): string {
+  return request.providerSessionId ?? context.sessionId;
+}
 
-  return contextLines.join("\n");
+function buildAgentPrompt(request: StartAgentRunInvocation): string {
+  return promptFromTrigger(request.trigger);
 }
 
 function promptFromTrigger(trigger: AgentRuntimeInvocationTrigger): string {
@@ -814,18 +800,6 @@ function promptFromTrigger(trigger: AgentRuntimeInvocationTrigger): string {
   }
 
   return `Incident ${trigger.incidentId} was created. Investigate the incident, summarize likely causes, and take safe remediation steps when appropriate.`;
-}
-
-function incidentIdFromTrigger(
-  trigger: AgentRuntimeInvocationTrigger
-): string | undefined {
-  return "incidentId" in trigger ? trigger.incidentId : undefined;
-}
-
-function shouldUseResetApprovalPath(prompt: string): boolean {
-  return /\b(reset|reboot|restart|remediate|remediation|resolve|fix)\b/i.test(
-    prompt
-  );
 }
 
 function buildInvestigationSummary(agentLabel: string, result: string) {

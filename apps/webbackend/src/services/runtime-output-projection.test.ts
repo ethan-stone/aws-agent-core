@@ -148,7 +148,7 @@ describe("parseAgentRuntimeResponse", () => {
           event: "tool_call",
           data: {
             toolCallId: "tool-1",
-            toolName: "create_incident_event",
+            toolName: "create_incident_activity",
             arguments: { incidentId: "inc-1001" },
           },
         },
@@ -156,7 +156,7 @@ describe("parseAgentRuntimeResponse", () => {
           event: "tool_result",
           data: {
             toolCallId: "tool-1",
-            toolName: "create_incident_event",
+            toolName: "create_incident_activity",
             content: "Backend returned HTTP 500.",
             isError: true,
           },

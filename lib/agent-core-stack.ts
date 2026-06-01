@@ -6,6 +6,8 @@ import * as apigateway from "aws-cdk-lib/aws-apigateway";
 import * as lambda from "aws-cdk-lib/aws-lambda";
 import * as nodejs from "aws-cdk-lib/aws-lambda-nodejs";
 import * as logs from "aws-cdk-lib/aws-logs";
+import * as events from "aws-cdk-lib/aws-events";
+import * as eventTargets from "aws-cdk-lib/aws-events-targets";
 import * as cr from "aws-cdk-lib/custom-resources";
 import * as cognito from "aws-cdk-lib/aws-cognito";
 import * as bedrockAgentCore from "aws-cdk-lib/aws-bedrockagentcore";
@@ -72,7 +74,7 @@ export class AgentCoreStack extends Stack {
       ["read:devices", "Read PulseForge device records"],
       ["read:incidents", "Read PulseForge incidents"],
       ["read:telemetry", "Read PulseForge telemetry"],
-      ["write:incident_events", "Create PulseForge incident timeline events"],
+      ["write:incident_events", "Create PulseForge incident activity"],
       ["write:tickets", "Create PulseForge tickets"],
       ["write:remediation_actions", "Create PulseForge remediation proposals"],
       ["write:device_commands", "Execute approved PulseForge device commands"],
@@ -300,6 +302,53 @@ export class AgentCoreStack extends Stack {
     pulseForgeToolsApi.root
       .addResource("{proxy+}")
       .addMethod("ANY", toolsIntegration);
+
+    // --- PulseForge Device Simulator ---
+    const pulseForgeSimulatorTickFunction = new nodejs.NodejsFunction(
+      this,
+      "PulseForgeSimulatorTickFunction",
+      {
+        entry: path.join(__dirname, "../apps/device-simulator/src/tick-handler.ts"),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        timeout: Duration.seconds(30),
+        memorySize: 512,
+        environment: commonBackendEnvironment,
+        bundling: {
+          bundleAwsSDK: true,
+          target: "node22",
+          sourceMap: true,
+        },
+      }
+    );
+    pulseForgeSecrets.grantRead(pulseForgeSimulatorTickFunction);
+
+    const pulseForgeSimulatorQueueScenarioFunction = new nodejs.NodejsFunction(
+      this,
+      "PulseForgeSimulatorQueueScenarioFunction",
+      {
+        entry: path.join(
+          __dirname,
+          "../apps/device-simulator/src/queue-scenario-handler.ts"
+        ),
+        handler: "handler",
+        runtime: lambda.Runtime.NODEJS_22_X,
+        timeout: Duration.seconds(30),
+        memorySize: 512,
+        environment: commonBackendEnvironment,
+        bundling: {
+          bundleAwsSDK: true,
+          target: "node22",
+          sourceMap: true,
+        },
+      }
+    );
+    pulseForgeSecrets.grantRead(pulseForgeSimulatorQueueScenarioFunction);
+
+    new events.Rule(this, "PulseForgeSimulatorTickSchedule", {
+      schedule: events.Schedule.rate(Duration.minutes(1)),
+      targets: [new eventTargets.LambdaFunction(pulseForgeSimulatorTickFunction)],
+    });
 
     // --- Bedrock AgentCore Runtime ---
     const pulseForgeRuntimeEnvironment: Record<string, string> = {
@@ -659,6 +708,10 @@ export class AgentCoreStack extends Stack {
 
     new CfnOutput(this, "PulseForgeWebBackendApiUrl", {
       value: pulseForgeWebBackendUrl,
+    });
+
+    new CfnOutput(this, "PulseForgeSimulatorQueueScenarioFunctionName", {
+      value: pulseForgeSimulatorQueueScenarioFunction.functionName,
     });
 
     new CfnOutput(this, "RuntimeLogGroupName", {

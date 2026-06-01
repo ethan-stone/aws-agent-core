@@ -9,12 +9,16 @@ import {
   demoDashboard,
   demoDeviceMetrics,
   demoDevices,
-  demoIncidentEvents,
+  demoIncidentActionApprovals,
+  demoIncidentActivities,
+  demoIncidentAgentMentions,
+  demoIncidentComments,
   demoIncidents,
   demoPendingInputs,
   demoRemediationActions,
   demoRuntimeSessions,
   demoRunItems,
+  demoSimulationScenarios,
   demoSites,
   demoSnapshot,
   demoTickets,
@@ -25,9 +29,14 @@ import {
   type Device,
   type DeviceMetricSnapshot,
   type Incident,
-  type IncidentEvent,
+  type IncidentActionApproval,
+  type IncidentActivity,
+  type IncidentAgentMention,
+  type IncidentComment,
   type PulseForgeSnapshot,
   type RemediationAction,
+  type SimulationScenario,
+  type Site,
   type Ticket,
   type ToolApprovalGrant,
 } from "@agent-core/pulseforge-domain";
@@ -39,6 +48,24 @@ import type {
 } from "./types.js";
 
 export class InMemoryPulseForgeRepository implements PulseForgeRepository {
+  private readonly sites = new Map<string, Site>(
+    demoSites.map((site) => [site.id, site])
+  );
+  private readonly devices = new Map<string, Device>(
+    demoDevices.map((device) => [device.id, device])
+  );
+  private readonly deviceMetrics = new Map<string, DeviceMetricSnapshot[]>(
+    Object.entries(demoDeviceMetrics).map(([deviceId, metrics]) => [
+      deviceId,
+      [...metrics],
+    ])
+  );
+  private readonly incidents = new Map<string, Incident>(
+    demoIncidents.map((incident) => [incident.id, incident])
+  );
+  private readonly simulationScenarios = new Map<string, SimulationScenario>(
+    demoSimulationScenarios.map((scenario) => [scenario.id, scenario])
+  );
   private readonly conversations = new Map<string, Conversation>(
     demoConversations.map((conversation) => [conversation.id, conversation])
   );
@@ -55,8 +82,17 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
   private readonly pendingInputs = new Map<string, PendingInput>(
     demoPendingInputs.map((input) => [input.id, input])
   );
-  private readonly incidentEvents = new Map<string, IncidentEvent>(
-    demoIncidentEvents.map((event) => [event.id, event])
+  private readonly incidentActivities = new Map<string, IncidentActivity>(
+    demoIncidentActivities.map((activity) => [activity.id, activity])
+  );
+  private readonly incidentComments = new Map<string, IncidentComment>(
+    demoIncidentComments.map((comment) => [comment.id, comment])
+  );
+  private readonly incidentAgentMentions = new Map<string, IncidentAgentMention>(
+    demoIncidentAgentMentions.map((mention) => [mention.id, mention])
+  );
+  private readonly incidentActionApprovals = new Map<string, IncidentActionApproval>(
+    demoIncidentActionApprovals.map((approval) => [approval.id, approval])
   );
   private readonly remediationActions = new Map<string, RemediationAction>(
     demoRemediationActions.map((action) => [action.id, action])
@@ -71,7 +107,14 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
   async getSnapshot(): Promise<PulseForgeSnapshot> {
     return {
       ...demoSnapshot,
-      incidentEvents: [...this.incidentEvents.values()],
+      sites: [...this.sites.values()],
+      devices: [...this.devices.values()],
+      deviceMetrics: Object.fromEntries(this.deviceMetrics.entries()),
+      incidents: [...this.incidents.values()],
+      incidentActivities: [...this.incidentActivities.values()],
+      incidentComments: [...this.incidentComments.values()],
+      incidentAgentMentions: [...this.incidentAgentMentions.values()],
+      incidentActionApprovals: [...this.incidentActionApprovals.values()],
       remediationActions: [...this.remediationActions.values()],
       tickets: [...this.tickets.values()],
       conversations: [...this.conversations.values()],
@@ -80,43 +123,214 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
       runItems: [...this.runItems.values()],
       pendingInputs: [...this.pendingInputs.values()],
       auditLogs: [...this.auditLogs.values()],
+      simulationScenarios: [...this.simulationScenarios.values()],
     };
   }
 
   async getDashboard(): Promise<DashboardSummary> {
-    return demoDashboard;
+    return buildDashboard(
+      [...this.devices.values()],
+      [...this.incidents.values()],
+      this.sites.size
+    );
   }
 
   async listDevices(): Promise<Device[]> {
-    return demoDevices;
+    return [...this.devices.values()].sort((left, right) =>
+      left.name.localeCompare(right.name)
+    );
   }
 
   async getDevice(deviceId: string): Promise<Device | null> {
-    return demoDevices.find((device) => device.id === deviceId) ?? null;
+    return this.devices.get(deviceId) ?? null;
+  }
+
+  async createDevice(
+    device: Parameters<PulseForgeRepository["createDevice"]>[0]
+  ): Promise<Device> {
+    const created: Device = {
+      ...device,
+      source: device.source ?? "simulated",
+      batteryPercent: device.batteryPercent ?? 100,
+      connectivityPercent: device.connectivityPercent ?? 100,
+      status: device.status ?? "healthy",
+      lastSeenAt: device.lastSeenAt ?? new Date().toISOString(),
+    };
+    this.devices.set(created.id, created);
+    this.deviceMetrics.set(created.id, []);
+    return created;
+  }
+
+  async updateDeviceCurrentState(
+    deviceId: string,
+    update: Parameters<PulseForgeRepository["updateDeviceCurrentState"]>[1]
+  ): Promise<Device | null> {
+    const existing = this.devices.get(deviceId);
+    if (!existing) {
+      return null;
+    }
+    const updated = { ...existing, ...update };
+    this.devices.set(deviceId, updated);
+    return updated;
   }
 
   async getDeviceTelemetry(
     deviceId: string
   ): Promise<DeviceMetricSnapshot[] | null> {
-    return demoDeviceMetrics[deviceId] ?? null;
+    return this.deviceMetrics.get(deviceId) ?? null;
+  }
+
+  async appendDeviceTelemetry(
+    deviceId: string,
+    metric: DeviceMetricSnapshot
+  ): Promise<DeviceMetricSnapshot> {
+    const metrics = this.deviceMetrics.get(deviceId) ?? [];
+    metrics.push(metric);
+    this.deviceMetrics.set(deviceId, metrics);
+    return metric;
   }
 
   async listIncidents(): Promise<Incident[]> {
-    return demoIncidents;
+    return [...this.incidents.values()].sort((left, right) =>
+      right.updatedAt.localeCompare(left.updatedAt)
+    );
   }
 
   async getIncident(incidentId: string): Promise<IncidentAggregate | null> {
-    const incident = demoIncidents.find((item) => item.id === incidentId) ?? null;
+    const incident = this.incidents.get(incidentId) ?? null;
     if (!incident) {
       return null;
     }
 
     return {
       incident,
-      events: [...this.incidentEvents.values()].filter(
-        (event) => event.incidentId === incidentId
+      activities: [...this.incidentActivities.values()].filter(
+        (activity) => activity.incidentId === incidentId
+      ),
+      comments: [...this.incidentComments.values()].filter(
+        (comment) => comment.incidentId === incidentId
+      ),
+      agentMentions: [...this.incidentAgentMentions.values()].filter(
+        (mention) => mention.incidentId === incidentId
+      ),
+      actionApprovals: [...this.incidentActionApprovals.values()].filter(
+        (approval) => approval.incidentId === incidentId
       ),
     };
+  }
+
+  async createIncident(
+    incident: Parameters<PulseForgeRepository["createIncident"]>[0]
+  ): Promise<Incident> {
+    const now = new Date().toISOString();
+    const created: Incident = {
+      ...incident,
+      id: incident.id ?? `inc-${randomUUID().slice(0, 8)}`,
+      createdAt: incident.createdAt ?? now,
+      updatedAt: incident.updatedAt ?? now,
+    };
+    this.incidents.set(created.id, created);
+    return created;
+  }
+
+  async updateIncident(
+    incidentId: string,
+    update: Parameters<PulseForgeRepository["updateIncident"]>[1]
+  ): Promise<Incident | null> {
+    const existing = this.incidents.get(incidentId);
+    if (!existing) {
+      return null;
+    }
+    const updated = {
+      ...existing,
+      ...update,
+      updatedAt: update.updatedAt ?? new Date().toISOString(),
+    };
+    this.incidents.set(incidentId, updated);
+    return updated;
+  }
+
+  async findOpenIncidentForDeviceCategory(
+    deviceId: string,
+    category: Incident["category"]
+  ): Promise<Incident | null> {
+    return (
+      [...this.incidents.values()].find(
+        (incident) =>
+          incident.category === category &&
+          incident.deviceIds.includes(deviceId) &&
+          incident.status !== "resolved"
+      ) ?? null
+    );
+  }
+
+  async listSimulationScenarios(
+    statuses?: SimulationScenario["status"][]
+  ): Promise<SimulationScenario[]> {
+    return [...this.simulationScenarios.values()]
+      .filter((scenario) => !statuses || statuses.includes(scenario.status))
+      .sort((left, right) => left.createdAt.localeCompare(right.createdAt));
+  }
+
+  async createSimulationScenario(
+    scenario: Parameters<PulseForgeRepository["createSimulationScenario"]>[0]
+  ): Promise<SimulationScenario> {
+    const created: SimulationScenario = {
+      id: scenario.id ?? randomUUID(),
+      deviceId: scenario.deviceId,
+      type: scenario.type,
+      status: scenario.status ?? "queued",
+      durationMinutes: scenario.durationMinutes ?? 5,
+      triggerAfterConsecutivePoints: scenario.triggerAfterConsecutivePoints ?? 1,
+      consecutiveAffectedPoints: scenario.consecutiveAffectedPoints ?? 0,
+      createdAt: scenario.createdAt ?? new Date().toISOString(),
+      startedAt: scenario.startedAt,
+      triggeredAt: scenario.triggeredAt,
+      completedAt: scenario.completedAt,
+      expiresAt: scenario.expiresAt,
+      incidentId: scenario.incidentId,
+      completedReason: scenario.completedReason,
+    };
+    this.simulationScenarios.set(created.id, created);
+    return created;
+  }
+
+  async updateSimulationScenario(
+    scenarioId: string,
+    update: Parameters<PulseForgeRepository["updateSimulationScenario"]>[1]
+  ): Promise<SimulationScenario | null> {
+    const existing = this.simulationScenarios.get(scenarioId);
+    if (!existing) {
+      return null;
+    }
+    const updated = { ...existing, ...update };
+    this.simulationScenarios.set(scenarioId, updated);
+    return updated;
+  }
+
+  async completeActiveSimulationScenariosForDevice(
+    deviceId: string,
+    reason: NonNullable<SimulationScenario["completedReason"]>
+  ): Promise<SimulationScenario[]> {
+    const completed: SimulationScenario[] = [];
+    const now = new Date().toISOString();
+    for (const scenario of this.simulationScenarios.values()) {
+      if (
+        scenario.deviceId !== deviceId ||
+        (scenario.status !== "queued" && scenario.status !== "active")
+      ) {
+        continue;
+      }
+      const updated: SimulationScenario = {
+        ...scenario,
+        status: "completed",
+        completedAt: now,
+        completedReason: reason,
+      };
+      this.simulationScenarios.set(updated.id, updated);
+      completed.push(updated);
+    }
+    return completed;
   }
 
   async getConversation(conversationId: string): Promise<Conversation | null> {
@@ -131,6 +345,9 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
       id: conversation.id,
       rootAgentKind: conversation.rootAgentKind,
       status: conversation.status ?? "open",
+      incidentId: conversation.incidentId,
+      interactionMode: conversation.interactionMode,
+      interactionOwnerUserId: conversation.interactionOwnerUserId,
       activeRootRunId: conversation.activeRootRunId,
       createdAt: conversation.createdAt ?? now,
       updatedAt: conversation.updatedAt ?? now,
@@ -470,20 +687,142 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     return Math.max(...items.map((item) => item.sequence)) + 1;
   }
 
-  async createIncidentEvent(
-    event: Parameters<PulseForgeRepository["createIncidentEvent"]>[0]
-  ): Promise<IncidentEvent> {
-    const created: IncidentEvent = {
-      id: event.id ?? randomUUID(),
-      incidentId: event.incidentId,
-      timestamp: event.timestamp ?? new Date().toISOString(),
-      kind: event.kind,
-      message: event.message,
-      createdBy: event.createdBy,
+  async createIncidentActivity(
+    activity: Parameters<PulseForgeRepository["createIncidentActivity"]>[0]
+  ): Promise<IncidentActivity> {
+    const created: IncidentActivity = {
+      id: activity.id ?? randomUUID(),
+      incidentId: activity.incidentId,
+      timestamp: activity.timestamp ?? new Date().toISOString(),
+      kind: activity.kind,
+      message: activity.message,
+      createdBy: activity.createdBy,
+      conversationId: activity.conversationId,
+      agentRunId: activity.agentRunId,
+      agentKind: activity.agentKind,
+      agentStatus: activity.agentStatus,
+      title: activity.title,
+      summary: activity.summary,
+      causedByCommentId: activity.causedByCommentId,
+      causedByMentionId: activity.causedByMentionId,
+      incidentActionApprovalId: activity.incidentActionApprovalId,
     };
 
-    this.incidentEvents.set(created.id, created);
+    this.incidentActivities.set(created.id, created);
     return created;
+  }
+
+  async updateIncidentActivity(
+    activityId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentActivity"]>[1]
+  ): Promise<IncidentActivity | null> {
+    const existing = this.incidentActivities.get(activityId);
+    if (!existing) {
+      return null;
+    }
+    const updated = { ...existing, ...update };
+    this.incidentActivities.set(activityId, updated);
+    return updated;
+  }
+
+  async updateIncidentActivityByAgentRun(
+    agentRunId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentActivityByAgentRun"]>[1]
+  ): Promise<IncidentActivity | null> {
+    const existing = [...this.incidentActivities.values()].find(
+      (activity) =>
+        activity.kind === "agent_conversation" &&
+        activity.agentRunId === agentRunId
+    );
+    if (!existing) {
+      return null;
+    }
+    return this.updateIncidentActivity(existing.id, update);
+  }
+
+  async createIncidentComment(
+    comment: Parameters<PulseForgeRepository["createIncidentComment"]>[0]
+  ): Promise<IncidentComment> {
+    const now = new Date().toISOString();
+    const created: IncidentComment = {
+      id: comment.id ?? randomUUID(),
+      incidentId: comment.incidentId,
+      body: comment.body,
+      authorUserId: comment.authorUserId,
+      createdAt: comment.createdAt ?? now,
+      updatedAt: comment.updatedAt ?? comment.createdAt ?? now,
+    };
+    this.incidentComments.set(created.id, created);
+    return created;
+  }
+
+  async createIncidentAgentMention(
+    mention: Parameters<PulseForgeRepository["createIncidentAgentMention"]>[0]
+  ): Promise<IncidentAgentMention> {
+    const created: IncidentAgentMention = {
+      ...mention,
+      id: mention.id ?? randomUUID(),
+      createdAt: mention.createdAt ?? new Date().toISOString(),
+    };
+    this.incidentAgentMentions.set(created.id, created);
+    return created;
+  }
+
+  async updateIncidentAgentMention(
+    mentionId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentAgentMention"]>[1]
+  ): Promise<IncidentAgentMention | null> {
+    const existing = this.incidentAgentMentions.get(mentionId);
+    if (!existing) {
+      return null;
+    }
+    const updated = { ...existing, ...update };
+    this.incidentAgentMentions.set(mentionId, updated);
+    return updated;
+  }
+
+  async createIncidentActionApproval(
+    approval: Parameters<PulseForgeRepository["createIncidentActionApproval"]>[0]
+  ): Promise<IncidentActionApproval> {
+    const created: IncidentActionApproval = {
+      ...approval,
+      id: approval.id ?? randomUUID(),
+      status: approval.status ?? "pending",
+      requestedAt: approval.requestedAt ?? new Date().toISOString(),
+    };
+    this.incidentActionApprovals.set(created.id, created);
+    return created;
+  }
+
+  async updateIncidentActionApprovalStatus(
+    approvalId: string,
+    update: Parameters<PulseForgeRepository["updateIncidentActionApprovalStatus"]>[1]
+  ): Promise<IncidentActionApproval | null> {
+    const existing = this.incidentActionApprovals.get(approvalId);
+    if (!existing) {
+      return null;
+    }
+    const updated = { ...existing, ...update };
+    this.incidentActionApprovals.set(approvalId, updated);
+    return updated;
+  }
+
+  async updateIncidentActionApprovalByRequiredAction(
+    agentRunId: string,
+    requiredActionId: string,
+    update: Parameters<
+      PulseForgeRepository["updateIncidentActionApprovalByRequiredAction"]
+    >[2]
+  ): Promise<IncidentActionApproval | null> {
+    const existing = [...this.incidentActionApprovals.values()].find(
+      (approval) =>
+        approval.agentRunId === agentRunId &&
+        approval.requiredActionId === requiredActionId
+    );
+    if (!existing) {
+      return null;
+    }
+    return this.updateIncidentActionApprovalStatus(existing.id, update);
   }
 
   async createTicket(
@@ -543,12 +882,15 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
   }
 
   async seedDemoData(): Promise<void> {
-    void demoSites;
-    void demoDevices;
-    void demoDeviceMetrics;
-    void demoIncidents;
-
-    this.incidentEvents.clear();
+    this.sites.clear();
+    this.devices.clear();
+    this.deviceMetrics.clear();
+    this.incidents.clear();
+    this.simulationScenarios.clear();
+    this.incidentActivities.clear();
+    this.incidentComments.clear();
+    this.incidentAgentMentions.clear();
+    this.incidentActionApprovals.clear();
     this.remediationActions.clear();
     this.tickets.clear();
     this.agentRuns.clear();
@@ -559,6 +901,21 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     this.pendingInputs.clear();
     this.auditLogs.clear();
 
+    for (const site of demoSites) {
+      this.sites.set(site.id, site);
+    }
+    for (const device of demoDevices) {
+      this.devices.set(device.id, device);
+    }
+    for (const [deviceId, metrics] of Object.entries(demoDeviceMetrics)) {
+      this.deviceMetrics.set(deviceId, [...metrics]);
+    }
+    for (const incident of demoIncidents) {
+      this.incidents.set(incident.id, incident);
+    }
+    for (const scenario of demoSimulationScenarios) {
+      this.simulationScenarios.set(scenario.id, scenario);
+    }
     for (const conversation of demoConversations) {
       this.conversations.set(conversation.id, conversation);
     }
@@ -571,8 +928,17 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
     for (const input of demoPendingInputs) {
       this.pendingInputs.set(input.id, input);
     }
-    for (const event of demoIncidentEvents) {
-      this.incidentEvents.set(event.id, event);
+    for (const activity of demoIncidentActivities) {
+      this.incidentActivities.set(activity.id, activity);
+    }
+    for (const comment of demoIncidentComments) {
+      this.incidentComments.set(comment.id, comment);
+    }
+    for (const mention of demoIncidentAgentMentions) {
+      this.incidentAgentMentions.set(mention.id, mention);
+    }
+    for (const approval of demoIncidentActionApprovals) {
+      this.incidentActionApprovals.set(approval.id, approval);
     }
     for (const action of demoRemediationActions) {
       this.remediationActions.set(action.id, action);
@@ -587,6 +953,73 @@ export class InMemoryPulseForgeRepository implements PulseForgeRepository {
       this.auditLogs.set(entry.id, entry);
     }
   }
+
+  async cleanupDemoData() {
+    const deleted = {
+      sites: this.sites.size,
+      devices: this.devices.size,
+      telemetry: [...this.deviceMetrics.values()].reduce(
+        (count, metrics) => count + metrics.length,
+        0
+      ),
+      incidents: this.incidents.size,
+      simulationScenarios: this.simulationScenarios.size,
+      incidentActivities: this.incidentActivities.size,
+      incidentComments: this.incidentComments.size,
+      incidentAgentMentions: this.incidentAgentMentions.size,
+      incidentActionApprovals: this.incidentActionApprovals.size,
+      remediationActions: this.remediationActions.size,
+      tickets: this.tickets.size,
+      conversations: this.conversations.size,
+      runtimeSessions: this.runtimeSessions.size,
+      agentRuns: this.agentRuns.size,
+      agentRunSnapshots: this.agentRunSnapshots.size,
+      runItems: this.runItems.size,
+      pendingInputs: this.pendingInputs.size,
+      auditLogs: this.auditLogs.size,
+    };
+
+    this.sites.clear();
+    this.devices.clear();
+    this.deviceMetrics.clear();
+    this.incidents.clear();
+    this.simulationScenarios.clear();
+    this.incidentActivities.clear();
+    this.incidentComments.clear();
+    this.incidentAgentMentions.clear();
+    this.incidentActionApprovals.clear();
+    this.remediationActions.clear();
+    this.tickets.clear();
+    this.agentRuns.clear();
+    this.agentRunSnapshots.clear();
+    this.conversations.clear();
+    this.runtimeSessions.clear();
+    this.runItems.clear();
+    this.pendingInputs.clear();
+    this.auditLogs.clear();
+
+    return { deleted };
+  }
+}
+
+function buildDashboard(
+  devices: Device[],
+  incidents: Incident[],
+  totalSites: number
+): DashboardSummary {
+  return {
+    totalSites,
+    totalDevices: devices.length,
+    healthyDevices: devices.filter((device) => device.status === "healthy").length,
+    warningDevices: devices.filter((device) => device.status === "warning").length,
+    criticalDevices: devices.filter((device) => device.status === "critical").length,
+    offlineDevices: devices.filter((device) => device.status === "offline").length,
+    openIncidents: incidents.filter((incident) => incident.status !== "resolved")
+      .length,
+    criticalIncidents: incidents.filter(
+      (incident) => incident.severity === "critical"
+    ).length,
+  };
 }
 
 function isTerminalAgentRunStatus(status: AgentRun["status"]) {

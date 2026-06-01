@@ -33,6 +33,13 @@ export class RequiredActionResolutionError extends Error {
   }
 }
 
+export class ConversationInteractionError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "ConversationInteractionError";
+  }
+}
+
 export class UnsupportedAgentTriggerError extends Error {
   constructor(agentKind: AgentKind, triggerType: "operator_prompt") {
     super(`Agent kind ${agentKind} does not support ${triggerType} triggers.`);
@@ -64,6 +71,10 @@ export async function createConversationAndRunStream(
   const conversation = await agentConversationStorage.conversations.create({
     id: randomUUID(),
     rootAgentKind: request.agentKind,
+    incidentId: request.incidentId,
+    interactionMode: request.interactionMode ?? "interactive",
+    interactionOwnerUserId:
+      request.interactionOwnerUserId ?? user?.sub ?? undefined,
   });
 
   return runRootAgentWithProgress(
@@ -106,6 +117,7 @@ export async function runConversationStream(
   if (conversation.activeRootRunId) {
     throw new ActiveRootRunError(conversation.id, conversation.activeRootRunId);
   }
+  assertCanAddConversationInput(conversation, user);
 
   return runRootAgentWithProgress(
     conversation,
@@ -402,12 +414,13 @@ async function startRootAgentRun(
       requestedByUserId: user?.sub,
     });
 
+    const userId = user?.sub ?? conversation.interactionOwnerUserId;
     await agentConversationStorage.runItems.append(run.id, [
       {
         runId: run.id,
         kind: "message",
-        role: "user",
-        source: { type: "user", userId: user?.sub ?? "anonymous" },
+        role: userId ? "user" : "system",
+        source: userId ? { type: "user", userId } : { type: "system" },
         content: [{ type: "text", text: request.prompt }],
       },
     ]);
@@ -430,6 +443,26 @@ async function startRootAgentRun(
       null
     );
     throw error;
+  }
+}
+
+function assertCanAddConversationInput(
+  conversation: Conversation,
+  user?: AuthenticatedAppUser | null
+) {
+  if (conversation.interactionMode === "observe_only") {
+    throw new ConversationInteractionError(
+      "This conversation is observe-only and does not accept follow-up messages."
+    );
+  }
+  if (
+    conversation.interactionOwnerUserId &&
+    user?.sub &&
+    conversation.interactionOwnerUserId !== user.sub
+  ) {
+    throw new ConversationInteractionError(
+      "Only the conversation interaction owner can add follow-up messages."
+    );
   }
 }
 

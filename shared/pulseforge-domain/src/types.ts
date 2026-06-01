@@ -1,4 +1,5 @@
 export type DeviceStatus = "healthy" | "warning" | "critical" | "offline";
+export type DeviceSource = "real" | "simulated";
 export type IncidentSeverity = "low" | "medium" | "high" | "critical";
 export type IncidentStatus =
   | "open"
@@ -16,6 +17,7 @@ export type AgentKind =
   | "ops-copilot"
   | "incident-responder";
 export type ConversationStatus = "open" | "archived";
+export type ConversationInteractionMode = "interactive" | "observe_only";
 export type RuntimeSessionStatus = "active" | "idle" | "expired" | "closed";
 export type AgentRunRelationship =
   | "root"
@@ -39,18 +41,45 @@ export type RequiredActionStatus =
   | "declined"
   | "expired"
   | "cancelled";
+export type IncidentActionApprovalStatus = Extract<
+  RequiredActionStatus,
+  "pending" | "resolved" | "declined" | "expired" | "cancelled"
+>;
 export type ToolApprovalDecision =
   | "allow_once"
   | "allow_always"
   | "decline";
 export type ToolCallStatus = "pending" | "succeeded" | "failed";
+export type IncidentAgentActivityStatus =
+  | "queued"
+  | "running"
+  | "waiting_for_approval"
+  | "waiting_for_authorization"
+  | "completed"
+  | "failed"
+  | "cancelled";
+export type IncidentAgentMentionStatus =
+  | "accepted"
+  | "rejected"
+  | "failed";
 export type AuditActorType = "agent" | "user";
 export type AuditOutcome = "succeeded" | "failed";
+export type SimulationScenarioType =
+  | "temperature-drift"
+  | "connectivity-loss"
+  | "battery-degradation";
+export type SimulationScenarioStatus =
+  | "queued"
+  | "active"
+  | "completed"
+  | "cancelled";
 export type AppPermission =
   | "read:dashboard"
   | "read:devices"
   | "read:incidents"
   | "read:telemetry"
+  | "write:devices"
+  | "write:incidents"
   | "write:agent_runs"
   | "write:admin";
 
@@ -67,6 +96,7 @@ export interface Device {
   siteId: string;
   name: string;
   type: "freezer-sensor" | "vibration-monitor" | "gateway" | "power-meter";
+  source: DeviceSource;
   firmwareVersion: string;
   batteryPercent: number;
   connectivityPercent: number;
@@ -101,7 +131,33 @@ export interface Incident {
     | "firmware-regression";
 }
 
-export interface IncidentEvent {
+export interface SimulationScenario {
+  id: string;
+  deviceId: string;
+  type: SimulationScenarioType;
+  status: SimulationScenarioStatus;
+  durationMinutes: number;
+  triggerAfterConsecutivePoints: number;
+  consecutiveAffectedPoints: number;
+  createdAt: string;
+  startedAt?: string;
+  triggeredAt?: string;
+  completedAt?: string;
+  expiresAt?: string;
+  incidentId?: string;
+  completedReason?: "duration_elapsed" | "reset_recovery" | "cancelled";
+}
+
+export interface CreateDeviceRequest {
+  id?: string;
+  siteId: string;
+  name: string;
+  type: Device["type"];
+  firmwareVersion?: string;
+  tags?: string[];
+}
+
+export interface IncidentActivity {
   id: string;
   incidentId: string;
   timestamp: string;
@@ -110,9 +166,60 @@ export interface IncidentEvent {
     | "agent_summary"
     | "action_attempted"
     | "action_result"
-    | "ticket_created";
+    | "ticket_created"
+    | "agent_conversation"
+    | "incident_action_approval";
   message: string;
   createdBy?: AuditActor;
+  conversationId?: string;
+  agentRunId?: string;
+  agentKind?: AgentKind;
+  agentStatus?: IncidentAgentActivityStatus;
+  title?: string;
+  summary?: string;
+  causedByCommentId?: string;
+  causedByMentionId?: string;
+  incidentActionApprovalId?: string;
+}
+
+export interface IncidentComment {
+  id: string;
+  incidentId: string;
+  body: string;
+  authorUserId: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface IncidentAgentMention {
+  id: string;
+  incidentId: string;
+  commentId: string;
+  handle: "@copilot";
+  agentKind: "ops-copilot";
+  status: IncidentAgentMentionStatus;
+  conversationId?: string;
+  agentRunId?: string;
+  activityId?: string;
+  createdAt: string;
+  acceptedAt?: string;
+  errorMessage?: string;
+}
+
+export interface IncidentActionApproval {
+  id: string;
+  incidentId: string;
+  conversationId: string;
+  agentRunId: string;
+  requiredActionId: string;
+  toolName?: string;
+  title: string;
+  summary: string;
+  status: IncidentActionApprovalStatus;
+  activityId?: string;
+  requestedAt: string;
+  resolvedAt?: string;
+  resolvedByUserId?: string;
 }
 
 export interface RemediationAction {
@@ -173,6 +280,9 @@ export interface Conversation {
   id: string;
   rootAgentKind: AgentKind;
   status: ConversationStatus;
+  incidentId?: string;
+  interactionMode?: ConversationInteractionMode;
+  interactionOwnerUserId?: string;
   activeRootRunId?: string;
   toolApprovalGrants?: ToolApprovalGrant[];
   createdAt: string;
@@ -364,11 +474,22 @@ export interface ConversationDetail {
   runtimeSessions: RuntimeSession[];
 }
 
+export interface ConversationSummary {
+  conversation: Conversation;
+  latestRun?: AgentRun;
+  title: string;
+  preview?: string;
+  itemCount: number;
+  updatedAt: string;
+}
+
 export interface CreateConversationRequest {
   agentKind: AgentKind;
   prompt: string;
   incidentId?: string;
   deviceId?: string;
+  interactionMode?: ConversationInteractionMode;
+  interactionOwnerUserId?: string;
 }
 
 export interface CreateConversationRunRequest {
@@ -377,9 +498,13 @@ export interface CreateConversationRunRequest {
   deviceId?: string;
 }
 
+export interface CreateIncidentCommentRequest {
+  body: string;
+}
+
 export interface IncidentInvestigationContext {
   incident: Incident;
-  events: IncidentEvent[];
+  activities: IncidentActivity[];
   devices: Array<{
     device: Device;
     telemetry: DeviceMetricSnapshot[];
@@ -620,7 +745,11 @@ export interface PulseForgeSnapshot {
   devices: Device[];
   deviceMetrics: Record<string, DeviceMetricSnapshot[]>;
   incidents: Incident[];
-  incidentEvents: IncidentEvent[];
+  incidentActivities: IncidentActivity[];
+  incidentComments: IncidentComment[];
+  incidentAgentMentions: IncidentAgentMention[];
+  incidentActionApprovals: IncidentActionApproval[];
+  simulationScenarios: SimulationScenario[];
   remediationActions: RemediationAction[];
   tickets: Ticket[];
   conversations: Conversation[];

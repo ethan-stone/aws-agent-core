@@ -64,7 +64,7 @@ export function LoginPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="border border-white/10 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="rounded-md border border-white/10 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           {submitting ? "Signing in..." : "Sign in"}
         </button>
@@ -139,7 +139,7 @@ export function SignupPage() {
         <button
           type="submit"
           disabled={submitting}
-          className="border border-white/10 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
+          className="rounded-md border border-white/10 bg-slate-100 px-4 py-2.5 text-sm font-medium text-slate-950 transition-colors hover:bg-white disabled:cursor-not-allowed disabled:bg-slate-400"
         >
           {submitting ? "Creating..." : "Create account"}
         </button>
@@ -157,7 +157,7 @@ function AuthCard(props: {
 }) {
   return (
     <main className="flex min-h-screen items-center justify-center bg-[#090d12] px-6 py-12">
-      <section className="grid w-full max-w-md gap-6 border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_35%),rgba(12,16,22,0.96)] p-8">
+      <section className="grid w-full max-w-md gap-6 rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_35%),rgba(12,16,22,0.96)] p-8">
         <header className="grid gap-2">
           <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
             {props.eyebrow}
@@ -190,7 +190,7 @@ function Field(props: {
         value={props.value}
         onChange={(event) => props.onChange(event.target.value)}
         type={props.type ?? "text"}
-        className="border border-white/10 bg-black/15 px-3 py-2.5 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-white/25"
+        className="rounded-md border border-white/10 bg-black/15 px-3 py-2.5 text-sm text-slate-100 outline-none transition-colors placeholder:text-slate-600 focus:border-white/25"
         placeholder={props.placeholder}
       />
     </label>
@@ -199,7 +199,7 @@ function Field(props: {
 
 function ErrorBanner(props: { message: string }) {
   return (
-    <div className="border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
+    <div className="rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
       {props.message}
     </div>
   );

@@ -1,7 +1,10 @@
 import { NavLink, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { useAuth } from "./lib/auth-context.js";
 import { ConfirmSignupPage } from "./pages/ConfirmSignupPage.js";
-import { CopilotPage } from "./pages/CopilotPage.js";
+import {
+  CopilotConversationPage,
+  CopilotPage,
+} from "./pages/CopilotPage.js";
 import { DashboardPage } from "./pages/DashboardPage.js";
 import { DeviceDetailPage } from "./pages/DeviceDetailPage.js";
 import { DevicesPage } from "./pages/DevicesPage.js";
@@ -39,69 +42,54 @@ function ProtectedAppShell() {
   }
 
   return (
-    <div className="grid min-h-screen md:grid-cols-[296px_1fr]">
-      <aside className="flex flex-col justify-between border-r border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.02),transparent_35%),rgba(7,10,14,0.88)] px-6 py-8">
-        <div className="grid gap-[18px]">
-          <div className="grid gap-1.5">
-            <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
-              PulseForge
-            </p>
-            <h1 className="m-0 text-[28px] leading-none font-medium tracking-[-0.04em] text-slate-50">
-              IoT Operations
-            </h1>
-          </div>
-          <p className="max-w-[23ch] text-sm text-slate-400">
-            Monitor fleet health, investigate incidents, and coordinate
-            agent-assisted remediation.
-          </p>
-          <div className="mt-2 grid gap-2.5">
-            <div className="flex justify-between gap-4 border-t border-white/8 pt-2.5 text-[11px] uppercase tracking-[0.08em]">
-              <span className="text-slate-500">Mode</span>
-              <strong className="text-slate-50">AWS runtime</strong>
+    <div className="grid min-h-screen bg-[#080b10] md:grid-cols-[264px_1fr]">
+      <aside className="flex flex-col justify-between border-r border-white/10 bg-[#0b1016]/95 px-5 py-6">
+        <div className="grid gap-7">
+          <div className="flex items-center gap-3">
+            <div className="grid h-10 w-10 place-items-center rounded-md border border-emerald-300/20 bg-emerald-300/10 text-sm font-semibold text-emerald-100">
+              PF
             </div>
-            <div className="flex justify-between gap-4 border-t border-white/8 pt-2.5 text-[11px] uppercase tracking-[0.08em]">
-              <span className="text-slate-500">Storage</span>
-              <strong className="text-slate-50">MongoDB</strong>
-            </div>
-            <div className="flex justify-between gap-4 border-t border-white/8 pt-2.5 text-[11px] uppercase tracking-[0.08em]">
-              <span className="text-slate-500">Auth</span>
-              <strong className="text-slate-50">{authEnabled ? "Cognito" : "Disabled"}</strong>
+            <div className="min-w-0">
+              <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+                PulseForge
+              </p>
+              <h1 className="m-0 text-[19px] leading-tight font-semibold tracking-normal text-slate-50">
+                Operations
+              </h1>
             </div>
           </div>
-        </div>
 
-        <div className="grid gap-6">
-          <nav className="grid gap-1.5">
+          <nav className="grid gap-1">
             <AppNavLink to="/dashboard">Dashboard</AppNavLink>
             <AppNavLink to="/devices">Devices</AppNavLink>
             <AppNavLink to="/incidents">Incidents</AppNavLink>
             <AppNavLink to="/copilot">Copilot</AppNavLink>
           </nav>
+        </div>
 
-          <div className="grid gap-3 border-t border-white/8 pt-4">
-            <div className="grid gap-1">
-              <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
-                Signed in
-              </span>
-              <strong className="text-sm text-slate-100">
-                {session?.email ?? "Local development"}
-              </strong>
-            </div>
-            {authEnabled ? (
-              <button
-                type="button"
-                onClick={signOut}
-                className="border border-white/10 px-3 py-2 text-left text-sm text-slate-300 transition-colors hover:border-white/20 hover:text-slate-50"
-              >
-                Sign out
-              </button>
-            ) : null}
+        <div className="grid gap-3 rounded-md border border-white/10 bg-white/[0.03] p-3">
+          <div className="grid gap-1">
+            <span className="text-[11px] uppercase tracking-[0.08em] text-slate-500">
+              Signed in
+            </span>
+            <strong className="truncate text-sm font-medium text-slate-100">
+              {session?.email ?? "Local development"}
+            </strong>
           </div>
+          {authEnabled ? (
+            <button
+              type="button"
+              onClick={signOut}
+              className="rounded-md border border-white/10 px-3 py-2 text-left text-sm text-slate-300 transition-colors hover:border-white/20 hover:bg-white/[0.04] hover:text-slate-50"
+            >
+              Sign out
+            </button>
+          ) : null}
         </div>
       </aside>
 
-      <main className="p-0 md:p-6">
-        <div className="min-h-screen border-0 border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_24%),rgba(10,14,20,0.94)] px-[18px] py-6 md:min-h-[calc(100vh-48px)] md:border md:px-8 md:py-8">
+      <main className="min-w-0 p-0 md:p-5">
+        <div className="min-h-screen bg-[#0d1218] px-[18px] py-6 md:min-h-[calc(100vh-40px)] md:rounded-md md:px-7 md:py-7">
           <Routes>
             <Route path="/" element={<DashboardPage />} />
             <Route path="/dashboard" element={<DashboardPage />} />
@@ -110,6 +98,7 @@ function ProtectedAppShell() {
             <Route path="/incidents" element={<IncidentsPage />} />
             <Route path="/incidents/:incidentId" element={<IncidentDetailPage />} />
             <Route path="/copilot" element={<CopilotPage />} />
+            <Route path="/copilot/:conversationId" element={<CopilotConversationPage />} />
             <Route path="*" element={<Navigate to="/dashboard" replace />} />
           </Routes>
         </div>
@@ -123,8 +112,10 @@ function AppNavLink(props: { to: string; children: string }) {
     <NavLink
       to={props.to}
       className={({ isActive }) =>
-        `border-b border-white/8 py-2.5 text-sm ${
-          isActive ? "text-slate-50" : "text-slate-400"
+        `rounded-md px-3 py-2.5 text-sm transition-colors ${
+          isActive
+            ? "bg-white/[0.06] text-slate-50 shadow-[inset_2px_0_0_rgba(110,231,183,0.65)]"
+            : "text-slate-400 hover:bg-white/[0.035] hover:text-slate-100"
         }`
       }
     >

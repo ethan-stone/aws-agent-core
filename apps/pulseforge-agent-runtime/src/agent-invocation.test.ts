@@ -13,7 +13,25 @@ import {
   type StreamOptions,
 } from "@strands-agents/sdk";
 import { z } from "zod";
+import { resolveAgentMemorySessionId } from "./agent-invocation.js";
 import { runInvalidAgentInvocation } from "./invalid-agent-invocation.js";
+
+test("resolveAgentMemorySessionId uses the canonical provider session when present", () => {
+  assert.equal(
+    resolveAgentMemorySessionId(
+      { providerSessionId: "conversation-123" },
+      { sessionId: "agentcore-context-session" }
+    ),
+    "conversation-123"
+  );
+});
+
+test("resolveAgentMemorySessionId falls back to the AgentCore context session", () => {
+  assert.equal(
+    resolveAgentMemorySessionId({}, { sessionId: "agentcore-context-session" }),
+    "agentcore-context-session"
+  );
+});
 
 type PlainContentBlock =
   | { type: "textBlock"; text: string }

@@ -7,10 +7,14 @@ import type {
   AuditLogEntry,
   ConversationDetail,
   IncidentInvestigationContext,
-  IncidentEvent,
+  IncidentActivity,
+  IncidentActionApproval,
+  IncidentAgentMention,
+  IncidentComment,
   RemediationAction,
   RuntimeSession,
   RunItem,
+  SimulationScenario,
   Ticket,
 } from "@agent-core/pulseforge-domain";
 import { demoRunbooks } from "@agent-core/pulseforge-domain";
@@ -52,8 +56,28 @@ export async function getDevice(deviceId: string) {
   return (await getRepository()).getDevice(deviceId);
 }
 
+export async function createDevice(
+  device: Parameters<PulseForgeRepository["createDevice"]>[0]
+) {
+  return (await getRepository()).createDevice(device);
+}
+
+export async function updateDeviceCurrentState(
+  deviceId: string,
+  update: Parameters<PulseForgeRepository["updateDeviceCurrentState"]>[1]
+) {
+  return (await getRepository()).updateDeviceCurrentState(deviceId, update);
+}
+
 export async function getDeviceTelemetry(deviceId: string) {
   return (await getRepository()).getDeviceTelemetry(deviceId);
+}
+
+export async function appendDeviceTelemetry(
+  deviceId: string,
+  metric: Parameters<PulseForgeRepository["appendDeviceTelemetry"]>[1]
+) {
+  return (await getRepository()).appendDeviceTelemetry(deviceId, metric);
 }
 
 export async function listIncidents() {
@@ -62,6 +86,65 @@ export async function listIncidents() {
 
 export async function getIncident(incidentId: string) {
   return (await getRepository()).getIncident(incidentId);
+}
+
+export async function createIncident(
+  incident: Parameters<PulseForgeRepository["createIncident"]>[0]
+) {
+  return (await getRepository()).createIncident(incident);
+}
+
+export async function updateIncident(
+  incidentId: string,
+  update: Parameters<PulseForgeRepository["updateIncident"]>[1]
+) {
+  return (await getRepository()).updateIncident(incidentId, update);
+}
+
+export async function resolveIncident(incidentId: string) {
+  return updateIncident(incidentId, {
+    status: "resolved",
+    updatedAt: new Date().toISOString(),
+  });
+}
+
+export async function findOpenIncidentForDeviceCategory(
+  deviceId: string,
+  category: Parameters<PulseForgeRepository["findOpenIncidentForDeviceCategory"]>[1]
+) {
+  return (await getRepository()).findOpenIncidentForDeviceCategory(
+    deviceId,
+    category
+  );
+}
+
+export async function listSimulationScenarios(
+  statuses?: SimulationScenario["status"][]
+) {
+  return (await getRepository()).listSimulationScenarios(statuses);
+}
+
+export async function createSimulationScenario(
+  scenario: Parameters<PulseForgeRepository["createSimulationScenario"]>[0]
+) {
+  return (await getRepository()).createSimulationScenario(scenario);
+}
+
+export async function updateSimulationScenario(
+  scenarioId: string,
+  update: Parameters<PulseForgeRepository["updateSimulationScenario"]>[1]
+) {
+  return (await getRepository()).updateSimulationScenario(scenarioId, update);
+}
+
+export async function completeActiveSimulationScenariosForDevice(
+  deviceId: string,
+  reason: NonNullable<SimulationScenario["completedReason"]>
+) {
+  return (await getRepository()).completeActiveSimulationScenariosForDevice(
+    deviceId,
+    reason
+  );
 }
 
 export async function buildIncidentInvestigationContext(
@@ -88,7 +171,7 @@ export async function buildIncidentInvestigationContext(
 
   return {
     incident: aggregate.incident,
-    events: aggregate.events,
+    activities: aggregate.activities,
     devices: devices.filter((item): item is NonNullable<typeof item> => Boolean(item)),
     relatedIncidents: snapshot.incidents.filter(
       (item) =>
@@ -295,14 +378,91 @@ function redactInternalRunItemData(item: RunItem): RunItem {
   };
 }
 
-export async function createIncidentEvent(
-  event: Omit<IncidentEvent, "id" | "timestamp"> & {
+export async function createIncidentActivity(
+  activity: Omit<IncidentActivity, "id" | "timestamp"> & {
     id?: string;
     timestamp?: string;
     createdBy: AuditActor;
   }
 ) {
-  return (await getRepository()).createIncidentEvent(event);
+  return (await getRepository()).createIncidentActivity(activity);
+}
+
+export async function updateIncidentActivity(
+  activityId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentActivity"]>[1]
+) {
+  return (await getRepository()).updateIncidentActivity(activityId, update);
+}
+
+export async function updateIncidentActivityByAgentRun(
+  agentRunId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentActivityByAgentRun"]>[1]
+) {
+  return (await getRepository()).updateIncidentActivityByAgentRun(
+    agentRunId,
+    update
+  );
+}
+
+export async function createIncidentComment(
+  comment: Omit<IncidentComment, "id" | "createdAt" | "updatedAt"> & {
+    id?: string;
+    createdAt?: string;
+    updatedAt?: string;
+  }
+) {
+  return (await getRepository()).createIncidentComment(comment);
+}
+
+export async function createIncidentAgentMention(
+  mention: Omit<IncidentAgentMention, "id" | "createdAt"> & {
+    id?: string;
+    createdAt?: string;
+  }
+) {
+  return (await getRepository()).createIncidentAgentMention(mention);
+}
+
+export async function updateIncidentAgentMention(
+  mentionId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentAgentMention"]>[1]
+) {
+  return (await getRepository()).updateIncidentAgentMention(mentionId, update);
+}
+
+export async function createIncidentActionApproval(
+  approval: Omit<IncidentActionApproval, "id" | "requestedAt" | "status"> & {
+    id?: string;
+    requestedAt?: string;
+    status?: IncidentActionApproval["status"];
+  }
+) {
+  return (await getRepository()).createIncidentActionApproval(approval);
+}
+
+export async function updateIncidentActionApprovalStatus(
+  approvalId: string,
+  update: Parameters<PulseForgeRepository["updateIncidentActionApprovalStatus"]>[1]
+) {
+  return (await getRepository()).updateIncidentActionApprovalStatus(
+    approvalId,
+    update
+  );
+}
+
+export async function updateIncidentActionApprovalByRequiredAction(
+  agentRunId: string,
+  requiredActionId: string,
+  update: Parameters<
+    PulseForgeRepository["updateIncidentActionApprovalByRequiredAction"]
+  >[2]
+) {
+  return (await getRepository()).updateIncidentActionApprovalByRequiredAction(
+    agentRunId,
+    requiredActionId,
+    update
+  );
 }
 
 export async function createTicket(
@@ -338,6 +498,10 @@ export async function createAuditLog(
 
 export async function seedDemoData() {
   return (await getRepository()).seedDemoData();
+}
+
+export async function cleanupDemoData() {
+  return (await getRepository()).cleanupDemoData();
 }
 
 export async function resetRepositoryForTests(): Promise<void> {

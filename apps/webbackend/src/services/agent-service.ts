@@ -3,6 +3,7 @@ export {
 } from "./agent-runtime-client.js";
 export {
   ActiveRootRunError,
+  ConversationInteractionError,
   RequiredActionResolutionError,
   UnsupportedAgentTriggerError,
   createConversationAndRun,

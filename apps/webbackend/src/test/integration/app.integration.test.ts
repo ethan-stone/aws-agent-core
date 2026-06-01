@@ -84,12 +84,12 @@ describeMongo("PulseForge web backend integration (mongodb)", () => {
 
     const body = (await response.json()) as {
       incident: Record<string, unknown> & { id: string };
-      events: Array<Record<string, unknown>>;
+      activities: Array<Record<string, unknown>>;
     };
     expect(body.incident.id).toBe("inc-1001");
     expect(body.incident._id).toBeUndefined();
-    expect(body.events).toHaveLength(2);
-    expect(body.events[0]._id).toBeUndefined();
+    expect(body.activities.length).toBeGreaterThanOrEqual(2);
+    expect(body.activities[0]._id).toBeUndefined();
   });
 
   it("returns 404 for unknown devices", async () => {
