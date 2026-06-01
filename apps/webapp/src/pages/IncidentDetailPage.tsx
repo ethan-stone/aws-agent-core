@@ -1,8 +1,10 @@
 import {
   type ConversationDetail,
+  type Incident,
   type IncidentActivity,
   type IncidentComment,
 } from "../../../../shared/pulseforge-domain/src/index.js";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useState, type ReactNode } from "react";
 import { useParams } from "react-router-dom";
 import {
@@ -12,7 +14,7 @@ import {
   postIncidentComment,
   resolveIncident as resolveIncidentRequest,
 } from "../lib/api-client.js";
-import { useResource } from "../lib/use-resource.js";
+import { queryKeys } from "../lib/query-keys.js";
 import {
   ConversationReplyBox,
   ConversationResultView,
@@ -20,12 +22,16 @@ import {
 
 export function IncidentDetailPage() {
   const { incidentId = "" } = useParams();
-  const { data, loading, error: loadError } = useResource(
-    () => fetchIncident(incidentId),
-    null,
-    [incidentId]
-  );
-  const [postedDetail, setPostedDetail] = useState<typeof data>(null);
+  const queryClient = useQueryClient();
+  const {
+    data,
+    isLoading,
+    error: loadError,
+  } = useQuery({
+    queryKey: queryKeys.incident(incidentId),
+    queryFn: () => fetchIncident(incidentId),
+    enabled: Boolean(incidentId),
+  });
   const [running, setRunning] = useState(false);
   const [resolving, setResolving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -39,12 +45,13 @@ export function IncidentDetailPage() {
   >(null);
   const [linkedConversationLoading, setLinkedConversationLoading] =
     useState(false);
-  const detail = postedDetail ?? data;
+  const detail = data;
 
   if (!detail) {
     return (
       <section className="rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-slate-200">
-        {loadError ?? (loading ? "Loading incident..." : "Incident not found.")}
+        {loadError?.message ??
+          (isLoading ? "Loading incident..." : "Incident not found.")}
       </section>
     );
   }
@@ -53,9 +60,12 @@ export function IncidentDetailPage() {
     <section>
       <header className="mb-7 flex flex-col items-start justify-between gap-6 md:flex-row">
         <div>
-          <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
-            {detail.incident.category}
-          </p>
+          <div className="flex flex-wrap items-center gap-2">
+            <p className="m-0 text-[11px] uppercase tracking-[0.12em] text-slate-500">
+              {detail.incident.category}
+            </p>
+            <IncidentStatusBadge status={detail.incident.status} />
+          </div>
           <h2 className="mt-1.5 text-[34px] leading-[1.05] font-medium tracking-normal text-slate-50">
             {detail.incident.title}
           </h2>
@@ -100,7 +110,9 @@ export function IncidentDetailPage() {
             <dl className="m-0 grid min-w-56 gap-2 text-xs uppercase tracking-[0.08em]">
               <div className="flex justify-between gap-4 border-t border-white/8 pt-2">
                 <dt className="text-slate-500">Status</dt>
-                <dd className="m-0 text-slate-100">{detail.incident.status}</dd>
+                <dd className="m-0">
+                  <IncidentStatusBadge status={detail.incident.status} />
+                </dd>
               </div>
               <div className="flex justify-between gap-4 border-t border-white/8 pt-2">
                 <dt className="text-slate-500">Severity</dt>
@@ -182,13 +194,28 @@ export function IncidentDetailPage() {
   async function handleInvestigate() {
     setRunning(true);
     setError(null);
+    setLinkedConversationError(null);
 
     try {
-      const detail = await createConversation({
-        agentKind: "ops-copilot",
-        prompt: `Investigate incident ${incidentId}. Summarize the likely cause, strongest evidence, and next operator actions.`,
-        incidentId,
-      });
+      const detail = await createConversation(
+        {
+          agentKind: "ops-copilot",
+          prompt: `Investigate incident ${incidentId}. Summarize the likely cause, strongest evidence, and next operator actions.`,
+          incidentId,
+        },
+        (nextDetail) => {
+          queryClient.setQueryData(
+            queryKeys.conversation(nextDetail.conversation.id),
+            nextDetail
+          );
+          setLinkedConversation(nextDetail);
+        }
+      );
+      queryClient.setQueryData(
+        queryKeys.conversation(detail.conversation.id),
+        detail
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       setLinkedConversation(detail);
     } catch (err) {
       setError(
@@ -207,14 +234,37 @@ export function IncidentDetailPage() {
 
     setPostingComment(true);
     setCommentError(null);
+    let receivedProgress = false;
     try {
-      const next = await postIncidentComment(incidentId, body);
-      setPostedDetail(next);
+      const next = await postIncidentComment(incidentId, body, (update) => {
+        receivedProgress = true;
+        queryClient.setQueryData(queryKeys.incident(incidentId), update.incident);
+        if (update.conversation) {
+          queryClient.setQueryData(
+            queryKeys.conversation(update.conversation.conversation.id),
+            update.conversation
+          );
+          setLinkedConversation(update.conversation);
+          setLinkedConversationError(null);
+        }
+      });
+      queryClient.setQueryData(queryKeys.incident(incidentId), next);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.incidents });
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       setCommentBody("");
     } catch (err) {
-      setCommentError(
-        err instanceof Error ? err.message : "Failed to post comment"
-      );
+      if (receivedProgress) {
+        setCommentBody("");
+        setCommentError(
+          err instanceof Error
+            ? `Live updates stopped: ${err.message}`
+            : "Live updates stopped before the run finished."
+        );
+      } else {
+        setCommentError(
+          err instanceof Error ? err.message : "Failed to post comment"
+        );
+      }
     } finally {
       setPostingComment(false);
     }
@@ -225,7 +275,8 @@ export function IncidentDetailPage() {
     setError(null);
     try {
       const next = await resolveIncidentRequest(incidentId);
-      setPostedDetail(next);
+      queryClient.setQueryData(queryKeys.incident(incidentId), next);
+      void queryClient.invalidateQueries({ queryKey: queryKeys.incidents });
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resolve incident");
     } finally {
@@ -237,7 +288,9 @@ export function IncidentDetailPage() {
     setLinkedConversationLoading(true);
     setLinkedConversationError(null);
     try {
-      setLinkedConversation(await fetchConversation(conversationId));
+      const conversation = await fetchConversation(conversationId);
+      queryClient.setQueryData(queryKeys.conversation(conversationId), conversation);
+      setLinkedConversation(conversation);
     } catch (err) {
       setLinkedConversation(null);
       setLinkedConversationError(
@@ -468,4 +521,21 @@ function agentDisplayName(agentKind?: IncidentActivity["agentKind"]) {
     return "Incident responder";
   }
   return "Agent conversation";
+}
+
+function IncidentStatusBadge(props: { status: Incident["status"] }) {
+  const className =
+    props.status === "resolved"
+      ? "border-emerald-300/35 bg-emerald-300/10 text-emerald-100"
+      : props.status === "open"
+        ? "border-rose-300/35 bg-rose-300/10 text-rose-100"
+        : props.status === "investigating"
+          ? "border-sky-300/35 bg-sky-300/10 text-sky-100"
+          : "border-amber-300/35 bg-amber-300/10 text-amber-100";
+
+  return (
+    <span className={`inline-flex rounded-md border px-2 py-1 text-xs font-medium capitalize ${className}`}>
+      {props.status}
+    </span>
+  );
 }

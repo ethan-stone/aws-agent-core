@@ -1,13 +1,18 @@
+import { useQuery } from "@tanstack/react-query";
 import { fetchDashboard } from "../lib/api-client.js";
-import { useResource } from "../lib/use-resource.js";
+import { queryKeys } from "../lib/query-keys.js";
 
 export function DashboardPage() {
-  const { data, loading, error } = useResource(fetchDashboard, null, []);
+  const { data, isLoading, error } = useQuery({
+    queryKey: queryKeys.dashboard,
+    queryFn: fetchDashboard,
+  });
 
   if (!data) {
     return (
       <section className="rounded-md border border-white/10 bg-white/[0.03] px-5 py-[22px] text-slate-200">
-        {error ?? (loading ? "Loading fleet health..." : "Dashboard unavailable.")}
+        {error?.message ??
+          (isLoading ? "Loading fleet health..." : "Dashboard unavailable.")}
       </section>
     );
   }

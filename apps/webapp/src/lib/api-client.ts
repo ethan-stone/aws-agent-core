@@ -22,6 +22,14 @@ import { getStoredAccessToken } from "./auth-storage.js";
 
 const API_BASE = import.meta.env.VITE_API_BASE_URL ?? "http://localhost:3000";
 
+export interface IncidentDetailResponse {
+  incident: Incident;
+  activities: IncidentActivity[];
+  comments: IncidentComment[];
+  agentMentions: IncidentAgentMention[];
+  actionApprovals: IncidentActionApproval[];
+}
+
 function withAuthHeaders(headers?: HeadersInit) {
   const token = getStoredAccessToken();
   return {
@@ -123,6 +131,66 @@ async function requestConversationDetail(
   }
 
   return latestDetail;
+}
+
+async function requestIncidentComment(
+  incidentId: string,
+  body: string,
+  onUpdate?: (update: {
+    incident: IncidentDetailResponse;
+    conversation?: ConversationDetail;
+  }) => void
+): Promise<IncidentDetailResponse> {
+  const response = await fetch(`${API_BASE}/api/incidents/${incidentId}/comments`, {
+    method: "POST",
+    headers: {
+      Accept: "text/event-stream",
+      "Content-Type": "application/json",
+      ...withAuthHeaders(),
+    },
+    body: JSON.stringify({ body }),
+  });
+
+  if (!response.ok) {
+    await throwResponseError(response);
+  }
+
+  if (!response.body) {
+    return (await response.json()) as IncidentDetailResponse;
+  }
+
+  let latestIncident: IncidentDetailResponse | null = null;
+  let latestConversation: ConversationDetail | undefined;
+  for await (const event of readSseEvents(response.body)) {
+    if (event.event === "incident") {
+      latestIncident = normalizeIncidentDetail(event.data);
+      onUpdate?.({
+        incident: latestIncident,
+        conversation: latestConversation,
+      });
+    }
+
+    if (event.event === "conversation") {
+      latestConversation = event.data as ConversationDetail;
+      if (latestIncident) {
+        onUpdate?.({
+          incident: latestIncident,
+          conversation: latestConversation,
+        });
+      }
+    }
+
+    if (event.event === "error") {
+      const data = event.data as { error?: string };
+      throw new Error(data.error ?? "Incident comment stream failed.");
+    }
+  }
+
+  if (!latestIncident) {
+    throw new Error("Incident comment did not return an incident.");
+  }
+
+  return latestIncident;
 }
 
 async function throwResponseError(response: Response): Promise<never> {
@@ -320,29 +388,18 @@ export async function fetchIncident(incidentId: string): Promise<{
     return null;
   }
 
-  return {
-    incident: response.incident,
-    activities: response.activities ?? response.events ?? [],
-    comments: response.comments ?? [],
-    agentMentions: response.agentMentions ?? [],
-    actionApprovals: response.actionApprovals ?? [],
-  };
+  return normalizeIncidentDetail(response);
 }
 
 export async function postIncidentComment(
   incidentId: string,
-  body: string
-): Promise<{
-  incident: Incident;
-  activities: IncidentActivity[];
-  comments: IncidentComment[];
-  agentMentions: IncidentAgentMention[];
-  actionApprovals: IncidentActionApproval[];
-}> {
-  return requestJson(`/api/incidents/${incidentId}/comments`, {
-    method: "POST",
-    body: JSON.stringify({ body }),
-  });
+  body: string,
+  onUpdate?: (update: {
+    incident: IncidentDetailResponse;
+    conversation?: ConversationDetail;
+  }) => void
+): Promise<IncidentDetailResponse> {
+  return requestIncidentComment(incidentId, body, onUpdate);
 }
 
 export async function resolveIncident(incidentId: string): Promise<{
@@ -487,5 +544,26 @@ function demoConversationDetail(
     runtimeSessions: demoSnapshot.runtimeSessions.filter(
       (session) => session.conversationId === conversationId
     ),
+  };
+}
+
+function normalizeIncidentDetail(
+  value: unknown
+): IncidentDetailResponse {
+  const response = value as {
+    incident: Incident;
+    activities?: IncidentActivity[];
+    events?: IncidentActivity[];
+    comments?: IncidentComment[];
+    agentMentions?: IncidentAgentMention[];
+    actionApprovals?: IncidentActionApproval[];
+  };
+
+  return {
+    incident: response.incident,
+    activities: response.activities ?? response.events ?? [],
+    comments: response.comments ?? [],
+    agentMentions: response.agentMentions ?? [],
+    actionApprovals: response.actionApprovals ?? [],
   };
 }

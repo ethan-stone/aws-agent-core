@@ -12,6 +12,7 @@
   "dependencies": {
     "@agent-core/pulseforge-domain": "workspace:*",
     "@aws-sdk/client-cognito-identity-provider": "^3.996.0",
+    "@tanstack/react-query": "^5.100.14",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",
     "react-markdown": "^10.1.0",

@@ -1,26 +1,38 @@
 import { type Device } from "../../../../shared/pulseforge-domain/src/index.js";
-import { useEffect, useState, type FormEvent } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useState, type FormEvent } from "react";
 import { Link } from "react-router-dom";
 import { createDevice, fetchDevices } from "../lib/api-client.js";
-import { useResource } from "../lib/use-resource.js";
+import { queryKeys } from "../lib/query-keys.js";
 
 export function DevicesPage() {
-  const { data, loading, error: loadError } = useResource(
-    fetchDevices,
-    [] as Device[],
-    []
-  );
-  const [devices, setDevices] = useState(data);
+  const queryClient = useQueryClient();
+  const {
+    data: devices = [] as Device[],
+    isLoading,
+    error: loadError,
+  } = useQuery({
+    queryKey: queryKeys.devices,
+    queryFn: fetchDevices,
+  });
+  const createDeviceMutation = useMutation({
+    mutationFn: createDevice,
+    onSuccess: (created) => {
+      queryClient.setQueryData<Device[]>(queryKeys.devices, (current = []) =>
+        [...current, created].sort((left, right) =>
+          left.name.localeCompare(right.name)
+        )
+      );
+      queryClient.setQueryData(queryKeys.device(created.id), created);
+      setName("");
+    },
+  });
   const [name, setName] = useState("");
   const [siteId, setSiteId] = useState("site-atl-1");
   const [type, setType] = useState<Device["type"]>("freezer-sensor");
   const [firmwareVersion, setFirmwareVersion] = useState("1.0.0");
-  const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDevices(data);
-  }, [data]);
+  const saving = createDeviceMutation.isPending;
 
   return (
     <section className="grid gap-5">
@@ -98,7 +110,7 @@ export function DevicesPage() {
       <div className="overflow-x-auto rounded-md border border-white/10 bg-white/[0.03]">
         {loadError ? (
           <div className="m-4 rounded-md border border-rose-400/30 bg-rose-400/8 px-3 py-2 text-sm text-rose-200">
-            {loadError}
+            {loadError.message}
           </div>
         ) : null}
         <table className="w-full border-collapse">
@@ -125,7 +137,7 @@ export function DevicesPage() {
             </tr>
           </thead>
           <tbody>
-            {loading && devices.length === 0 ? (
+            {isLoading && devices.length === 0 ? (
               <tr>
                 <td
                   colSpan={6}
@@ -135,7 +147,7 @@ export function DevicesPage() {
                 </td>
               </tr>
             ) : null}
-            {!loading && devices.length === 0 ? (
+            {!isLoading && devices.length === 0 ? (
               <tr>
                 <td
                   colSpan={6}
@@ -180,26 +192,17 @@ export function DevicesPage() {
 
   async function handleCreateDevice(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setSaving(true);
     setError(null);
     try {
-      const created = await createDevice({
+      await createDeviceMutation.mutateAsync({
         name: name.trim(),
         siteId: siteId.trim(),
         type,
         firmwareVersion: firmwareVersion.trim() || undefined,
         tags: ["simulated"],
       });
-      setDevices((current) =>
-        [...current, created].sort((left, right) =>
-          left.name.localeCompare(right.name)
-        )
-      );
-      setName("");
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create device");
-    } finally {
-      setSaving(false);
     }
   }
 }

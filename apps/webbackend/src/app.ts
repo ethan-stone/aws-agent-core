@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import { Hono, type MiddlewareHandler } from "hono";
+import { Hono, type Context, type MiddlewareHandler } from "hono";
+import { streamSSE } from "hono/streaming";
 import type {
   AgentKind,
   AuthenticatedAppUser,
@@ -41,7 +42,9 @@ import {
 } from "./services/agent-service.js";
 import {
   IncidentCommentError,
+  type IncidentCommentProgress,
   postIncidentComment,
+  postIncidentCommentStream,
   startIncidentCreatedAutomation,
 } from "./services/incident-collaboration-service.js";
 import {
@@ -360,6 +363,21 @@ app.post(
     }
 
     try {
+      if (wantsConversationEventStream(c.req.header("accept"))) {
+        if (!(await getIncident(c.req.param("incidentId")))) {
+          return c.json({ error: "Incident not found" }, 404);
+        }
+        return incidentCommentProgressEventStream(
+          c,
+          postIncidentCommentStream(
+            c.req.param("incidentId"),
+            commentBody,
+            user,
+            c.get("requestContext")
+          )
+        );
+      }
+
       const incident = await postIncidentComment(
         c.req.param("incidentId"),
         commentBody,
@@ -379,6 +397,46 @@ app.post(
     }
   }
 );
+
+function incidentCommentProgressEventStream(
+  c: Context<ApiAppEnv>,
+  progress: AsyncGenerator<IncidentCommentProgress>
+) {
+  c.status(201);
+  c.header("cache-control", "no-cache, no-transform");
+  c.header("connection", "keep-alive");
+
+  return streamSSE(
+    c,
+    async (stream) => {
+      for await (const update of progress) {
+        await stream.writeSSE({
+          event: "incident",
+          data: JSON.stringify(update.incident),
+        });
+        if (update.conversation) {
+          await stream.writeSSE({
+            event: "conversation",
+            data: JSON.stringify(update.conversation),
+          });
+        }
+      }
+      await stream.close();
+    },
+    async (error, stream) => {
+      await stream.writeSSE({
+        event: "error",
+        data: JSON.stringify({
+          error:
+            error instanceof Error
+              ? error.message
+              : "Incident comment stream failed.",
+        }),
+      });
+      await stream.close();
+    }
+  );
+}
 
 app.post(
   "/api/incidents/:incidentId/automation/incident-created",

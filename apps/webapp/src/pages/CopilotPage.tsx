@@ -5,6 +5,7 @@ import {
   type FormEvent,
   type ReactNode,
 } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import type {
   AgentRun,
@@ -20,8 +21,8 @@ import {
   fetchConversations,
   resolveRequiredAction,
 } from "../lib/api-client.js";
-import { useResource } from "../lib/use-resource.js";
 import { MarkdownText } from "../components/MarkdownText.js";
+import { queryKeys } from "../lib/query-keys.js";
 
 const starterPrompts = [
   {
@@ -40,30 +41,55 @@ const starterPrompts = [
 const timelinePreviewLimit = 520;
 
 export function CopilotPage() {
-  const { data: conversations } = useResource(
-    () => fetchConversations(),
-    [] as ConversationSummary[],
-    []
-  );
+  const queryClient = useQueryClient();
+  const { data: conversations = [] as ConversationSummary[] } = useQuery({
+    queryKey: queryKeys.conversations,
+    queryFn: fetchConversations,
+  });
   const navigate = useNavigate();
   const [prompt, setPrompt] = useState(starterPrompts[0].prompt);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [startingConversation, setStartingConversation] =
+    useState<ConversationDetail | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setLoading(true);
     setError(null);
+    setStartingConversation(null);
+    let receivedProgress = false;
 
     try {
-      const nextConversation = await createConversation({
-        agentKind: "ops-copilot",
-        prompt,
-      });
+      const nextConversation = await createConversation(
+        {
+          agentKind: "ops-copilot",
+          prompt,
+        },
+        (detail) => {
+          receivedProgress = true;
+          setStartingConversation(detail);
+          queryClient.setQueryData(
+            queryKeys.conversation(detail.conversation.id),
+            detail
+          );
+        }
+      );
+      queryClient.setQueryData(
+        queryKeys.conversation(nextConversation.conversation.id),
+        nextConversation
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       navigate(`/copilot/${nextConversation.conversation.id}`);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to run agent");
+      setError(
+        err instanceof Error
+          ? receivedProgress
+            ? `Live updates stopped: ${err.message}`
+            : err.message
+          : "Failed to run agent"
+      );
     } finally {
       setLoading(false);
     }
@@ -100,6 +126,29 @@ export function CopilotPage() {
             </div>
           ) : null}
         </article>
+
+        {startingConversation ? (
+          <article className="rounded-md border border-sky-300/20 bg-sky-300/[0.035] p-5">
+            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+              <h3 className="m-0 text-[16px] font-semibold tracking-normal text-slate-100">
+                Starting conversation
+              </h3>
+              {latestRun(startingConversation) ? (
+                <span
+                  className={statusBadgeClass(
+                    latestRun(startingConversation)!.status
+                  )}
+                >
+                  {latestRun(startingConversation)!.status}
+                </span>
+              ) : null}
+            </div>
+            <ConversationResultView
+              detail={startingConversation}
+              onDetailChange={setStartingConversation}
+            />
+          </article>
+        ) : null}
 
         <article className="rounded-md border border-white/10 bg-white/[0.03] p-5">
           <h3 className="m-0 text-[16px] font-semibold tracking-normal text-slate-100">
@@ -200,11 +249,11 @@ function NewConversationForm(props: {
 
 export function CopilotConversationPage() {
   const { conversationId = "" } = useParams();
-  const { data, error } = useResource(
-    () => fetchConversation(conversationId),
-    null as ConversationDetail | null,
-    [conversationId]
-  );
+  const { data, error } = useQuery({
+    queryKey: queryKeys.conversation(conversationId),
+    queryFn: () => fetchConversation(conversationId),
+    enabled: Boolean(conversationId),
+  });
   const [conversation, setConversation] = useState<ConversationDetail | null>(
     null
   );
@@ -220,7 +269,7 @@ export function CopilotConversationPage() {
           Back to conversations
         </Link>
         <div className="mt-5 rounded-md border border-white/8 bg-[linear-gradient(180deg,rgba(255,255,255,0.015),transparent_30%),rgba(14,18,24,0.82)] px-5 py-[22px] text-sm text-slate-300">
-          {error ?? "Loading conversation..."}
+          {error?.message ?? "Loading conversation..."}
         </div>
       </section>
     );
@@ -267,6 +316,7 @@ export function ConversationReplyBox(props: {
   conversation: ConversationDetail;
   onDetailChange: (detail: ConversationDetail) => void;
 }) {
+  const queryClient = useQueryClient();
   const [prompt, setPrompt] = useState("");
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -288,8 +338,19 @@ export function ConversationReplyBox(props: {
           prompt: trimmed,
           incidentId: props.conversation.conversation.incidentId,
         },
-        props.onDetailChange
+        (nextDetail) => {
+          queryClient.setQueryData(
+            queryKeys.conversation(nextDetail.conversation.id),
+            nextDetail
+          );
+          props.onDetailChange(nextDetail);
+        }
       );
+      queryClient.setQueryData(
+        queryKeys.conversation(detail.conversation.id),
+        detail
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       props.onDetailChange(detail);
     } catch (err) {
       setPrompt(trimmed);
@@ -347,6 +408,7 @@ export function ConversationResultView(props: {
   detail: ConversationDetail;
   onDetailChange: (detail: ConversationDetail) => void;
 }) {
+  const queryClient = useQueryClient();
   const entries = conversationTimelineEntries(props.detail);
   const items = conversationRunItems(props.detail);
   const timelineEndRef = useRef<HTMLDivElement | null>(null);
@@ -389,6 +451,11 @@ export function ConversationResultView(props: {
           decision,
         }
       );
+      queryClient.setQueryData(
+        queryKeys.conversation(detail.conversation.id),
+        detail
+      );
+      void queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
       props.onDetailChange(detail);
     } catch (error) {
       setApprovalError(
