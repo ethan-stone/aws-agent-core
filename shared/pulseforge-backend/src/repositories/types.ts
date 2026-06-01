@@ -96,7 +96,17 @@ export interface PulseForgeRepository {
   ): Promise<Incident>;
   updateIncident(
     incidentId: string,
-    update: Partial<Pick<Incident, "severity" | "status" | "summary" | "updatedAt">>
+    update: Partial<
+      Pick<
+        Incident,
+        | "severity"
+        | "status"
+        | "summary"
+        | "updatedAt"
+        | "resolvedAt"
+        | "resolvedByUserId"
+      >
+    >
   ): Promise<Incident | null>;
   findOpenIncidentForDeviceCategory(
     deviceId: string,

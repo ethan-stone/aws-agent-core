@@ -85,7 +85,7 @@ A human-authored discussion item on an **Incident**. **IncidentComments** form t
 _Avoid_: IncidentEvent, Message, activity
 
 **IncidentActivity**:
-A system-authored or agent-authored timeline item on an **Incident**. **IncidentActivity** records notable operational facts, agent progress, outcomes, and linked agent-conversation cards without treating them as human discussion.
+A system-authored, agent-authored, or operator-action timeline item on an **Incident**. **IncidentActivity** records notable operational facts, agent progress, outcomes, **IncidentResolution**, and linked agent-conversation cards without treating them as human discussion.
 _Avoid_: IncidentEvent, comment, Conversation item
 
 **IncidentActivity Projection**:
@@ -169,8 +169,12 @@ The demo behavior where **DeviceSimulation** updates an existing open incident f
 _Avoid_: Incident spam, one incident per telemetry point
 
 **IncidentResolution**:
-The operator action that marks an **Incident** resolved after the operational condition has been handled. Agent recommendations and device reset results may inform **IncidentResolution**, but they do not resolve incidents automatically.
+The attributed operator action that marks an **Incident** resolved after the operational condition has been handled, including when resolution happened and which user performed it when known. Agent recommendations and device reset results may inform **IncidentResolution**, but they do not resolve incidents automatically.
 _Avoid_: Reset result, automatic scenario completion, agent recommendation
+
+**ResolutionEvidence**:
+The chronological factual chain used to explain what happened before or after an **IncidentResolution**, such as investigation work, approvals, tool execution, audit records, recovery signals, and latest device state. **ResolutionEvidence** supports an explanation but does not itself resolve, mitigate, or prove causality unless the product history records that causal link.
+_Avoid_: IncidentResolution, root cause, automatic proof
 
 ## Example Dialogue
 

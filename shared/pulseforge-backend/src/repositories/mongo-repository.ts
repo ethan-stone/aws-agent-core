@@ -58,9 +58,10 @@ type PersistedTelemetry = Omit<DeviceMetricSnapshot, "timestamp"> & {
   deviceId: string;
   timestamp: Date;
 };
-type PersistedIncident = Omit<Incident, "createdAt" | "updatedAt"> & {
+type PersistedIncident = Omit<Incident, "createdAt" | "updatedAt" | "resolvedAt"> & {
   createdAt: Date;
   updatedAt: Date;
+  resolvedAt?: Date;
 };
 type PersistedSimulationScenario = Omit<
   SimulationScenario,
@@ -492,6 +493,7 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
       id: incident.id ?? `inc-${randomUUID().slice(0, 8)}`,
       createdAt: new Date(incident.createdAt ?? now),
       updatedAt: new Date(incident.updatedAt ?? now),
+      resolvedAt: incident.resolvedAt ? new Date(incident.resolvedAt) : undefined,
     };
     await this.collections().incidents.insertOne(created);
     return mapPersistedIncident(created);
@@ -507,6 +509,9 @@ export class MongoPulseForgeRepository implements PulseForgeRepository {
         $set: removeUndefined({
           ...update,
           updatedAt: new Date(update.updatedAt ?? Date.now()),
+          resolvedAt: update.resolvedAt
+            ? new Date(update.resolvedAt)
+            : undefined,
         }),
       }
     );
@@ -1471,6 +1476,7 @@ function toPersistedIncident(incident: Incident): PersistedIncident {
     ...incident,
     createdAt: new Date(incident.createdAt),
     updatedAt: new Date(incident.updatedAt),
+    resolvedAt: incident.resolvedAt ? new Date(incident.resolvedAt) : undefined,
   };
 }
 
@@ -1479,6 +1485,7 @@ function mapPersistedIncident(incident: PersistedIncident): Incident {
     ...incident,
     createdAt: incident.createdAt.toISOString(),
     updatedAt: incident.updatedAt.toISOString(),
+    resolvedAt: incident.resolvedAt?.toISOString(),
   };
 }
 

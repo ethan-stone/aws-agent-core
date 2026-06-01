@@ -50,16 +50,29 @@ export function CopilotPage() {
   const [prompt, setPrompt] = useState(starterPrompts[0].prompt);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [startingConversation, setStartingConversation] =
-    useState<ConversationDetail | null>(null);
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
 
     setLoading(true);
     setError(null);
-    setStartingConversation(null);
     let receivedProgress = false;
+    let navigatedConversationId: string | null = null;
+    let latestConversation: ConversationDetail | null = null;
+
+    const recordConversation = (detail: ConversationDetail) => {
+      receivedProgress = true;
+      latestConversation = detail;
+      queryClient.setQueryData(
+        queryKeys.conversation(detail.conversation.id),
+        detail
+      );
+
+      if (!navigatedConversationId) {
+        navigatedConversationId = detail.conversation.id;
+        navigate(`/copilot/${detail.conversation.id}`);
+      }
+    };
 
     try {
       const nextConversation = await createConversation(
@@ -67,31 +80,36 @@ export function CopilotPage() {
           agentKind: "ops-copilot",
           prompt,
         },
-        (detail) => {
-          receivedProgress = true;
-          setStartingConversation(detail);
-          queryClient.setQueryData(
-            queryKeys.conversation(detail.conversation.id),
-            detail
-          );
-        }
+        recordConversation
       );
       queryClient.setQueryData(
         queryKeys.conversation(nextConversation.conversation.id),
         nextConversation
       );
       void queryClient.invalidateQueries({ queryKey: queryKeys.conversations });
-      navigate(`/copilot/${nextConversation.conversation.id}`);
+      if (!navigatedConversationId) {
+        navigate(`/copilot/${nextConversation.conversation.id}`);
+      }
     } catch (err) {
-      setError(
+      const message =
         err instanceof Error
           ? receivedProgress
             ? `Live updates stopped: ${err.message}`
             : err.message
-          : "Failed to run agent"
-      );
+          : "Failed to run agent";
+
+      if (latestConversation) {
+        queryClient.setQueryData(
+          queryKeys.conversation(latestConversation.conversation.id),
+          withLocalStreamError(latestConversation, message)
+        );
+      } else {
+        setError(message);
+      }
     } finally {
-      setLoading(false);
+      if (!navigatedConversationId) {
+        setLoading(false);
+      }
     }
   }
 
@@ -126,29 +144,6 @@ export function CopilotPage() {
             </div>
           ) : null}
         </article>
-
-        {startingConversation ? (
-          <article className="rounded-md border border-sky-300/20 bg-sky-300/[0.035] p-5">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
-              <h3 className="m-0 text-[16px] font-semibold tracking-normal text-slate-100">
-                Starting conversation
-              </h3>
-              {latestRun(startingConversation) ? (
-                <span
-                  className={statusBadgeClass(
-                    latestRun(startingConversation)!.status
-                  )}
-                >
-                  {latestRun(startingConversation)!.status}
-                </span>
-              ) : null}
-            </div>
-            <ConversationResultView
-              detail={startingConversation}
-              onDetailChange={setStartingConversation}
-            />
-          </article>
-        ) : null}
 
         <article className="rounded-md border border-white/10 bg-white/[0.03] p-5">
           <h3 className="m-0 text-[16px] font-semibold tracking-normal text-slate-100">
@@ -1008,6 +1003,43 @@ function latestRun(detail: ConversationDetail): AgentRun | null {
   return detail.runs.at(-1) ?? null;
 }
 
+function withLocalStreamError(
+  detail: ConversationDetail,
+  message: string
+): ConversationDetail {
+  const run = latestRun(detail);
+  if (!run) {
+    return detail;
+  }
+
+  const existingItems = detail.itemsByRunId[run.id] ?? [];
+  const noteId = `local-stream-error-${run.id}`;
+  if (existingItems.some((item) => item.id === noteId)) {
+    return detail;
+  }
+
+  const nextSequence =
+    Math.max(0, ...existingItems.map((item) => item.sequence)) + 1;
+  const note: Extract<RunItem, { kind: "run_note" }> = {
+    id: noteId,
+    runId: run.id,
+    sequence: nextSequence,
+    kind: "run_note",
+    source: { type: "system" },
+    createdAt: new Date().toISOString(),
+    noteType: "client_stream_error",
+    message,
+  };
+
+  return {
+    ...detail,
+    itemsByRunId: {
+      ...detail.itemsByRunId,
+      [run.id]: [...existingItems, note],
+    },
+  };
+}
+
 function contentToText(content: ContentBlock[]): string {
   const text = content
     .map((block) => {
@@ -1272,6 +1304,16 @@ function runItemDisplay(item: RunItem): {
       meta: item.status,
       time: formatTime(item.createdAt),
       tone: isRunActive(item.status) ? "info" : "success",
+    };
+  }
+
+  if (item.noteType === "client_stream_error") {
+    return {
+      label: "Live updates stopped",
+      body: cleanText(item.message),
+      meta: "local",
+      time: formatTime(item.createdAt),
+      tone: "danger",
     };
   }
 

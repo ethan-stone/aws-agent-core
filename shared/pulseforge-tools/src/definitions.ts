@@ -45,7 +45,7 @@ export const pulseForgeToolDefinitions = [
   defineTool({
     name: "get_incident_context",
     description:
-      "Fetch curated incident context, including the incident, recent activity, affected devices, recent telemetry, related incidents, and runbook hints.",
+      "Fetch curated incident context, including the incident, activity, comments, approvals, linked agent work, audit logs, affected devices, telemetry, a resolution evidence timeline, related incidents, and runbook hints. Use this before answering how an incident was investigated, remediated, or resolved.",
     inputSchema: getIncidentContextInputSchema,
     outputSchema: genericToolOutputSchema,
     credentialProvider: pulseForgeBackendCredentialProvider,

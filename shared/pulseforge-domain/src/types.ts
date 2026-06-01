@@ -62,7 +62,7 @@ export type IncidentAgentMentionStatus =
   | "accepted"
   | "rejected"
   | "failed";
-export type AuditActorType = "agent" | "user";
+export type AuditActorType = "agent" | "system" | "user";
 export type AuditOutcome = "succeeded" | "failed";
 export type SimulationScenarioType =
   | "temperature-drift"
@@ -124,6 +124,8 @@ export interface Incident {
   deviceIds: string[];
   createdAt: string;
   updatedAt: string;
+  resolvedAt?: string;
+  resolvedByUserId?: string;
   category:
     | "temperature-drift"
     | "connectivity-loss"
@@ -168,7 +170,8 @@ export interface IncidentActivity {
     | "action_result"
     | "ticket_created"
     | "agent_conversation"
-    | "incident_action_approval";
+    | "incident_action_approval"
+    | "incident_resolved";
   message: string;
   createdBy?: AuditActor;
   conversationId?: string;
@@ -505,12 +508,77 @@ export interface CreateIncidentCommentRequest {
 export interface IncidentInvestigationContext {
   incident: Incident;
   activities: IncidentActivity[];
+  comments: IncidentComment[];
+  agentMentions: IncidentAgentMention[];
+  actionApprovals: IncidentActionApproval[];
   devices: Array<{
     device: Device;
     telemetry: DeviceMetricSnapshot[];
   }>;
   relatedIncidents: Incident[];
+  remediationActions: RemediationAction[];
+  tickets: Ticket[];
+  simulationScenarios: SimulationScenario[];
+  linkedAgentWork: Array<{
+    conversation: Conversation;
+    runs: AgentRun[];
+    items: RunItem[];
+  }>;
+  auditLogs: AuditLogEntry[];
+  resolutionEvidence: ResolutionEvidence;
   runbook?: RunbookDocument;
+}
+
+export type ResolutionEvidenceTimelineKind =
+  | "incident_detected"
+  | "incident_comment"
+  | "agent_run_started"
+  | "agent_summary"
+  | "approval_requested"
+  | "approval_resolved"
+  | "approval_declined"
+  | "tool_call"
+  | "tool_result"
+  | "audit_event"
+  | "recovery_signal"
+  | "incident_resolved";
+
+export type ResolutionEvidenceSource =
+  | { type: "incident"; id: string }
+  | { type: "incident_activity"; id: string }
+  | { type: "incident_comment"; id: string }
+  | { type: "agent_run"; id: string }
+  | { type: "run_item"; id: string }
+  | { type: "incident_action_approval"; id: string }
+  | { type: "audit_log"; id: string }
+  | { type: "simulation_scenario"; id: string }
+  | { type: "device"; id: string };
+
+export interface ResolutionEvidenceTimelineEntry {
+  timestamp: string;
+  kind: ResolutionEvidenceTimelineKind;
+  title: string;
+  summary?: string;
+  actor?: AuditActor;
+  source: ResolutionEvidenceSource;
+}
+
+export interface ResolutionEvidence {
+  isResolved: boolean;
+  resolvedAt?: string;
+  resolvedByUserId?: string;
+  timeline: ResolutionEvidenceTimelineEntry[];
+  currentState: {
+    incidentStatus: IncidentStatus;
+    latestDeviceStates: Array<{
+      deviceId: string;
+      status: DeviceStatus;
+      batteryPercent: number;
+      connectivityPercent: number;
+      lastSeenAt: string;
+      latestTelemetry?: DeviceMetricSnapshot;
+    }>;
+  };
 }
 
 /**

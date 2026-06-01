@@ -341,7 +341,10 @@ app.post(
   "/api/incidents/:incidentId/resolve",
   requireUserPermission(appPermissions.writeIncidents),
   async (c) => {
-    const incident = await resolveIncident(c.req.param("incidentId"));
+    const incident = await resolveIncident(
+      c.req.param("incidentId"),
+      c.get("user")?.sub
+    );
     if (!incident) {
       return c.json({ error: "Incident not found" }, 404);
     }
