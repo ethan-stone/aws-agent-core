@@ -2,8 +2,8 @@ import "../load-env.js";
 import {
   queueSimulationScenario,
   type QueueSimulationScenarioInput,
-} from "@agent-core/pulseforge-backend";
-import type { SimulationScenarioType } from "@agent-core/pulseforge-domain";
+} from "../../../../shared/pulseforge-backend/src/index.js";
+import type { SimulationScenarioType } from "../../../../shared/pulseforge-domain/src/index.js";
 
 const args = parseArgs(process.argv.slice(2));
 const request: QueueSimulationScenarioInput = {

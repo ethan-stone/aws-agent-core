@@ -2,8 +2,8 @@ import "./load-env.js";
 import {
   queueSimulationScenario,
   type QueueSimulationScenarioInput,
-} from "@agent-core/pulseforge-backend";
-import type { SimulationScenarioType } from "@agent-core/pulseforge-domain";
+} from "../../../shared/pulseforge-backend/src/index.js";
+import type { SimulationScenarioType } from "../../../shared/pulseforge-domain/src/index.js";
 
 const scenarioTypes = new Set<SimulationScenarioType>([
   "temperature-drift",
@@ -11,7 +11,9 @@ const scenarioTypes = new Set<SimulationScenarioType>([
   "battery-degradation",
 ]);
 
-export async function handler(event: unknown) {
+export async function handler(
+  event: unknown
+): Promise<{ ok: true; scenario: unknown }> {
   const request = parseQueueScenarioEvent(event);
   const scenario = await queueSimulationScenario(request);
   console.info("[device-simulator] scenario queued", {
